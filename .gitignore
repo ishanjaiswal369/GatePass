@@ -18,6 +18,9 @@ logs/
 .expo/
 .expo-shared/
 
+# project summary PDFs — kept locally, not tracked
+*.pdf
+
 # os / editor
 .DS_Store
 Thumbs.db
