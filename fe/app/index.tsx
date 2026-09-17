@@ -1,54 +1,137 @@
-import { useEffect, useState } from "react";
-import { View, Text, StyleSheet } from "react-native";
-import { healthCheck } from "../lib/api";
+import { router } from "expo-router";
+import { useState } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Button, ErrorNote, Field, Screen } from "../components/ui";
+import { ApiError, requestCode } from "../lib/api";
+import { colors, radius, space, type } from "../lib/theme";
 
-export default function Home() {
-  const [status, setStatus] = useState<string>("checking...");
+type Mode = "signup" | "signin";
+
+export default function EmailScreen() {
+  const [mode, setMode] = useState<Mode>("signup");
+  const [email, setEmail] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    healthCheck()
-      .then((data) => setStatus(data.status))
-      .catch((err) => setError(err.message));
-  }, []);
+  const isSignup = mode === "signup";
+  const canSubmit =
+    email.trim().length > 0 && (!isSignup || firstName.trim().length > 0);
+
+  async function submit() {
+    setBusy(true);
+    setError(null);
+
+    try {
+      // Only the signup screen sends a name. The API treats it as pending
+      // until the code is confirmed, and ignores it if the account exists.
+      const result = await requestCode({
+        email: email.trim(),
+        ...(isSignup && firstName.trim() ? { firstName: firstName.trim() } : {}),
+        ...(isSignup && lastName.trim() ? { lastName: lastName.trim() } : {}),
+      });
+
+      router.push({
+        pathname: "/verify",
+        params: { email: email.trim(), devCode: result.code ?? "" },
+      });
+    } catch (err) {
+      setError(
+        err instanceof ApiError ? err.message : "Something went wrong"
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
-    <View style={styles.frame}>
-      <View style={styles.container}>
-        <Text style={styles.title}>GatePass</Text>
-        <Text style={styles.label}>API Status:</Text>
-        <Text style={error ? styles.error : styles.status}>
-          {error ?? status}
-        </Text>
+    <Screen
+      title="GatePass"
+      subtitle="Parking for ticketed events"
+    >
+      <View style={s.tabs}>
+        {(["signup", "signin"] as const).map((m) => (
+          <Pressable
+            key={m}
+            onPress={() => {
+              setMode(m);
+              setError(null);
+            }}
+            style={[s.tab, mode === m && s.tabActive]}
+          >
+            <Text style={[s.tabLabel, mode === m && s.tabLabelActive]}>
+              {m === "signup" ? "Sign up" : "Sign in"}
+            </Text>
+          </Pressable>
+        ))}
       </View>
-    </View>
+
+      {isSignup ? (
+        <>
+          <Field
+            label="First name"
+            value={firstName}
+            onChangeText={setFirstName}
+            placeholder="Ishan"
+            autoCapitalize="words"
+          />
+          <Field
+            label="Last name"
+            value={lastName}
+            onChangeText={setLastName}
+            placeholder="Jaiswal"
+            autoCapitalize="words"
+            hint="Optional"
+          />
+        </>
+      ) : null}
+
+      <Field
+        label="Email"
+        value={email}
+        onChangeText={setEmail}
+        placeholder="you@example.com"
+        autoCapitalize="none"
+        autoCorrect={false}
+        keyboardType="email-address"
+        inputMode="email"
+      />
+
+      {error ? <ErrorNote message={error} /> : null}
+
+      <Button
+        label="Send code"
+        onPress={submit}
+        busy={busy}
+        disabled={!canSubmit}
+      />
+
+      <Text style={s.note}>
+        We email you a 6-digit code. No password needed.
+      </Text>
+    </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  frame: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#f3f4f6",
+const s = StyleSheet.create({
+  tabs: {
+    flexDirection: "row",
+    gap: space.xs,
+    backgroundColor: colors.canvas,
+    borderRadius: radius.sm,
+    padding: space.xs,
   },
-  container: {
-    width: 375,
-    height: 667,
-    backgroundColor: "#fff",
-    justifyContent: "center",
+  tab: {
+    flexGrow: 1,
     alignItems: "center",
-    gap: 12,
-    borderRadius: 24,
-    overflow: "hidden",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.15,
-    shadowRadius: 24,
-    elevation: 8,
+    paddingVertical: space.md,
+    borderRadius: radius.sm - 2,
+    minHeight: 44,
+    justifyContent: "center",
   },
-  title: { fontSize: 32, fontWeight: "bold" },
-  label: { fontSize: 16, color: "#666" },
-  status: { fontSize: 18, color: "#22c55e", fontWeight: "600" },
-  error: { fontSize: 18, color: "#ef4444" },
+  tabActive: { backgroundColor: colors.surface },
+  tabLabel: { ...type.label, color: colors.inkMuted },
+  tabLabelActive: { color: colors.ink },
+  note: { ...type.caption, color: colors.inkFaint, textAlign: "center" },
 });
