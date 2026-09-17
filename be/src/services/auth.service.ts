@@ -1,5 +1,5 @@
 import { env } from "../config/env.js";
-import { getSmsProvider } from "../integrations/sms/index.js";
+import { getEmailProvider } from "../integrations/email/index.js";
 import { badRequest } from "../lib/errors.js";
 import { prisma } from "../lib/prisma.js";
 import { createSession } from "./session.service.js";
@@ -11,7 +11,7 @@ export function generateOtp(): string {
 }
 
 export interface RequestOtpInput {
-  phone: string;
+  email: string;
   deviceId: string;
   deviceType: "IOS" | "ANDROID" | "WEB" | "OTHER";
 }
@@ -19,31 +19,33 @@ export interface RequestOtpInput {
 export async function requestOtp(
   input: RequestOtpInput
 ): Promise<{ otp?: string }> {
-  const { phone, deviceId, deviceType } = input;
+  const { email, deviceId, deviceType } = input;
 
   const otp = generateOtp();
   const expiresAt = new Date();
   expiresAt.setMinutes(expiresAt.getMinutes() + OTP_TTL_MINUTES);
 
-  await prisma.otpVerification.create({
-    data: { phone, code: otp, deviceId, deviceType, expiresAt },
+  const verification = await prisma.emailVerification.create({
+    data: { email, code: otp, deviceId, deviceType, expiresAt },
   });
 
   try {
-    await getSmsProvider().sendOtp({ to: phone, otp });
+    await getEmailProvider().sendLoginCode({ to: email, code: otp });
   } catch (error) {
-    await prisma.otpVerification.deleteMany({ where: { phone, code: otp } });
+    await prisma.emailVerification.delete({
+      where: { id: verification.id },
+    });
     throw error;
   }
 
   const showOtp =
-    getSmsProvider().name === "console" && env.SHOW_OTP_IN_RESPONSE;
+    getEmailProvider().name === "console" && env.SHOW_OTP_IN_RESPONSE;
 
   return { otp: showOtp ? otp : undefined };
 }
 
 export interface VerifyOtpInput {
-  phone: string;
+  email: string;
   otp: string;
   deviceId: string;
   deviceType: "IOS" | "ANDROID" | "WEB" | "OTHER";
@@ -52,38 +54,38 @@ export interface VerifyOtpInput {
 }
 
 export async function verifyOtp(input: VerifyOtpInput) {
-  const { phone, otp, deviceId, deviceType, deviceName, fcmToken } = input;
+  const { email, otp, deviceId, deviceType, deviceName, fcmToken } = input;
 
-  const otpRecord = await prisma.otpVerification.findFirst({
+  const verification = await prisma.emailVerification.findFirst({
     where: {
-      phone,
+      email,
       verified: false,
       expiresAt: { gt: new Date() },
     },
     orderBy: { createdAt: "desc" },
   });
 
-  if (!otpRecord) {
+  if (!verification) {
     throw badRequest("Invalid or expired OTP");
   }
 
-  if (otpRecord.code !== otp) {
+  if (verification.code !== otp) {
     throw badRequest("Invalid OTP");
   }
 
-  await prisma.otpVerification.update({
-    where: { id: otpRecord.id },
+  await prisma.emailVerification.update({
+    where: { id: verification.id },
     data: { verified: true },
   });
 
-  let user = await prisma.user.findUnique({ where: { phone } });
+  let user = await prisma.user.findUnique({ where: { email } });
 
   if (!user) {
-    user = await prisma.user.create({ data: { phone } });
+    user = await prisma.user.create({ data: { email } });
   }
 
   const { token } = await createSession(
-    { id: user.id, phone: user.phone, role: user.role },
+    { id: user.id, email: user.email, role: user.role },
     { deviceId, deviceType, deviceName, fcmToken }
   );
 
@@ -91,6 +93,7 @@ export async function verifyOtp(input: VerifyOtpInput) {
     token,
     user: {
       id: user.id,
+      email: user.email,
       phone: user.phone,
       name: user.name,
       role: user.role,

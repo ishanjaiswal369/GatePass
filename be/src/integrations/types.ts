@@ -1,5 +1,4 @@
 export type IntegrationCapability =
-  | "sms"
   | "email"
   | "whatsapp"
   | "payment"

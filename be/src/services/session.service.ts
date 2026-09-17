@@ -14,7 +14,7 @@ export interface DeviceInfo {
 
 export interface SessionPayload {
   userId: string;
-  phone: string;
+  email: string;
   role: string;
   sessionId: string;
   deviceId: string;
@@ -22,7 +22,7 @@ export interface SessionPayload {
 }
 
 export async function createSession(
-  user: { id: string; phone: string; role: string },
+  user: { id: string; email: string; role: string },
   deviceInfo: DeviceInfo
 ): Promise<{ token: string; sessionId: string }> {
   const { deviceId, deviceType, deviceName, fcmToken } = deviceInfo;
@@ -56,7 +56,7 @@ export async function createSession(
 
   const payload: SessionPayload = {
     userId: user.id,
-    phone: user.phone,
+    email: user.email,
     role: user.role,
     sessionId: session.id,
     deviceId,

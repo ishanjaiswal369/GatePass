@@ -29,11 +29,6 @@ const EnvSchema = z
     LOG_TO_FILE: booleanFromString(true),
     LOG_DIR: z.string().default("logs"),
 
-    SMS_PROVIDER: z.enum(["msg91", "console"]).default("console"),
-    MSG91_AUTH_KEY: emptyToUndefined,
-    MSG91_SENDER_ID: z.string().default("GATEPS"),
-    MSG91_TEMPLATE_ID: emptyToUndefined,
-
     EMAIL_PROVIDER: z.enum(["resend", "console"]).default("console"),
     RESEND_API_KEY: emptyToUndefined,
     EMAIL_FROM: z.string().email().default("no-reply@gatepass.app"),
@@ -45,14 +40,6 @@ const EnvSchema = z
     SHOW_OTP_IN_RESPONSE: booleanFromString(false),
   })
   .superRefine((value, ctx) => {
-    if (value.SMS_PROVIDER === "msg91" && !value.MSG91_AUTH_KEY) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["MSG91_AUTH_KEY"],
-        message: "required when SMS_PROVIDER=msg91",
-      });
-    }
-
     if (value.EMAIL_PROVIDER === "resend" && !value.RESEND_API_KEY) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,

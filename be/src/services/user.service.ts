@@ -1,9 +1,10 @@
 import { prisma } from "../lib/prisma.js";
 
 export interface CreateUserInput {
-  phone: string;
+  email: string;
   name?: string;
   role?: "DRIVER" | "ORGANIZER" | "ADMIN";
+  phone?: string;
 }
 
 export async function list() {

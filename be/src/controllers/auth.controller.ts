@@ -71,6 +71,7 @@ export const authController = {
 
     return reply.send({
       id: user.id,
+      email: user.email,
       phone: user.phone,
       name: user.name,
       role: user.role,
