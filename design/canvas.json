@@ -1,0 +1,25 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 390, "h": 844, "title": "Sign up" },
+    { "file": "SignIn.dc.html", "x": 470, "y": 0, "w": 390, "h": 844, "title": "Sign in" },
+    { "file": "Verify.dc.html", "x": 940, "y": 0, "w": 390, "h": 844, "title": "Enter code" },
+    { "file": "Profile.dc.html", "x": 1410, "y": 0, "w": 390, "h": 844, "title": "Name capture" }
+  ],
+  "annotations": [
+    {
+      "id": "flow-note",
+      "x": 0,
+      "y": -150,
+      "w": 560,
+      "text": "Both tabs hit the same POST /auth/request-code.\nSign up sends firstName/lastName, Sign in does not — so neither screen reveals whether an email is registered."
+    },
+    {
+      "id": "fallback-note",
+      "x": 1410,
+      "y": -150,
+      "w": 390,
+      "text": "Only shown when verify-code returns profileComplete: false — i.e. a new email arrived via the Sign in tab."
+    }
+  ],
+  "launch": { "view": "canvas" }
+}
