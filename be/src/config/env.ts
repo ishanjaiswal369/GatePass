@@ -20,14 +20,10 @@ const EnvSchema = z
     PORT: z.coerce.number().int().positive().default(3000),
     DATABASE_URL: z.string().url(),
     JWT_SECRET: z.string().min(16, "must be at least 16 characters"),
-    JWT_EXPIRES_IN: z.string().default("30d"),
-
-    LOG_LEVEL: z
-      .enum(["fatal", "error", "warn", "info", "debug", "trace"])
-      .optional(),
-    LOG_PRETTY: booleanFromString(false),
-    LOG_TO_FILE: booleanFromString(true),
-    LOG_DIR: z.string().default("logs"),
+    JWT_EXPIRES_IN: z
+      .string()
+      .regex(/^\d+[smhd]$/, 'must look like "30d", "12h", "15m" or "60s"')
+      .default("30d"),
 
     EMAIL_PROVIDER: z.enum(["resend", "console"]).default("console"),
     RESEND_API_KEY: emptyToUndefined,
@@ -47,12 +43,7 @@ const EnvSchema = z
         message: "required when EMAIL_PROVIDER=resend",
       });
     }
-  })
-  .transform((value) => ({
-    ...value,
-    LOG_LEVEL:
-      value.LOG_LEVEL ?? (value.NODE_ENV === "production" ? "info" : "debug"),
-  }));
+  });
 
 const parsed = EnvSchema.safeParse(process.env);
 

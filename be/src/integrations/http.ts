@@ -1,6 +1,5 @@
 import axios from "axios";
 import { env } from "../config/env.js";
-import { logger } from "../lib/logger.js";
 import { isRetryableError } from "./errors.js";
 
 export const http = axios.create({
@@ -32,9 +31,10 @@ export async function withRetry<T>(
       }
 
       const delayMs = baseDelayMs * 2 ** attempt;
-      logger.warn(
-        { error, attempt: attempt + 1, maxAttempts: retries + 1, delayMs },
-        "integration call failed, retrying"
+      console.warn(
+        `integration call failed, retrying in ${delayMs}ms ` +
+          `(attempt ${attempt + 1}/${retries + 1})`,
+        error
       );
       await sleep(delayMs);
     }

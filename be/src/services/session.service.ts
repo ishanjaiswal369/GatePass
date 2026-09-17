@@ -1,4 +1,4 @@
-import jwt from "jsonwebtoken";
+import jwt, { type SignOptions } from "jsonwebtoken";
 import { env } from "../config/env.js";
 import type { DeviceType } from "../constants/enums/index.js";
 import { badRequest, notFound } from "../lib/errors.js";
@@ -65,7 +65,10 @@ export async function createSession(
   };
 
   const token = jwt.sign(payload, env.JWT_SECRET, {
-    expiresIn: env.JWT_EXPIRES_IN,
+    // env validates the shape ("30d", "12h", ...). @types/jsonwebtoken models
+    // this as a template-literal type from `ms`, which a plain string cannot
+    // satisfy, so the cast stands in for that check.
+    expiresIn: env.JWT_EXPIRES_IN as SignOptions["expiresIn"],
   });
 
   return { token, sessionId: session.id };
