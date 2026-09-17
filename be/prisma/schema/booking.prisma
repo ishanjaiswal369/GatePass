@@ -5,7 +5,7 @@ model Booking {
   vehicleNumber   String
   quantity        Int
   amount          Decimal
-  status          BookingStatus @default(PENDING)
+  status          String        @default("PENDING")
   idempotencyKey  String        @unique
   qrToken         String        @unique
   createdBy       String?

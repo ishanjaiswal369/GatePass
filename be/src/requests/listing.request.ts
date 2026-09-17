@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { LISTING_TYPES } from "../constants/enums.js";
 import type { RequestInput, RequestSchemas } from "../lib/request.js";
 
 const listListingsQuery = z.object({
@@ -9,7 +10,7 @@ const createListingBody = z.object({
   organizerId: z.string().uuid(),
   name: z.string().min(1),
   venueName: z.string().min(1),
-  listingType: z.enum(["EVENT", "RECURRING", "COMMERCIAL"]).optional(),
+  listingType: z.enum(LISTING_TYPES).optional(),
   eventDate: z.coerce.date().optional(),
   latitude: z.number().optional(),
   longitude: z.number().optional(),

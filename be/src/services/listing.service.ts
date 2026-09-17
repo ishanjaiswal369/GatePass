@@ -1,10 +1,11 @@
+import type { ListingType } from "../constants/enums.js";
 import { prisma } from "../lib/prisma.js";
 
 export interface CreateListingInput {
   organizerId: string;
   name: string;
   venueName: string;
-  listingType?: "EVENT" | "RECURRING" | "COMMERCIAL";
+  listingType?: ListingType;
   eventDate?: Date;
   latitude?: number;
   longitude?: number;

@@ -1,13 +1,13 @@
 model Listing {
   id            String        @id @default(uuid())
   organizerId   String
-  listingType   ListingType   @default(EVENT)
+  listingType   String        @default("EVENT")
   name          String
   venueName     String
   latitude      Decimal?
   longitude     Decimal?
   eventDate     DateTime?
-  status        ListingStatus @default(DRAFT)
+  status        String        @default("DRAFT")
   createdBy     String?
   updatedBy     String?
   createdAt     DateTime      @default(now())
@@ -22,7 +22,7 @@ model Listing {
 model ParkingCapacity {
   id            String    @id @default(uuid())
   listingId     String
-  vehicleType   VehicleType
+  vehicleType   String
   totalCapacity Int
   bookedCount   Int       @default(0)
   price         Decimal

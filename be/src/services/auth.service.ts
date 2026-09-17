@@ -1,4 +1,5 @@
 import { env } from "../config/env.js";
+import type { DeviceType } from "../constants/enums.js";
 import { getEmailProvider } from "../integrations/email/index.js";
 import { badRequest } from "../lib/errors.js";
 import { prisma } from "../lib/prisma.js";
@@ -13,7 +14,7 @@ export function generateOtp(): string {
 export interface RequestOtpInput {
   email: string;
   deviceId: string;
-  deviceType: "IOS" | "ANDROID" | "WEB" | "OTHER";
+  deviceType: DeviceType;
 }
 
 export async function requestOtp(
@@ -48,7 +49,7 @@ export interface VerifyOtpInput {
   email: string;
   otp: string;
   deviceId: string;
-  deviceType: "IOS" | "ANDROID" | "WEB" | "OTHER";
+  deviceType: DeviceType;
   deviceName?: string;
   fcmToken?: string;
 }

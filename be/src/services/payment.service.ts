@@ -1,3 +1,4 @@
+import type { PaymentStatus } from "../constants/enums.js";
 import { prisma } from "../lib/prisma.js";
 
 export interface CreatePaymentInput {
@@ -5,7 +6,7 @@ export interface CreatePaymentInput {
   razorpayOrderId?: string;
   razorpayPaymentId?: string;
   amount: number;
-  status?: "CREATED" | "CAPTURED" | "FAILED" | "REFUNDED";
+  status?: PaymentStatus;
 }
 
 export async function list() {

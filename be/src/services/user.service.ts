@@ -1,9 +1,10 @@
+import type { Role } from "../constants/enums.js";
 import { prisma } from "../lib/prisma.js";
 
 export interface CreateUserInput {
   email: string;
   name?: string;
-  role?: "DRIVER" | "ORGANIZER" | "ADMIN";
+  role?: Role;
   phone?: string;
 }
 

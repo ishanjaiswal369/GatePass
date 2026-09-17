@@ -6,7 +6,7 @@ model Settlement {
   grossAmount       Decimal
   commissionAmount  Decimal
   netPayable        Decimal
-  status            SettlementStatus    @default(PENDING)
+  status            String              @default("PENDING")
   createdBy         String?
   updatedBy         String?
   createdAt         DateTime            @default(now())

@@ -1,7 +1,6 @@
 import { z } from "zod";
+import { DEFAULT_DEVICE_TYPE, DEVICE_TYPES } from "../constants/enums.js";
 import type { RequestInput, RequestSchemas } from "../lib/request.js";
-
-const deviceTypes = ["IOS", "ANDROID", "WEB", "OTHER"] as const;
 
 const emailSchema = z
   .string()
@@ -12,14 +11,14 @@ const emailSchema = z
 const requestOtpBody = z.object({
   email: emailSchema,
   deviceId: z.string().min(1),
-  deviceType: z.enum(deviceTypes).default("OTHER"),
+  deviceType: z.enum(DEVICE_TYPES).default(DEFAULT_DEVICE_TYPE),
 });
 
 const verifyOtpBody = z.object({
   email: emailSchema,
   otp: z.string().regex(/^\d{6}$/, "must be a 6-digit code"),
   deviceId: z.string().min(1),
-  deviceType: z.enum(deviceTypes).default("OTHER"),
+  deviceType: z.enum(DEVICE_TYPES).default(DEFAULT_DEVICE_TYPE),
   deviceName: z.string().min(1).optional(),
   fcmToken: z.string().min(1).optional(),
 });

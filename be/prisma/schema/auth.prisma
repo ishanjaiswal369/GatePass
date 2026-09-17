@@ -3,7 +3,7 @@ model EmailVerification {
   email      String
   code       String
   deviceId   String?
-  deviceType DeviceType?
+  deviceType String?
   expiresAt  DateTime
   verified   Boolean    @default(false)
   createdAt  DateTime   @default(now())
@@ -15,7 +15,7 @@ model UserSession {
   id           String     @id @default(uuid())
   userId       String
   deviceId     String
-  deviceType   DeviceType @default(OTHER)
+  deviceType   String     @default("OTHER")
   deviceName   String?
   fcmToken     String?
   lastActiveAt DateTime   @default(now())

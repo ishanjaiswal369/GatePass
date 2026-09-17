@@ -1,8 +1,9 @@
+import type { VehicleType } from "../constants/enums.js";
 import { prisma } from "../lib/prisma.js";
 
 export interface CreateCapacityInput {
   listingId: string;
-  vehicleType: "CAR" | "BIKE" | "OTHER";
+  vehicleType: VehicleType;
   totalCapacity: number;
   price: number;
 }

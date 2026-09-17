@@ -4,7 +4,7 @@ model Payment {
   razorpayOrderId     String?
   razorpayPaymentId   String?
   amount              Decimal
-  status              PaymentStatus @default(CREATED)
+  status              String        @default("CREATED")
   createdBy           String?
   updatedBy           String?
   createdAt           DateTime      @default(now())

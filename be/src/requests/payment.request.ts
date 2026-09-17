@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PAYMENT_STATUSES } from "../constants/enums.js";
 import type { RequestInput, RequestSchemas } from "../lib/request.js";
 
 const createPaymentBody = z.object({
@@ -6,7 +7,7 @@ const createPaymentBody = z.object({
   razorpayOrderId: z.string().min(1).optional(),
   razorpayPaymentId: z.string().min(1).optional(),
   amount: z.number().nonnegative(),
-  status: z.enum(["CREATED", "CAPTURED", "FAILED", "REFUNDED"]).optional(),
+  status: z.enum(PAYMENT_STATUSES).optional(),
 });
 
 export const paymentRequests = {

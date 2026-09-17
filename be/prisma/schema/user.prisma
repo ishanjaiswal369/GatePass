@@ -3,7 +3,7 @@ model User {
   email           String   @unique
   phone           String?  @unique
   name            String?
-  role            Role     @default(DRIVER)
+  role            String   @default("DRIVER")
   gstNumber       String?
   bankAccountId   String?
   createdAt       DateTime @default(now())

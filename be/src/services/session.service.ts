@@ -1,5 +1,6 @@
 import jwt from "jsonwebtoken";
 import { env } from "../config/env.js";
+import type { DeviceType } from "../constants/enums.js";
 import { badRequest, notFound } from "../lib/errors.js";
 import { prisma } from "../lib/prisma.js";
 
@@ -7,7 +8,7 @@ const SESSION_DURATION_DAYS = 30;
 
 export interface DeviceInfo {
   deviceId: string;
-  deviceType: "IOS" | "ANDROID" | "WEB" | "OTHER";
+  deviceType: DeviceType;
   deviceName?: string;
   fcmToken?: string;
 }
