@@ -18,8 +18,9 @@ logs/
 .expo/
 .expo-shared/
 
-# project summary PDFs — kept locally, not tracked
+# project summary docs — kept locally, not tracked
 *.pdf
+event_parking_project_summary*
 
 # os / editor
 .DS_Store
