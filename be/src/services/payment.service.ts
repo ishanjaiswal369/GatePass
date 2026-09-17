@@ -1,4 +1,4 @@
-import type { PaymentStatus } from "../constants/enums.js";
+import type { PaymentStatus } from "../constants/enums/index.js";
 import { prisma } from "../lib/prisma.js";
 
 export interface CreatePaymentInput {

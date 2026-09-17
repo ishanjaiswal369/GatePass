@@ -1,6 +1,6 @@
 import jwt from "jsonwebtoken";
 import { env } from "../config/env.js";
-import type { DeviceType } from "../constants/enums.js";
+import type { DeviceType } from "../constants/enums/index.js";
 import { badRequest, notFound } from "../lib/errors.js";
 import { prisma } from "../lib/prisma.js";
 

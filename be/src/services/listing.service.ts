@@ -1,4 +1,4 @@
-import type { ListingType } from "../constants/enums.js";
+import type { ListingType } from "../constants/enums/index.js";
 import { prisma } from "../lib/prisma.js";
 
 export interface CreateListingInput {

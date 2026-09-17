@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { DEFAULT_DEVICE_TYPE, DEVICE_TYPES } from "../constants/enums.js";
+import { DEFAULT_DEVICE_TYPE, DEVICE_TYPES } from "../constants/enums/index.js";
 import type { RequestInput, RequestSchemas } from "../lib/request.js";
 
 const emailSchema = z

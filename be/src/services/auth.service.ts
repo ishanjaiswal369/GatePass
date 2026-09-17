@@ -1,5 +1,5 @@
 import { env } from "../config/env.js";
-import type { DeviceType } from "../constants/enums.js";
+import type { DeviceType } from "../constants/enums/index.js";
 import { getEmailProvider } from "../integrations/email/index.js";
 import { badRequest } from "../lib/errors.js";
 import { prisma } from "../lib/prisma.js";

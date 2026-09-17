@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { LISTING_TYPES } from "../constants/enums.js";
+import { LISTING_TYPES } from "../constants/enums/index.js";
 import type { RequestInput, RequestSchemas } from "../lib/request.js";
 
 const listListingsQuery = z.object({

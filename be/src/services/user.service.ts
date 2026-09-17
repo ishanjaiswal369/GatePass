@@ -1,4 +1,4 @@
-import type { Role } from "../constants/enums.js";
+import type { Role } from "../constants/enums/index.js";
 import { prisma } from "../lib/prisma.js";
 
 export interface CreateUserInput {

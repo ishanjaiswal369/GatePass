@@ -1,4 +1,4 @@
-import type { VehicleType } from "../constants/enums.js";
+import type { VehicleType } from "../constants/enums/index.js";
 import { prisma } from "../lib/prisma.js";
 
 export interface CreateCapacityInput {

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PAYMENT_STATUSES } from "../constants/enums.js";
+import { PAYMENT_STATUSES } from "../constants/enums/index.js";
 import type { RequestInput, RequestSchemas } from "../lib/request.js";
 
 const createPaymentBody = z.object({

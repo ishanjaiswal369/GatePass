@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ROLES } from "../constants/enums.js";
+import { ROLES } from "../constants/enums/index.js";
 import type { RequestInput, RequestSchemas } from "../lib/request.js";
 
 const emailSchema = z

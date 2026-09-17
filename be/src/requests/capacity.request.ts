@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { VEHICLE_TYPES } from "../constants/enums.js";
+import { VEHICLE_TYPES } from "../constants/enums/index.js";
 import type { RequestInput, RequestSchemas } from "../lib/request.js";
 
 const createCapacityBody = z.object({
