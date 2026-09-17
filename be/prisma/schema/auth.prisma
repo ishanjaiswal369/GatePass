@@ -11,9 +11,14 @@ model EmailVerification {
   lastName   String?
   expiresAt  DateTime
   verified   Boolean    @default(false)
+  // Wrong-code tries against this row. Once it hits the cap the row stops
+  // being eligible, so a 6-digit code cannot be brute-forced.
+  attempts   Int        @default(0)
   createdAt  DateTime   @default(now())
 
   @@index([email])
+  // Rate limiting counts recent rows per email.
+  @@index([email, createdAt])
 }
 
 model UserSession {

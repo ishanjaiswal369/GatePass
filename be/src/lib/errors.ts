@@ -36,6 +36,9 @@ export const notFound = (message: string) =>
 export const conflict = (message: string) =>
   new AppError(message, 409, "CONFLICT");
 
+export const tooManyRequests = (message: string) =>
+  new AppError(message, 429, "TOO_MANY_REQUESTS");
+
 export function registerErrorHandler(app: App): void {
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof ValidationError) {
@@ -43,7 +46,7 @@ export function registerErrorHandler(app: App): void {
     }
 
     if (error instanceof IntegrationError) {
-      request.log.error({ err: error }, "integration call failed");
+      console.error("integration call failed", error);
       return reply.code(502).send({
         error: "Upstream service unavailable",
         capability: error.capability,
@@ -53,7 +56,7 @@ export function registerErrorHandler(app: App): void {
 
     if (error instanceof AppError) {
       if (error.statusCode >= 500) {
-        request.log.error({ err: error }, "application error");
+        console.error("application error", error);
       }
       return reply.code(error.statusCode).send({ error: error.message });
     }
@@ -64,7 +67,7 @@ export function registerErrorHandler(app: App): void {
       error.statusCode < 500;
 
     if (!isClientError) {
-      request.log.error({ err: error }, "unhandled error");
+      console.error("unhandled error", error);
     }
 
     reply

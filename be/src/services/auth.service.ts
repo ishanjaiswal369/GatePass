@@ -1,12 +1,20 @@
 import { env } from "../config/env.js";
 import type { DeviceType } from "../constants/enums/index.js";
 import { getEmailProvider } from "../integrations/email/index.js";
-import { badRequest } from "../lib/errors.js";
+import { badRequest, tooManyRequests } from "../lib/errors.js";
 import { prisma } from "../lib/prisma.js";
 import { createSession } from "./session.service.js";
 import { toAuthUser } from "./user.service.js";
 
 const CODE_TTL_MINUTES = 5;
+
+/** Shortest gap between two codes for one address. Blocks rapid-fire resends. */
+const RESEND_COOLDOWN_SECONDS = 60;
+/** Codes allowed per address inside the window below. */
+const MAX_CODES_PER_WINDOW = 3;
+const RATE_WINDOW_MINUTES = 15;
+/** Wrong guesses allowed against a single code before it is burned. */
+const MAX_VERIFY_ATTEMPTS = 5;
 
 export function generateCode(): string {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -31,6 +39,46 @@ export async function requestCode(
   input: RequestCodeInput
 ): Promise<{ code?: string }> {
   const { email, deviceId, deviceType, firstName, lastName } = input;
+
+  const now = Date.now();
+  const windowStart = new Date(now - RATE_WINDOW_MINUTES * 60_000);
+
+  // Rows older than the rate window can no longer be used or counted, so this
+  // is where they get cleared. Deliberately does not touch rows inside the
+  // window -- those are what the limit below counts.
+  await prisma.emailVerification.deleteMany({
+    where: { email, createdAt: { lt: windowStart } },
+  });
+
+  const recent = await prisma.emailVerification.findMany({
+    where: { email, createdAt: { gte: windowStart } },
+    orderBy: { createdAt: "desc" },
+    select: { createdAt: true },
+  });
+
+  if (recent.length >= MAX_CODES_PER_WINDOW) {
+    const oldest = recent[recent.length - 1]!;
+    const retryAfter = Math.ceil(
+      (oldest.createdAt.getTime() + RATE_WINDOW_MINUTES * 60_000 - now) / 1000
+    );
+    throw tooManyRequests(
+      `Too many codes requested for this email. Try again in ${retryAfter}s.`
+    );
+  }
+
+  const last = recent[0];
+
+  if (last) {
+    const sinceLast = now - last.createdAt.getTime();
+    if (sinceLast < RESEND_COOLDOWN_SECONDS * 1000) {
+      const retryAfter = Math.ceil(
+        (RESEND_COOLDOWN_SECONDS * 1000 - sinceLast) / 1000
+      );
+      throw tooManyRequests(
+        `A code was just sent. Try again in ${retryAfter}s.`
+      );
+    }
+  }
 
   const code = generateCode();
   const expiresAt = new Date();
@@ -70,6 +118,9 @@ export async function verifyCode(input: VerifyCodeInput) {
       email,
       verified: false,
       expiresAt: { gt: new Date() },
+      // A row that has used up its guesses is no longer a candidate, so the
+      // caller has to request a fresh code to keep trying.
+      attempts: { lt: MAX_VERIFY_ATTEMPTS },
     },
     orderBy: { createdAt: "desc" },
   });
@@ -79,7 +130,23 @@ export async function verifyCode(input: VerifyCodeInput) {
   }
 
   if (verification.code !== code) {
-    throw badRequest("Invalid code");
+    const { attempts } = await prisma.emailVerification.update({
+      where: { id: verification.id },
+      data: { attempts: { increment: 1 } },
+      select: { attempts: true },
+    });
+
+    const remaining = MAX_VERIFY_ATTEMPTS - attempts;
+
+    if (remaining <= 0) {
+      throw tooManyRequests(
+        "Too many incorrect attempts. Request a new code."
+      );
+    }
+
+    throw badRequest(
+      `Invalid code. ${remaining} attempt${remaining === 1 ? "" : "s"} left.`
+    );
   }
 
   await prisma.emailVerification.update({
