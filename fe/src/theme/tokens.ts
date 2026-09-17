@@ -1,11 +1,17 @@
+/**
+ * The single source of design values. Screens and components read from here;
+ * no component hardcodes a hex, radius or spacing step.
+ */
+
 export const colors = {
   canvas: "#f3f4f6",
   surface: "#ffffff",
   ink: "#111827",
   inkMuted: "#6b7280",
   inkFaint: "#9ca3af",
+  onInk: "#ffffff",
   border: "#e5e7eb",
-  borderFocus: "#111827",
+  borderStrong: "#111827",
   primary: "#111827",
   onPrimary: "#ffffff",
   success: "#22c55e",
@@ -29,6 +35,7 @@ export const radius = {
   sm: 8,
   md: 12,
   lg: 24,
+  pill: 999,
 } as const;
 
 export const type = {
@@ -38,3 +45,6 @@ export const type = {
   label: { fontSize: 13, fontWeight: "600" },
   caption: { fontSize: 12 },
 } as const;
+
+/** Minimum touch target. Every pressable must clear this. */
+export const HIT_SLOP_MIN = 44;

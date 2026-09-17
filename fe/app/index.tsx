@@ -1,137 +1,142 @@
 import { router } from "expo-router";
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
-import { Button, ErrorNote, Field, Screen } from "../components/ui";
-import { ApiError, requestCode } from "../lib/api";
-import { colors, radius, space, type } from "../lib/theme";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { authApi } from "@/api";
+import {
+  ArrowRightIcon,
+  BrandHeader,
+  Button,
+  ErrorNotice,
+  Field,
+  MailIcon,
+  PhoneFrame,
+  SegmentedControl,
+} from "@/components/ui";
+import { useAsyncAction } from "@/hooks/useAsyncAction";
+import { colors, space, type } from "@/theme";
 
 type Mode = "signup" | "signin";
+
+const MODES = [
+  { value: "signup" as const, label: "Sign up" },
+  { value: "signin" as const, label: "Sign in" },
+];
 
 export default function EmailScreen() {
   const [mode, setMode] = useState<Mode>("signup");
   const [email, setEmail] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const isSignup = mode === "signup";
+
+  const { run, busy, error, clearError } = useAsyncAction(async () => {
+    // Only signup sends a name. The API parks it on the verification row and
+    // ignores it entirely when the account already exists.
+    const result = await authApi.requestCode({
+      email: email.trim(),
+      ...(isSignup && firstName.trim() ? { firstName: firstName.trim() } : {}),
+      ...(isSignup && lastName.trim() ? { lastName: lastName.trim() } : {}),
+    });
+
+    router.push({
+      pathname: "/verify",
+      params: { email: email.trim(), devCode: result.code ?? "" },
+    });
+  });
+
   const canSubmit =
     email.trim().length > 0 && (!isSignup || firstName.trim().length > 0);
 
-  async function submit() {
-    setBusy(true);
-    setError(null);
-
-    try {
-      // Only the signup screen sends a name. The API treats it as pending
-      // until the code is confirmed, and ignores it if the account exists.
-      const result = await requestCode({
-        email: email.trim(),
-        ...(isSignup && firstName.trim() ? { firstName: firstName.trim() } : {}),
-        ...(isSignup && lastName.trim() ? { lastName: lastName.trim() } : {}),
-      });
-
-      router.push({
-        pathname: "/verify",
-        params: { email: email.trim(), devCode: result.code ?? "" },
-      });
-    } catch (err) {
-      setError(
-        err instanceof ApiError ? err.message : "Something went wrong"
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
-    <Screen
-      title="GatePass"
-      subtitle="Parking for ticketed events"
-    >
-      <View style={s.tabs}>
-        {(["signup", "signin"] as const).map((m) => (
-          <Pressable
-            key={m}
-            onPress={() => {
-              setMode(m);
-              setError(null);
-            }}
-            style={[s.tab, mode === m && s.tabActive]}
-          >
-            <Text style={[s.tabLabel, mode === m && s.tabLabelActive]}>
-              {m === "signup" ? "Sign up" : "Sign in"}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
-
-      {isSignup ? (
-        <>
-          <Field
-            label="First name"
-            value={firstName}
-            onChangeText={setFirstName}
-            placeholder="Ishan"
-            autoCapitalize="words"
-          />
-          <Field
-            label="Last name"
-            value={lastName}
-            onChangeText={setLastName}
-            placeholder="Jaiswal"
-            autoCapitalize="words"
-            hint="Optional"
-          />
-        </>
-      ) : null}
-
-      <Field
-        label="Email"
-        value={email}
-        onChangeText={setEmail}
-        placeholder="you@example.com"
-        autoCapitalize="none"
-        autoCorrect={false}
-        keyboardType="email-address"
-        inputMode="email"
+    <PhoneFrame>
+      <BrandHeader
+        headline={isSignup ? "Reserve parking\nbefore you arrive" : "Welcome back"}
+        sub={
+          isSignup
+            ? "Concerts, matches and fairs across India."
+            : "Enter your email and we'll send a code."
+        }
       />
 
-      {error ? <ErrorNote message={error} /> : null}
+      <ScrollView contentContainerStyle={s.body}>
+        <SegmentedControl
+          segments={MODES}
+          value={mode}
+          onChange={(next) => {
+            setMode(next);
+            clearError();
+          }}
+        />
 
-      <Button
-        label="Send code"
-        onPress={submit}
-        busy={busy}
-        disabled={!canSubmit}
-      />
+        {isSignup ? (
+          <View style={s.nameRow}>
+            <View style={s.nameCell}>
+              <Field
+                label="First name"
+                value={firstName}
+                onChangeText={setFirstName}
+                placeholder="Ishan"
+                autoCapitalize="words"
+              />
+            </View>
+            <View style={s.nameCell}>
+              <Field
+                label="Last name"
+                optional
+                value={lastName}
+                onChangeText={setLastName}
+                placeholder="Jaiswal"
+                autoCapitalize="words"
+              />
+            </View>
+          </View>
+        ) : null}
 
-      <Text style={s.note}>
-        We email you a 6-digit code. No password needed.
-      </Text>
-    </Screen>
+        <Field
+          label="Email"
+          value={email}
+          onChangeText={setEmail}
+          placeholder="you@example.com"
+          autoCapitalize="none"
+          autoCorrect={false}
+          keyboardType="email-address"
+          inputMode="email"
+          icon={<MailIcon />}
+        />
+
+        {error ? <ErrorNotice message={error} /> : null}
+
+        <Button
+          label="Send code"
+          size="lg"
+          onPress={run}
+          busy={busy}
+          disabled={!canSubmit}
+          icon={<ArrowRightIcon />}
+        />
+
+        <View style={s.spacer} />
+
+        <Text style={s.note}>
+          {isSignup
+            ? "No password to remember — we email you a 6-digit code each time."
+            : "First time here? Signing in with a new email creates your account — we'll just ask your name after."}
+        </Text>
+      </ScrollView>
+    </PhoneFrame>
   );
 }
 
 const s = StyleSheet.create({
-  tabs: {
-    flexDirection: "row",
-    gap: space.xs,
-    backgroundColor: colors.canvas,
-    borderRadius: radius.sm,
-    padding: space.xs,
+  body: { padding: 28, gap: 18, flexGrow: 1 },
+  nameRow: { flexDirection: "row", gap: space.md },
+  nameCell: { flexGrow: 1, flexShrink: 1, flexBasis: 0 },
+  spacer: { flexGrow: 1, minHeight: space.lg },
+  note: {
+    ...type.caption,
+    color: colors.inkFaint,
+    textAlign: "center",
+    lineHeight: 19,
   },
-  tab: {
-    flexGrow: 1,
-    alignItems: "center",
-    paddingVertical: space.md,
-    borderRadius: radius.sm - 2,
-    minHeight: 44,
-    justifyContent: "center",
-  },
-  tabActive: { backgroundColor: colors.surface },
-  tabLabel: { ...type.label, color: colors.inkMuted },
-  tabLabelActive: { color: colors.ink },
-  note: { ...type.caption, color: colors.inkFaint, textAlign: "center" },
 });
