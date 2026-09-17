@@ -1,0 +1,30 @@
+model EmailVerification {
+  id         String     @id @default(uuid())
+  email      String
+  code       String
+  deviceId   String?
+  deviceType DeviceType?
+  expiresAt  DateTime
+  verified   Boolean    @default(false)
+  createdAt  DateTime   @default(now())
+
+  @@index([email])
+}
+
+model UserSession {
+  id           String     @id @default(uuid())
+  userId       String
+  deviceId     String
+  deviceType   DeviceType @default(OTHER)
+  deviceName   String?
+  fcmToken     String?
+  lastActiveAt DateTime   @default(now())
+  expiresAt    DateTime
+  createdAt    DateTime   @default(now())
+
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([deviceId])
+  @@unique([userId, deviceId])
+}

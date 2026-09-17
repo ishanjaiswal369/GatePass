@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Shell(curl http://localhost:3000/health)",
+      "Shell(timeout /t 8 /nobreak >nul 2>&1 & docker ps -a --filter \"name=gatepass\" --format \"table {{.Names}}\\t{{.Status}}\" & echo \"=== OTP test ===\" & curl -s -X POST http://localhost:3000/auth/request-otp -H \"Content-Type: application/json\" -d \"{\\\"phone\\\":\\\"9123456780\\\",\\\"deviceId\\\":\\\"d1\\\",\\\"deviceType\\\":\\\"ANDROID\\\"}\")",
+      "Shell(curl -s -X POST http://localhost:3000/auth/verify-otp -H \"Content-Type: application/json\" -d \"{\\\"phone\\\":\\\"9123456780\\\",\\\"otp\\\":\\\"544039\\\",\\\"deviceId\\\":\\\"d1\\\",\\\"deviceType\\\":\\\"ANDROID\\\"}\")",
+      "Shell(set:*)",
+      "Shell(npx tsx src/index.ts 2 >& 1)"
+    ],
+    "deny": [],
+    "defaultMode": "default"
+  }
+}

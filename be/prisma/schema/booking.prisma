@@ -1,0 +1,22 @@
+model Booking {
+  id              String        @id @default(uuid())
+  parkingCapacityId String
+  driverId        String
+  vehicleNumber   String
+  quantity        Int
+  amount          Decimal
+  status          BookingStatus @default(PENDING)
+  idempotencyKey  String        @unique
+  qrToken         String        @unique
+  createdBy       String?
+  updatedBy       String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  parkingCapacity ParkingCapacity @relation(fields: [parkingCapacityId], references: [id])
+  driver          User            @relation(fields: [driverId], references: [id])
+  payment         Payment?
+  settlementItems SettlementItem[]
+  creator         User?           @relation("BookingCreatedBy", fields: [createdBy], references: [id])
+  updater         User?           @relation("BookingUpdatedBy", fields: [updatedBy], references: [id])
+}

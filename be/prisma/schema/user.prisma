@@ -1,0 +1,24 @@
+model User {
+  id              String   @id @default(uuid())
+  email           String   @unique
+  phone           String?  @unique
+  name            String?
+  role            Role     @default(DRIVER)
+  gstNumber       String?
+  bankAccountId   String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  listings        Listing[]
+  bookings        Booking[]
+  settlements     Settlement[]
+  sessions        UserSession[]
+  createdListings Listing[]   @relation("ListingCreatedBy")
+  updatedListings Listing[]   @relation("ListingUpdatedBy")
+  createdBookings Booking[]   @relation("BookingCreatedBy")
+  updatedBookings Booking[]   @relation("BookingUpdatedBy")
+  createdPayments Payment[]   @relation("PaymentCreatedBy")
+  updatedPayments Payment[]   @relation("PaymentUpdatedBy")
+  createdSettlements Settlement[] @relation("SettlementCreatedBy")
+  updatedSettlements Settlement[] @relation("SettlementUpdatedBy")
+}

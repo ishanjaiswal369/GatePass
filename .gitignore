@@ -1,0 +1,26 @@
+# dependencies
+node_modules/
+
+# secrets — never commit; be/.env.example is the tracked template
+.env
+.env.local
+*.env
+
+# build output
+dist/
+build/
+
+# logs
+logs/
+*.log
+
+# expo
+.expo/
+.expo-shared/
+
+# os / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

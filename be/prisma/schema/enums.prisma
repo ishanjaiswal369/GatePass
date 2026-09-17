@@ -1,0 +1,54 @@
+enum Role {
+  DRIVER
+  ORGANIZER
+  ADMIN
+}
+
+enum ListingType {
+  EVENT
+  RECURRING
+  COMMERCIAL
+}
+
+enum ListingStatus {
+  DRAFT
+  PUBLISHED
+  ONGOING
+  COMPLETED
+  CANCELLED
+}
+
+enum VehicleType {
+  CAR
+  BIKE
+  OTHER
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+}
+
+enum PaymentStatus {
+  CREATED
+  CAPTURED
+  FAILED
+  REFUNDED
+}
+
+enum SettlementStatus {
+  PENDING
+  PROCESSING
+  PAID
+  DISPUTED
+}
+
+enum DeviceType {
+  IOS
+  ANDROID
+  WEB
+  OTHER
+}

@@ -1,0 +1,36 @@
+model Listing {
+  id            String        @id @default(uuid())
+  organizerId   String
+  listingType   ListingType   @default(EVENT)
+  name          String
+  venueName     String
+  latitude      Decimal?
+  longitude     Decimal?
+  eventDate     DateTime?
+  status        ListingStatus @default(DRAFT)
+  createdBy     String?
+  updatedBy     String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  organizer     User          @relation(fields: [organizerId], references: [id])
+  creator       User?         @relation("ListingCreatedBy", fields: [createdBy], references: [id])
+  updater       User?         @relation("ListingUpdatedBy", fields: [updatedBy], references: [id])
+  capacities    ParkingCapacity[]
+}
+
+model ParkingCapacity {
+  id            String    @id @default(uuid())
+  listingId     String
+  vehicleType   VehicleType
+  totalCapacity Int
+  bookedCount   Int       @default(0)
+  price         Decimal
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  listing       Listing   @relation(fields: [listingId], references: [id])
+  bookings      Booking[]
+
+  @@unique([listingId, vehicleType])
+}

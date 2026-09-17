@@ -1,0 +1,38 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: gatepass-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: gatepass
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  be:
+    build: ./be
+    container_name: gatepass-be
+    env_file:
+      - ./be/.env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/gatepass?schema=public
+      PORT: 3000
+      LOG_PRETTY: "false"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./be/logs:/app/logs
+    depends_on:
+      db:
+        condition: service_healthy
+    command: sh -c "npx prisma migrate deploy --schema prisma/schema && node dist/index.js"
+
+volumes:
+  pgdata:

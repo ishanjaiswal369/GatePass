@@ -1,0 +1,34 @@
+model Settlement {
+  id                String              @id @default(uuid())
+  organizerId       String
+  periodStart       DateTime
+  periodEnd         DateTime
+  grossAmount       Decimal
+  commissionAmount  Decimal
+  netPayable        Decimal
+  status            SettlementStatus    @default(PENDING)
+  createdBy         String?
+  updatedBy         String?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  organizer         User                @relation(fields: [organizerId], references: [id])
+  items             SettlementItem[]
+  creator           User?               @relation("SettlementCreatedBy", fields: [createdBy], references: [id])
+  updater           User?               @relation("SettlementUpdatedBy", fields: [updatedBy], references: [id])
+}
+
+model SettlementItem {
+  id                String    @id @default(uuid())
+  settlementId      String
+  bookingId         String
+  amount            Decimal
+  commissionDeducted Decimal
+  createdAt         DateTime  @default(now())
+
+  settlement        Settlement @relation(fields: [settlementId], references: [id])
+  booking           Booking    @relation(fields: [bookingId], references: [id])
+
+  @@index([settlementId])
+  @@index([bookingId])
+}

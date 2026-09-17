@@ -1,0 +1,16 @@
+model Payment {
+  id                  String        @id @default(uuid())
+  bookingId           String        @unique
+  razorpayOrderId     String?
+  razorpayPaymentId   String?
+  amount              Decimal
+  status              PaymentStatus @default(CREATED)
+  createdBy           String?
+  updatedBy           String?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  booking             Booking       @relation(fields: [bookingId], references: [id])
+  creator             User?         @relation("PaymentCreatedBy", fields: [createdBy], references: [id])
+  updater             User?         @relation("PaymentUpdatedBy", fields: [updatedBy], references: [id])
+}

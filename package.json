@@ -1,0 +1,23 @@
+{
+  "name": "gatepass",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "fe",
+    "be"
+  ],
+  "scripts": {
+    "dev:fe": "npm --workspace fe run start",
+    "dev:be": "npm --workspace be run dev",
+    "build:be": "npm --workspace be run build",
+    "prisma:generate": "npm --workspace be run prisma:generate",
+    "prisma:migrate": "npm --workspace be run prisma:migrate"
+  },
+  "dependencies": {
+    "marked": "^18.0.13",
+    "pdf-parse": "^2.4.5"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.10"
+  }
+}

@@ -1,0 +1,40 @@
+- Prefers monorepo structure with FE and BE as sibling folders. Confidence: 0.7
+- Prefers Expo for React Native development over vanilla React Native. Confidence: 0.7
+- Uses Node.js + Fastify + PostgreSQL as the backend stack. Confidence: 0.8
+- Prefers the agent to run commands directly rather than instructing the user to run them. Confidence: 0.85
+- Mobile-first development: builds mobile apps and wants web preview to simulate a phone frame (375x667 with rounded corners, shadow, gray background). Confidence: 0.8
+- Communicates in Hinglish (mix of Hindi and English). Confidence: 0.85
+- Uses PDF documents as project reference/specification files placed in the project root, and expects them to be kept updated with the latest project changes (e.g. asked to revise the root project-summary PDF after adding auth/schema work). Confidence: 0.8
+- Prefers documentation to have a maintainable Markdown source that a PDF is generated from, rather than editing the PDF in place. Confidence: 0.6
+- Expects status/progress reports to be grounded in the real codebase — cross-check the spec/summary document against actual files, migrations, git state, and running services, and report honestly what is done vs stubbed — rather than restating what the document claims. Confidence: 0.65
+- Often loses track of project progress and relies on the agent to summarize where the project stands ("tell me where are we, what have we completed"). Confidence: 0.6
+- Prefers phone-based user model (phone as unique identifier) over email-based authentication. Confidence: 0.75
+- Prefers JWT-based authentication with OTP (phone number) and ~30-day session expiry. Confidence: 0.8
+- Wants createdBy/updatedBy audit columns on core models (Listing, Booking, Payment, Settlement). Confidence: 0.75
+- Uses MSG91 (India-focused) for SMS/OTP delivery. Confidence: 0.7
+- Prefers accessing authenticated user via request decorator pattern (e.g., `request.user.userId`). Confidence: 0.75
+- Prefers a written plan before implementing complex features like auth systems. Confidence: 0.7
+- Uses Prisma with TypeScript enums for status fields and types. Confidence: 0.8
+- Prefers splitting the Prisma schema into a `prisma/schema/` folder of multiple `.prisma` files organized by domain (one file per model group, plus separate enums file and a single shared datasource/generator file), pointing the Prisma CLI at the folder. Confidence: 0.75
+- Prefers breaking monolithic config/schema files into focused per-domain modules rather than keeping everything in one large file. Confidence: 0.6
+- Prefers `headerShown: false` for Expo Router screens to use custom UI. Confidence: 0.7
+- Expects the agent to read spec documents and derive database schema/migrations from them. Confidence: 0.75
+- Prefers incremental review workflow: create one change (e.g. migration) at a time and wait for explicit approval before applying or proceeding to the next. Confidence: 0.85
+- Runs the full local stack via Docker Compose (Postgres `db` + backend `be` services together) and expects every service in the compose file to actually be up and working, not just the database. Confidence: 0.65
+- Expects containerized services to be given their runtime config (env_file for secrets like JWT_SECRET / third-party API keys) rather than relying on files baked into the image. Confidence: 0.6
+- Uses an ESM TypeScript backend with `NodeNext` module resolution, requiring explicit `.js` extensions on relative imports so the compiled `node dist/...` output resolves. Confidence: 0.6
+- Wants third-party integrations (SMS, payments, WhatsApp, push) managed through one global, reusable provider pattern — per-capability folders with a shared interface, providers selected by config/env, and a common error convention — rather than ad-hoc integration code. Confidence: 0.6
+- Prefers a layered backend API structure (`api → request → controller → service`): one global `api` file declaring every route as `path → controllerFile.methodName`, a separate controller file (and separate service file) per domain, controllers owning HTTP in/out, and services holding business logic — with the bootstrap/index file kept minimal. Confidence: 0.9
+- Prefers request validation with zod schemas applied across all endpoints, but performed in a dedicated request layer rather than inside controllers. Confidence: 0.7
+- Wants a separate `request` file/layer (e.g. `requests/<domain>.request.ts` plus a `request()` wrapper) that validates input and passes the validated, typed data into controller methods as the first argument, so controllers receive already-validated input and services still get clean typed data. Confidence: 0.8
+- Prefers domain failures thrown as an `AppError` (with status code) mapped centrally by one global error handler, keeping controllers thin — while keeping the existing API response shapes unchanged. Confidence: 0.6
+- Expects the agent to research the existing code/current state first and only then implement ("first research and then implement"). Confidence: 0.7
+- Comes from a Laravel/PHP background and uses Laravel as the reference point for backend conventions (e.g., asks for logging like `laravel.log`). Confidence: 0.6
+- Expects inspectable file-based logging (log files on disk) rather than stdout-only, so logs can be reviewed/streamed like a framework log file. Confidence: 0.55
+- Wants human-readable (pretty/colored) log output in development, toggled by config/env (e.g. a `LOG_PRETTY` flag) rather than separate code paths, while production keeps structured JSON. Confidence: 0.55
+- Prefers a single unified runtime config across dev and production — differences should be driven by config/env vars, not separate code paths — and pushes back on dev/prod splits that aren't actually necessary. Confidence: 0.7
+- Verifies API flows manually (e.g. auth/login/user-create) and prefers to do it through Postman — asks for the concrete endpoints, request bodies, headers, and step-by-step sequence to run the flow end to end. Confidence: 0.6
+- Wants teaching-oriented explanations of tooling and dependencies — asks what a library is for and for a full inventory of every dependency used in the project so far, wanting to build a high-level mental model rather than just receiving code. Confidence: 0.7
+- Prefers walkthroughs/instructions delivered one step at a time ("one by one, start from the beginning") rather than the entire flow laid out at once — expects to confirm a step worked before moving to the next. Confidence: 0.7
+- When something is broken, wants the agent to pinpoint the single definitive root cause (verified against real evidence like API/balance/logs) rather than presenting a ranked list of possible causes — explicitly asks to "pinpoint" the issue. Confidence: 0.6
+- Cost-conscious about third-party services: asks about free tiers/free quotas and trial limits (e.g. "isn't 100 SMS/day free here?") before committing to paid setup, and expects those pricing/limit claims to be verified against current external sources rather than answered from memory. Confidence: 0.55
