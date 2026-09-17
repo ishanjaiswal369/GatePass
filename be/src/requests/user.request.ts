@@ -10,7 +10,8 @@ const emailSchema = z
 
 const createUserBody = z.object({
   email: emailSchema,
-  name: z.string().min(1).optional(),
+  firstName: z.string().trim().min(1).max(100).optional(),
+  lastName: z.string().trim().min(1).max(100).optional(),
   role: z.enum(ROLES).optional(),
   phone: z.string().regex(/^\d{10}$/, "must be a 10-digit number").optional(),
 });

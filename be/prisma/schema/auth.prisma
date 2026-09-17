@@ -4,6 +4,11 @@ model EmailVerification {
   code       String
   deviceId   String?
   deviceType String?
+  // Pending signup details, carried until the code is verified so that an
+  // unverified email never creates a User row. Null when the code was
+  // requested from the sign-in screen.
+  firstName  String?
+  lastName   String?
   expiresAt  DateTime
   verified   Boolean    @default(false)
   createdAt  DateTime   @default(now())

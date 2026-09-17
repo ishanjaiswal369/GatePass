@@ -2,29 +2,30 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import { notFound } from "../lib/errors.js";
 import type {
   RemoveSessionInput,
-  RequestOtpInput,
-  VerifyOtpInput,
+  RequestCodeInput,
+  UpdateProfileInput,
+  VerifyCodeInput,
 } from "../requests/auth.request.js";
 import * as authService from "../services/auth.service.js";
 import * as sessionService from "../services/session.service.js";
 import * as userService from "../services/user.service.js";
 
 export const authController = {
-  requestOtp: async (
-    input: RequestOtpInput,
+  requestCode: async (
+    input: RequestCodeInput,
     _request: FastifyRequest,
     reply: FastifyReply
   ) => {
-    const { otp } = await authService.requestOtp(input.body);
-    return reply.send({ message: "OTP sent successfully", otp });
+    const { code } = await authService.requestCode(input.body);
+    return reply.send({ message: "Verification code sent", code });
   },
 
-  verifyOtp: async (
-    input: VerifyOtpInput,
+  verifyCode: async (
+    input: VerifyCodeInput,
     _request: FastifyRequest,
     reply: FastifyReply
   ) => {
-    return reply.send(await authService.verifyOtp(input.body));
+    return reply.send(await authService.verifyCode(input.body));
   },
 
   logout: async (request: FastifyRequest, reply: FastifyReply) => {
@@ -70,11 +71,24 @@ export const authController = {
     }
 
     return reply.send({
-      id: user.id,
-      email: user.email,
-      phone: user.phone,
-      name: user.name,
-      role: user.role,
+      ...userService.toAuthUser(user),
+      profileComplete: user.firstName !== null,
+    });
+  },
+
+  updateMe: async (
+    input: UpdateProfileInput,
+    request: FastifyRequest,
+    reply: FastifyReply
+  ) => {
+    const user = await userService.updateProfile(
+      request.user.userId,
+      input.body
+    );
+
+    return reply.send({
+      ...userService.toAuthUser(user),
+      profileComplete: user.firstName !== null,
     });
   },
 };

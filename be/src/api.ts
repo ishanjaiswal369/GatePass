@@ -64,10 +64,13 @@ export function registerApi(app: App): void {
 
   // Auth
   app.post(
-    "/auth/request-otp",
-    request(authRequests.requestOtp, authController.requestOtp)
+    "/auth/request-code",
+    request(authRequests.requestCode, authController.requestCode)
   );
-  app.post("/auth/verify-otp", request(authRequests.verifyOtp, authController.verifyOtp));
+  app.post(
+    "/auth/verify-code",
+    request(authRequests.verifyCode, authController.verifyCode)
+  );
   app.post("/auth/logout", { preHandler: [authenticate] }, authController.logout);
   app.get("/auth/sessions", { preHandler: [authenticate] }, authController.listSessions);
   app.delete(
@@ -76,4 +79,9 @@ export function registerApi(app: App): void {
     request(authRequests.removeSession, authController.removeSession)
   );
   app.get("/auth/me", { preHandler: [authenticate] }, authController.me);
+  app.patch(
+    "/auth/me",
+    { preHandler: [authenticate] },
+    request(authRequests.updateProfile, authController.updateMe)
+  );
 }
