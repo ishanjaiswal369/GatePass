@@ -205,8 +205,7 @@ Against a live database on 2026-09-18, all passing:
 
 **Google is not yet verified end to end.** Both typechecks pass and the button
 renders correctly with and without a client id, but no real Google token has
-been exchanged — that needs a Web client id (section 10) and migration 0010
-applied (section 7).
+been exchanged — that needs a Web client id (section 10).
 
 ---
 
@@ -319,11 +318,9 @@ Hand-written SQL, one per concern, so each change is reviewable in isolation.
 | `0007_enums_to_text` | All enum columns → `TEXT`; drops all 8 enum types | yes |
 | `0008_split_user_name` | `User.name` → `firstName`/`lastName`; pending name on `EmailVerification` | yes |
 | `0009_verification_attempts` | `EmailVerification.attempts`; `(email, createdAt)` index | yes |
-| `0010_user_google_id` | `User.googleId`, nullable + unique | **no** |
+| `0010_user_google_id` | `User.googleId`, nullable + unique | yes |
 
-**0010 is not yet applied** to the local database — Docker was down when it
-was written. Until it is, `POST /auth/google` fails at runtime on the missing
-column. Apply it with the command in section 10.
+All ten are applied to the local database.
 
 `0006` contains `DELETE FROM "User" WHERE "email" IS NULL` — a deliberate
 dev-stage cleanup of phone-era users. **That line must never run against
@@ -344,7 +341,7 @@ npx prisma migrate dev --create-only --name <name> --schema prisma/schema
 | GET | `/health` | — | Working; reports the email provider |
 | POST | `/auth/request-code` | — | Working; rate limited |
 | POST | `/auth/verify-code` | — | Working; guess-capped |
-| POST | `/auth/google` | — | Built; needs migration 0010 and a client id |
+| POST | `/auth/google` | — | Built; needs a client id to be used |
 | GET | `/auth/me` | JWT | Working; returns `profileComplete` |
 | PATCH | `/auth/me` | JWT | Working |
 | POST | `/auth/logout` | JWT | Working |
