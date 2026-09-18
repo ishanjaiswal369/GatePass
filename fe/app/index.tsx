@@ -14,6 +14,7 @@ import {
 } from "@/components/ui";
 import {
   GoogleSignIn,
+  GoogleSignInUnconfigured,
   isGoogleConfigured,
 } from "@/features/auth/GoogleSignIn";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
@@ -135,6 +136,8 @@ export default function EmailScreen() {
 
         {isGoogleConfigured ? (
           <GoogleSignIn onSuccess={onGoogleSuccess} disabled={busy} />
+        ) : __DEV__ ? (
+          <GoogleSignInUnconfigured />
         ) : null}
 
         <View style={s.spacer} />
