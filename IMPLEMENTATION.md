@@ -203,15 +203,13 @@ Against a live database on 2026-09-18, all passing:
 - **In the browser:** the full signup and sign-in flows through the app,
   including the "attempts left" message.
 
-- **Google configuration:** with a real Web client id loaded, a forged token
-  is rejected with 401 — without the id the same call returns 503, so this
-  confirms the id is read and verification is live. In the browser the button
-  renders enabled.
+- **Google:** a forged token is rejected with 401 (503 when no client id is
+  configured, so the 401 proves the id is read). A real Google sign-in through
+  the app created a new user with `googleId` set and first/last name taken
+  from Google's given/family name, so it skipped name capture.
 
-**A real Google sign-in has not been exercised yet** — no user in the database
-has a `googleId`. That step needs a human Google login (a test user on the
-consent screen); once done, check that the new or linked row carries its
-`googleId`.
+Not yet exercised: linking an **existing** email-code account to Google on its
+first Google sign-in (the email-fallback branch), and Google on iOS/Android.
 
 ---
 
@@ -366,7 +364,7 @@ npx prisma migrate dev --create-only --name <name> --schema prisma/schema
 | GET | `/health` | — | Working; reports the email provider |
 | POST | `/auth/request-code` | — | Working; rate limited |
 | POST | `/auth/verify-code` | — | Working; guess-capped |
-| POST | `/auth/google` | — | Built; needs a client id to be used |
+| POST | `/auth/google` | — | Working; needs a client id configured |
 | GET | `/auth/me` | JWT | Working; returns `profileComplete` |
 | PATCH | `/auth/me` | JWT | Working |
 | POST | `/auth/logout` | JWT | Working |
@@ -463,7 +461,13 @@ production cannot leak codes this way.
 from a built image. It does **not** pick up source changes, and its baked-in
 `prisma/migrations` can be older than the repo's — it will report fewer
 migrations than exist and then claim none are pending. For development, run
-the API from source with `npm run dev` instead. If you do want the container:
+the API from source with `npm run dev` instead.
+
+This has already caused a real failure. After a Docker restart the old `be`
+container started, took port 3000, and answered the new `POST /auth/google`
+with `404 Route not found`, which the app showed as "Not Found" right after a
+successful Google login. Whenever `be/` changes and the container is in use,
+rebuild it:
 
 ```bash
 docker compose up -d --build be
