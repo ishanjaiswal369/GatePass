@@ -62,6 +62,30 @@ export function InfoIcon({ size = 17, color = colors.inkMuted }: IconProps) {
   );
 }
 
+/** Google's mark. Brand colours are fixed, so it takes no `color`. */
+export function GoogleIcon({ size = 18 }: { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path
+        fill="#4285F4"
+        d="M23 12.2c0-.8-.1-1.6-.2-2.3H12v4.4h6.2a5.3 5.3 0 0 1-2.3 3.5v2.9h3.7c2.2-2 3.4-5 3.4-8.5Z"
+      />
+      <Path
+        fill="#34A853"
+        d="M12 24c3.2 0 5.9-1.1 7.8-2.9l-3.7-2.9c-1.1.7-2.4 1.1-4.1 1.1-3.1 0-5.8-2.1-6.7-5H1.5v3a12 12 0 0 0 10.5 6.7Z"
+      />
+      <Path
+        fill="#FBBC05"
+        d="M5.3 14.3a7.2 7.2 0 0 1 0-4.6v-3H1.5a12 12 0 0 0 0 10.6l3.8-3Z"
+      />
+      <Path
+        fill="#EA4335"
+        d="M12 4.7c1.8 0 3.3.6 4.6 1.8l3.3-3.3A11.5 11.5 0 0 0 12 0 12 12 0 0 0 1.5 6.7l3.8 3c.9-2.9 3.6-5 6.7-5Z"
+      />
+    </Svg>
+  );
+}
+
 export function UserIcon({ size = 17, color = colors.inkMuted }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">

@@ -30,6 +30,16 @@ const verifyCodeBody = z.object({
   fcmToken: z.string().min(1).optional(),
 });
 
+const googleSignInBody = z.object({
+  // Only the token is trusted from the client. The email and name come out of
+  // its verified payload, never from fields the caller could set.
+  idToken: z.string().min(1),
+  deviceId: z.string().min(1),
+  deviceType: z.enum(DEVICE_TYPES).default(DEFAULT_DEVICE_TYPE),
+  deviceName: z.string().min(1).optional(),
+  fcmToken: z.string().min(1).optional(),
+});
+
 const updateProfileBody = z
   .object({
     firstName: nameSchema.optional(),
@@ -47,11 +57,13 @@ const removeSessionParams = z.object({
 export const authRequests = {
   requestCode: { body: requestCodeBody } satisfies RequestSchemas,
   verifyCode: { body: verifyCodeBody } satisfies RequestSchemas,
+  googleSignIn: { body: googleSignInBody } satisfies RequestSchemas,
   updateProfile: { body: updateProfileBody } satisfies RequestSchemas,
   removeSession: { params: removeSessionParams } satisfies RequestSchemas,
 };
 
 export type RequestCodeInput = RequestInput<typeof authRequests.requestCode>;
 export type VerifyCodeInput = RequestInput<typeof authRequests.verifyCode>;
+export type GoogleSignInInput = RequestInput<typeof authRequests.googleSignIn>;
 export type UpdateProfileInput = RequestInput<typeof authRequests.updateProfile>;
 export type RemoveSessionInput = RequestInput<typeof authRequests.removeSession>;

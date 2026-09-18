@@ -1,5 +1,5 @@
 import { router } from "expo-router";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { authApi } from "@/api";
 import {
@@ -12,7 +12,13 @@ import {
   PhoneFrame,
   SegmentedControl,
 } from "@/components/ui";
+import {
+  GoogleSignIn,
+  isGoogleConfigured,
+} from "@/features/auth/GoogleSignIn";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
+import { useSession } from "@/providers/SessionProvider";
+import type { VerifyCodeResult } from "@/types/api.types";
 import { colors, space, type } from "@/theme";
 
 type Mode = "signup" | "signin";
@@ -28,7 +34,18 @@ export default function EmailScreen() {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
 
+  const { signIn } = useSession();
   const isSignup = mode === "signup";
+
+  // Google lands in the same place as a verified code: same session, same
+  // response shape, same profileComplete routing.
+  const onGoogleSuccess = useCallback(
+    (result: VerifyCodeResult) => {
+      signIn(result.token, result.user);
+      router.replace(result.profileComplete ? "/account" : "/profile");
+    },
+    [signIn]
+  );
 
   const { run, busy, error, clearError } = useAsyncAction(async () => {
     // Only signup sends a name. The API parks it on the verification row and
@@ -115,6 +132,10 @@ export default function EmailScreen() {
           disabled={!canSubmit}
           icon={<ArrowRightIcon />}
         />
+
+        {isGoogleConfigured ? (
+          <GoogleSignIn onSuccess={onGoogleSuccess} disabled={busy} />
+        ) : null}
 
         <View style={s.spacer} />
 

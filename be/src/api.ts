@@ -71,6 +71,10 @@ export function registerApi(app: App): void {
     "/auth/verify-code",
     request(authRequests.verifyCode, authController.verifyCode)
   );
+  app.post(
+    "/auth/google",
+    request(authRequests.googleSignIn, authController.googleSignIn)
+  );
   app.post("/auth/logout", { preHandler: [authenticate] }, authController.logout);
   app.get("/auth/sessions", { preHandler: [authenticate] }, authController.listSessions);
   app.delete(

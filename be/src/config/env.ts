@@ -30,6 +30,23 @@ const EnvSchema = z
     EMAIL_FROM: z.string().email().default("no-reply@gatepass.app"),
     EMAIL_FROM_NAME: z.string().default("GatePass"),
 
+    // Every OAuth client that may mint tokens for us (web, iOS, Android),
+    // comma-separated. These are the only accepted `aud` values -- without the
+    // check, a Google token minted for any other app would be accepted here.
+    // Empty is allowed so the server still boots before Google is set up;
+    // /auth/google then refuses with a clear message.
+    GOOGLE_CLIENT_IDS: z
+      .string()
+      .optional()
+      .transform((value) =>
+        value
+          ? value
+              .split(",")
+              .map((id) => id.trim())
+              .filter(Boolean)
+          : []
+      ),
+
     INTEGRATION_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
     INTEGRATION_MAX_RETRIES: z.coerce.number().int().min(0).default(2),
 

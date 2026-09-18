@@ -39,6 +39,10 @@ export const conflict = (message: string) =>
 export const tooManyRequests = (message: string) =>
   new AppError(message, 429, "TOO_MANY_REQUESTS");
 
+/** A feature the server has not been configured for, not a caller mistake. */
+export const serviceUnavailable = (message: string) =>
+  new AppError(message, 503, "SERVICE_UNAVAILABLE");
+
 export function registerErrorHandler(app: App): void {
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof ValidationError) {

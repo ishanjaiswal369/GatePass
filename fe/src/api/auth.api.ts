@@ -26,6 +26,16 @@ export const verifyCode = (input: { email: string; code: string }) =>
     body: { ...input, ...deviceFields, deviceName },
   });
 
+/**
+ * Only the token crosses the wire. The API reads the email and name out of its
+ * verified payload -- anything this client claimed about itself is ignored.
+ */
+export const signInWithGoogle = (idToken: string) =>
+  request<VerifyCodeResult>("/auth/google", {
+    method: "POST",
+    body: { idToken, ...deviceFields, deviceName },
+  });
+
 export const getMe = (token: string) => request<MeResult>("/auth/me", { token });
 
 export const updateProfile = (

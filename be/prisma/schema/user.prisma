@@ -2,6 +2,10 @@ model User {
   id              String   @id @default(uuid())
   email           String   @unique
   phone           String?  @unique
+  // Google's `sub`: stable for the life of the Google account, unlike the
+  // email. Matching on it first means a user who changes their Google address
+  // still lands on the same row.
+  googleId        String?  @unique
   firstName       String?
   lastName        String?
   role            String   @default("DRIVER")

@@ -1,6 +1,7 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { notFound } from "../lib/errors.js";
 import type {
+  GoogleSignInInput,
   RemoveSessionInput,
   RequestCodeInput,
   UpdateProfileInput,
@@ -26,6 +27,14 @@ export const authController = {
     reply: FastifyReply
   ) => {
     return reply.send(await authService.verifyCode(input.body));
+  },
+
+  googleSignIn: async (
+    input: GoogleSignInInput,
+    _request: FastifyRequest,
+    reply: FastifyReply
+  ) => {
+    return reply.send(await authService.signInWithGoogle(input.body));
   },
 
   logout: async (request: FastifyRequest, reply: FastifyReply) => {

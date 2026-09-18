@@ -1,6 +1,7 @@
 export { BrandHeader } from "./BrandHeader";
 export { Button } from "./Button";
 export { Card } from "./Card";
+export { GoogleButton, OrDivider } from "./GoogleButton";
 export { CodeInput } from "./CodeInput";
 export { DataRow } from "./DataRow";
 export { Field } from "./Field";
@@ -9,6 +10,7 @@ export {
   CheckIcon,
   ChevronLeftIcon,
   ClockIcon,
+  GoogleIcon,
   InfoIcon,
   MailIcon,
   UserIcon,

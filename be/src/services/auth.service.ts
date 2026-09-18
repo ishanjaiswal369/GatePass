@@ -1,7 +1,17 @@
 import { env } from "../config/env.js";
 import type { DeviceType } from "../constants/enums/index.js";
 import { getEmailProvider } from "../integrations/email/index.js";
-import { badRequest, tooManyRequests } from "../lib/errors.js";
+import {
+  GoogleIdentityError,
+  GoogleNotConfiguredError,
+  verifyGoogleIdToken,
+} from "../integrations/google/verify.js";
+import {
+  badRequest,
+  serviceUnavailable,
+  tooManyRequests,
+  unauthorized,
+} from "../lib/errors.js";
 import { prisma } from "../lib/prisma.js";
 import { createSession } from "./session.service.js";
 import { toAuthUser } from "./user.service.js";
@@ -171,6 +181,83 @@ export async function verifyCode(input: VerifyCodeInput) {
   // Existing account: any submitted name is ignored on purpose. Signing up
   // again with a registered email signs you in rather than erroring, and must
   // not silently overwrite the name already on the account.
+
+  const { token } = await createSession(
+    { id: user.id, email: user.email, role: user.role },
+    { deviceId, deviceType, deviceName, fcmToken }
+  );
+
+  return {
+    token,
+    user: toAuthUser(user),
+    profileComplete: user.firstName !== null,
+  };
+}
+
+export interface GoogleSignInInput {
+  idToken: string;
+  deviceId: string;
+  deviceType: DeviceType;
+  deviceName?: string;
+  fcmToken?: string;
+}
+
+/**
+ * Signs in with a Google ID token, producing exactly the same session and
+ * response shape as verifyCode -- the app treats both paths identically.
+ *
+ * Matching runs googleId first, then email:
+ * - googleId is Google's stable account id, so a user who changes their Google
+ *   address still resolves to the same row.
+ * - Falling back to email links an existing email-code account to Google the
+ *   first time they use the button. That is safe only because the identity is
+ *   verified server-side and the address is confirmed verified by Google.
+ *
+ * The email is never taken from the request body -- only from the payload of
+ * the token whose signature and audience we checked.
+ */
+export async function signInWithGoogle(input: GoogleSignInInput) {
+  const { idToken, deviceId, deviceType, deviceName, fcmToken } = input;
+
+  let identity;
+
+  try {
+    identity = await verifyGoogleIdToken(idToken);
+  } catch (error) {
+    if (error instanceof GoogleNotConfiguredError) {
+      throw serviceUnavailable("Google sign-in is not available");
+    }
+    if (error instanceof GoogleIdentityError) {
+      throw unauthorized(error.message);
+    }
+    throw error;
+  }
+
+  const { googleId, email, firstName, lastName } = identity;
+
+  let user = await prisma.user.findUnique({ where: { googleId } });
+
+  if (!user) {
+    const byEmail = await prisma.user.findUnique({ where: { email } });
+
+    if (byEmail) {
+      // Existing email-code account adopts this Google identity. The name is
+      // only filled where we have none -- an account's own name is never
+      // overwritten, same rule as verifyCode.
+      user = await prisma.user.update({
+        where: { id: byEmail.id },
+        data: {
+          googleId,
+          firstName: byEmail.firstName ?? firstName ?? null,
+          lastName: byEmail.lastName ?? lastName ?? null,
+        },
+      });
+    } else {
+      user = await prisma.user.create({
+        data: { email, googleId, firstName, lastName },
+      });
+    }
+  }
 
   const { token } = await createSession(
     { id: user.id, email: user.email, role: user.role },
