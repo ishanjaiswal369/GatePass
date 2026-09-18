@@ -93,6 +93,11 @@ and call it through `authApi.x()` from the screen. Never call `fetch` directly.
 - **The dev code box** on the verify screen shows what the API echoes back
   while `EMAIL_PROVIDER=console`. It disappears on its own in production,
   because the API stops sending the field.
+- **The splash** is one image, `assets/splash.png`, used twice: as the native
+  splash in `app.json`, and by `BrandSplash`, which holds it ~2.2 s on cold
+  start and then fades to the first screen. On a device the hand-off from the
+  OS splash is invisible; on web `BrandSplash` is the only place it shows.
+  Source and render script notes: `design/splash-philosophy.md`.
 - **`PhoneFrame`** centres the app in a 390×844 shell so the browser looks like
   a phone. Screens render full-bleed inside it and own their own header.
 - **Google sign-in is in the design but not built** — there is no

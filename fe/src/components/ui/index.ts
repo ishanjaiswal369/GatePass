@@ -1,4 +1,5 @@
 export { BrandHeader } from "./BrandHeader";
+export { BrandSplash } from "./BrandSplash";
 export { Button } from "./Button";
 export { Card } from "./Card";
 export { GoogleButton, OrDivider } from "./GoogleButton";
