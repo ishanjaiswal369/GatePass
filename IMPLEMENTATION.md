@@ -59,7 +59,7 @@ be/
     middleware/         authenticate
     lib/                app, errors, prisma, request wrapper
 fe/                     Expo app — see section 4 and fe/README.md
-design/                 canvas source (.dc.html artboards + canvas.json)
+design/                 canvas source (.dc.html + canvas.json), splash render + philosophy
 ```
 
 Requests flow `route -> request(schema, handler) -> controller -> service`.
@@ -203,9 +203,15 @@ Against a live database on 2026-09-18, all passing:
 - **In the browser:** the full signup and sign-in flows through the app,
   including the "attempts left" message.
 
-**Google is not yet verified end to end.** Both typechecks pass and the button
-renders correctly with and without a client id, but no real Google token has
-been exchanged — that needs a Web client id (section 10).
+- **Google configuration:** with a real Web client id loaded, a forged token
+  is rejected with 401 — without the id the same call returns 503, so this
+  confirms the id is read and verification is live. In the browser the button
+  renders enabled.
+
+**A real Google sign-in has not been exercised yet** — no user in the database
+has a `googleId`. That step needs a human Google login (a test user on the
+consent screen); once done, check that the new or linked row carries its
+`googleId`.
 
 ---
 
@@ -246,8 +252,27 @@ Two decisions worth knowing:
   when a client id is configured. `useIdTokenAuthRequest` *throws* without a
   client id rather than returning null; called from the screen directly, it
   took the whole sign-in screen down. Hooks cannot be called conditionally, so
-  the component boundary is the guard. It also means there is never a dead
-  Google button.
+  the component boundary is the guard. Without a client id, production hides
+  the button; development shows it disabled with a one-line hint naming the
+  variable to set (`GoogleSignInUnconfigured`, which mounts no hook), because a
+  silently missing button read as a missing feature.
+
+### Splash
+
+`assets/splash.png` (1284×2778) is the opening brand image: the barrier mark
+and wordmark on the app's ink, above a row of nine painted parking bays with
+one (06) held brighter. Design rationale: `design/splash-philosophy.md`.
+
+The one image is used twice:
+
+- **Native splash** in `app.json`, on `#111827` so other aspect ratios
+  letterbox seamlessly.
+- **`BrandSplash`**, an overlay in the root layout that holds it ~2.2 s on
+  cold start and fades out over the first screen, sharing `PhoneFrame`'s
+  footprint so the reveal lands in place. On a device the hand-off from the OS
+  splash is invisible; on web, which has no native splash, it is the only
+  place the splash appears. It lives in root state, so navigation never brings
+  it back.
 
 The session token is held in memory only — a reload signs you out. Persisting
 it needs `expo-secure-store` on native and is a separate decision.
@@ -461,10 +486,33 @@ it:
 | `be/.env` | `GOOGLE_CLIENT_IDS` — comma-separated web, iOS, Android ids |
 | `fe/.env` | `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` (plus `_IOS_` / `_ANDROID_` later) |
 
-Leave both empty and Google is simply off: the button is hidden and the
-endpoint returns 503. Expo reads `EXPO_PUBLIC_*` at bundle time, so restart the
-dev server after changing them.
+Leave both empty and Google is off: the endpoint returns 503, and the button is
+hidden in production or shown disabled with a hint in development. Expo reads
+`EXPO_PUBLIC_*` at bundle time, so restart it with `--clear` after changing
+them.
 
-Sending real mail needs a verified sending domain. `EMAIL_FROM` defaults to
-`no-reply@gatepass.app`; until that domain is owned and verified, Resend will
-only deliver to the account's own address.
+**Current local state:** a Web client id exists (Google Cloud project
+`GatePass`) and is set in both files. Creating one:
+
+1. Google Cloud Console → new project.
+2. **Google Auth Platform** (formerly *OAuth consent screen*): External
+   audience, app name and support email. Add your own Gmail under **Test
+   users** — while the app is in Testing mode, only listed accounts can sign
+   in. No extra scopes; `openid email profile` are the defaults.
+3. **Clients** (formerly *Credentials*) → **Web application**. Authorized
+   JavaScript origin `http://localhost:8081`; redirect URIs
+   `http://localhost:8081` and `http://localhost:8081/`. If Google reports
+   `redirect_uri_mismatch`, its error page shows the exact URI to add.
+4. Copy the **Client ID** into both env files. The **client secret is not
+   used** by this flow and must never go in `fe/.env` — every `EXPO_PUBLIC_*`
+   value ships inside the app bundle. The client id is public by design.
+
+iOS and Android clients come later with a dev build (iOS needs a bundle id,
+not yet set in `app.json`; Android needs the package name and signing SHA-1).
+All ids then go comma-separated into `GOOGLE_CLIENT_IDS`, because on native the
+token's `aud` is that platform's id.
+
+`EMAIL_PROVIDER` is still `console`, so no real mail is sent even though a
+Resend key is present locally. Switching to `resend` sends real mail, but
+until a sending domain is owned and verified, Resend only delivers to the
+account's own address. `EMAIL_FROM` defaults to `no-reply@gatepass.app`.
