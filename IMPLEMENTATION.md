@@ -243,7 +243,7 @@ Screens follow the published design canvas: dark brand header, first/last name
 on one row, a six-box code input, a live resend timer matching the API's 60 s
 cooldown, and a verified-email state on name capture.
 
-Two decisions worth knowing:
+Three decisions worth knowing:
 
 - **The code input is six boxes over one hidden field**, not six inputs. That
   keeps paste, SMS autofill and backspace working.
@@ -255,6 +255,14 @@ Two decisions worth knowing:
   the button; development shows it disabled with a one-line hint naming the
   variable to set (`GoogleSignInUnconfigured`, which mounts no hook), because a
   silently missing button read as a missing feature.
+- **An auth gate is a `<Redirect>`, never `router.replace` in an effect.** A
+  child screen's `useEffect` runs before the root layout has mounted its
+  navigator, so a cold load of `/account` while signed out crashed with
+  *"Attempted to navigate before mounting the Root Layout component"*. Because
+  the session token is held in memory only, every page reload on a protected
+  route hits exactly that path. A redirect element is rendered rather than
+  run, so it cannot fire early. Navigating from a press handler is fine --
+  those happen long after the navigator is ready.
 
 ### Splash
 

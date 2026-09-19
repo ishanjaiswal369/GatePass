@@ -1,4 +1,4 @@
-import { router } from "expo-router";
+import { Redirect } from "expo-router";
 import { useEffect, useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { ApiError, authApi } from "@/api";
@@ -21,8 +21,13 @@ export default function AccountScreen() {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Signed out: the <Redirect> below sends them to sign-in. Navigating
+    // imperatively from here crashes on a cold load of /account -- a child's
+    // effect runs before the root layout has mounted its navigator, and
+    // expo-router throws "Attempted to navigate before mounting the Root
+    // Layout component". A redirect element is rendered, so it cannot run
+    // early.
     if (!token) {
-      router.replace("/");
       return;
     }
 
@@ -45,11 +50,17 @@ export default function AccountScreen() {
       // Signing out locally matters more than the call succeeding.
       await authApi.logout(token).catch(() => undefined);
     }
+    // No navigation here: clearing the token re-renders this screen into the
+    // redirect below, so sign-out takes the same path as a cold load.
     signOut();
-    router.replace("/");
   });
 
   const fullName = [me?.firstName, me?.lastName].filter(Boolean).join(" ");
+
+  // After every hook, so the hook order never changes between renders.
+  if (!token) {
+    return <Redirect href="/" />;
+  }
 
   return (
     <PhoneFrame>

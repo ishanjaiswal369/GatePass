@@ -22,6 +22,8 @@ export interface VerifyCodeResult {
 
 export interface MeResult extends AuthUser {
   profileComplete: boolean;
+  /** Whether a HostProfile row exists, so the Host tab knows where it leads. */
+  hasHostProfile: boolean;
 }
 
 export interface SessionRow {
