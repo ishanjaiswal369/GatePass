@@ -4,16 +4,15 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { authApi } from "@/api";
 import {
   Button,
-  ChevronLeftIcon,
   DevCodeNotice,
   ErrorNotice,
   Field,
   MailIcon,
   PhoneFrame,
+  ScreenHeader,
   RestoringScreen,
 } from "@/components/ui";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
-import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, space } from "@/theme";
 
@@ -29,7 +28,6 @@ const MIN_PASSWORD_LENGTH = 10;
  */
 export default function PasswordScreen() {
   const { token, user, signIn, isRestoring } = useSession();
-  const insets = useScreenInsets();
 
   const signedIn = Boolean(token);
 
@@ -72,31 +70,24 @@ export default function PasswordScreen() {
 
   return (
     <PhoneFrame>
-      <ScrollView contentContainerStyle={[s.body, { paddingTop: insets.top + 20 }]}>
-        <Pressable
-          onPress={() => router.back()}
-          accessibilityRole="button"
-          accessibilityLabel="Back"
-          style={s.back}
-        >
-          <ChevronLeftIcon />
-        </Pressable>
-
-        <View style={s.heading}>
-          <Text style={s.title}>
-            {signedIn
+      <View style={s.screen}>
+        <ScreenHeader
+          title={
+            signedIn
               ? user?.hasPassword
                 ? "Change password"
                 : "Set a password"
-              : "Reset password"}
-          </Text>
-          <Text style={s.sub}>
-            {sent
-              ? `Enter the 6-digit code we sent to ${email.trim()}, then pick a new password.`
-              : "We'll email you a code to confirm it's you."}
-          </Text>
-        </View>
+              : "Reset password"
+          }
+          sub={
+            sent
+              ? `Enter the 6-digit code we sent to ${email.trim()}.`
+              : "We'll email you a code to confirm it's you."
+          }
+          onBack={() => router.back()}
+        />
 
+        <ScrollView contentContainerStyle={s.body}>
         {/* Signed in, the address is already known and is not up for editing:
             changing it here would mail a code to someone else's inbox. */}
         {signedIn ? (
@@ -179,17 +170,21 @@ export default function PasswordScreen() {
             />
           </>
         )}
-      </ScrollView>
+        </ScrollView>
+      </View>
     </PhoneFrame>
   );
 }
 
 const s = StyleSheet.create({
-  body: { paddingHorizontal: 20, paddingBottom: 20, gap: space.lg, flexGrow: 1 },
-  back: { width: 44, height: 44, marginLeft: -12, justifyContent: "center" },
-  heading: { gap: 6 },
-  title: { fontSize: 27, fontWeight: "700", color: colors.ink, letterSpacing: -0.5 },
-  sub: { fontSize: 15, color: colors.inkMuted, lineHeight: 22 },
+  screen: { flex: 1, backgroundColor: colors.surface },
+  body: {
+    paddingHorizontal: 20,
+    paddingTop: space.lg,
+    paddingBottom: 20,
+    gap: space.lg,
+    flexGrow: 1,
+  },
   emailRow: {
     flexDirection: "row",
     alignItems: "center",

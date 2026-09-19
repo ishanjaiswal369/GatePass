@@ -308,6 +308,18 @@ section currently holds, so "have I filled this in?" is answered on one screen
 instead of one tap inside each of them. Editing happens in
 `account/details`, `account/vehicles` and `account/address`.
 
+- **The hub refetches on focus, not on mount.** Returning from a sub-screen
+  does not remount it -- the hub is still on the stack -- so a plain
+  `useEffect` leaves every row showing whatever was true when it first opened.
+  Saving an address and coming back then read "Not set" while the database
+  held it, which looks like a failed write and is not one. `useFocusEffect`
+  from expo-router is the fix, and the same trap applies to any screen that
+  displays something an inner screen can change.
+- **Every screen leads with `ScreenHeader`**, the same ink band and 22px
+  bottom corners as the home screen, so the profile reads as part of the app
+  rather than a settings page bolted on. It owns the safe-area inset, which is
+  why the screens under it no longer take one.
+
 - **`app/password.tsx` serves both directions.** Signed in it is "set or
   change your password"; signed out it is forgot-password. Both prove the
   email the same way, so they are one screen and the only difference is

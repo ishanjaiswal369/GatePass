@@ -12,17 +12,16 @@ import { ApiError, profileApi } from "@/api";
 import {
   Button,
   CheckIcon,
-  ChevronLeftIcon,
   ErrorNotice,
   Field,
   PhoneFrame,
+  ScreenHeader,
   RestoringScreen,
   SegmentedControl,
   TrashIcon,
 } from "@/components/ui";
 import { VEHICLE_TYPES, type VehicleType } from "@/constants/enums";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
-import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, radius, space } from "@/theme";
 import type { Vehicle } from "@/types/api.types";
@@ -34,7 +33,6 @@ const TYPE_SEGMENTS = VEHICLE_TYPES.map((value) => ({
 
 export default function VehiclesScreen() {
   const { token, isRestoring } = useSession();
-  const insets = useScreenInsets();
 
   const [vehicles, setVehicles] = useState<Vehicle[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -95,23 +93,10 @@ export default function VehiclesScreen() {
 
   return (
     <PhoneFrame>
-      <ScrollView contentContainerStyle={[s.body, { paddingTop: insets.top + 20 }]}>
-        <Pressable
-          onPress={() => router.back()}
-          accessibilityRole="button"
-          accessibilityLabel="Back"
-          style={s.back}
-        >
-          <ChevronLeftIcon />
-        </Pressable>
+      <View style={s.screen}>
+        <ScreenHeader title="Vehicles" sub={"Saved vehicles save you typing a number plate at every booking."} onBack={() => router.back()} />
 
-        <View style={s.heading}>
-          <Text style={s.title}>Vehicles</Text>
-          <Text style={s.sub}>
-            Saved vehicles save you typing a number plate at every booking.
-          </Text>
-        </View>
-
+        <ScrollView contentContainerStyle={s.body}>
         {loadError ? <ErrorNotice message={loadError} /> : null}
 
         {vehicles === null ? (
@@ -190,17 +175,21 @@ export default function VehiclesScreen() {
             disabled={number.trim().length < 6}
           />
         </View>
-      </ScrollView>
+        </ScrollView>
+      </View>
     </PhoneFrame>
   );
 }
 
 const s = StyleSheet.create({
-  body: { paddingHorizontal: 20, paddingBottom: 20, gap: space.lg, flexGrow: 1 },
-  back: { width: 44, height: 44, marginLeft: -12, justifyContent: "center" },
-  heading: { gap: 6 },
-  title: { fontSize: 27, fontWeight: "700", color: colors.ink, letterSpacing: -0.5 },
-  sub: { fontSize: 15, color: colors.inkMuted, lineHeight: 22 },
+  screen: { flex: 1, backgroundColor: colors.surface },
+  body: {
+    paddingHorizontal: 20,
+    paddingTop: space.lg,
+    paddingBottom: 20,
+    gap: space.lg,
+    flexGrow: 1,
+  },
   loading: { paddingVertical: space.xl },
   empty: { fontSize: 14, color: colors.inkMuted },
   list: { gap: space.sm },

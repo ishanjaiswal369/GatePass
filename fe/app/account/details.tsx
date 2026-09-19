@@ -1,20 +1,18 @@
 import { Redirect, router } from "expo-router";
 import { useEffect, useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
-import { ApiError, authApi } from "@/api";
+import { authApi } from "@/api";
 import {
   Button,
-  ChevronLeftIcon,
   ErrorNotice,
   Field,
   PhoneFrame,
+  ScreenHeader,
   RestoringScreen,
 } from "@/components/ui";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
-import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, space } from "@/theme";
-import { Pressable } from "react-native";
 
 /** The API stores +91XXXXXXXXXX; the field edits the ten local digits. */
 function toLocal(phone: string | null | undefined): string {
@@ -23,7 +21,6 @@ function toLocal(phone: string | null | undefined): string {
 
 export default function DetailsScreen() {
   const { token, user, setUser, isRestoring } = useSession();
-  const insets = useScreenInsets();
 
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -70,21 +67,10 @@ export default function DetailsScreen() {
 
   return (
     <PhoneFrame>
-      <ScrollView contentContainerStyle={[s.body, { paddingTop: insets.top + 20 }]}>
-        <Pressable
-          onPress={() => router.back()}
-          accessibilityRole="button"
-          accessibilityLabel="Back"
-          style={s.back}
-        >
-          <ChevronLeftIcon />
-        </Pressable>
+      <View style={s.screen}>
+        <ScreenHeader title="Personal details" sub={user?.email} onBack={() => router.back()} />
 
-        <View style={s.heading}>
-          <Text style={s.title}>Personal details</Text>
-          <Text style={s.sub}>{user?.email}</Text>
-        </View>
-
+        <ScrollView contentContainerStyle={s.body}>
         <Field
           label="First name"
           value={firstName}
@@ -137,17 +123,21 @@ export default function DetailsScreen() {
           busy={busy}
           disabled={!firstName.trim() || (phone.length > 0 && phone.length < 10)}
         />
-      </ScrollView>
+        </ScrollView>
+      </View>
     </PhoneFrame>
   );
 }
 
 const s = StyleSheet.create({
-  body: { paddingHorizontal: 20, paddingBottom: 20, gap: space.lg, flexGrow: 1 },
-  back: { width: 44, height: 44, marginLeft: -12, justifyContent: "center" },
-  heading: { gap: 4 },
-  title: { fontSize: 27, fontWeight: "700", color: colors.ink, letterSpacing: -0.5 },
-  sub: { fontSize: 15, color: colors.inkMuted },
+  screen: { flex: 1, backgroundColor: colors.surface },
+  body: {
+    paddingHorizontal: 20,
+    paddingTop: space.lg,
+    paddingBottom: 20,
+    gap: space.lg,
+    flexGrow: 1,
+  },
   prefix: { fontSize: 15, fontWeight: "600", color: colors.inkMuted },
   saved: { fontSize: 13, color: colors.inkMuted },
   spacer: { flexGrow: 1, minHeight: space.lg },

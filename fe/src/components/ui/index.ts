@@ -35,5 +35,6 @@ export { DevCodeNotice, ErrorNotice } from "./Notice";
 export { SpotListItem } from "./SpotListItem";
 export { PhoneFrame } from "./PhoneFrame";
 export { RestoringScreen } from "./RestoringScreen";
+export { ScreenHeader } from "./ScreenHeader";
 export { SegmentedControl, type Segment } from "./SegmentedControl";
 export { SettingsRow } from "./SettingsRow";

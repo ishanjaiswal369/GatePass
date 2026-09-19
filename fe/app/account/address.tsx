@@ -1,23 +1,21 @@
 import { Redirect, router } from "expo-router";
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { profileApi } from "@/api";
 import {
   Button,
-  ChevronLeftIcon,
   ErrorNotice,
   Field,
   PhoneFrame,
+  ScreenHeader,
   RestoringScreen,
 } from "@/components/ui";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
-import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, radius, space } from "@/theme";
 
 export default function AddressScreen() {
   const { token, isRestoring } = useSession();
-  const insets = useScreenInsets();
 
   const [state, setState] = useState("");
   const [city, setCity] = useState("");
@@ -64,21 +62,10 @@ export default function AddressScreen() {
 
   return (
     <PhoneFrame>
-      <ScrollView contentContainerStyle={[s.body, { paddingTop: insets.top + 20 }]}>
-        <Pressable
-          onPress={() => router.back()}
-          accessibilityRole="button"
-          accessibilityLabel="Back"
-          style={s.back}
-        >
-          <ChevronLeftIcon />
-        </Pressable>
+      <View style={s.screen}>
+        <ScreenHeader title="Address" sub={"Where you live, not where you park."} onBack={() => router.back()} />
 
-        <View style={s.heading}>
-          <Text style={s.title}>Address</Text>
-          <Text style={s.sub}>Where you live, not where you park.</Text>
-        </View>
-
+        <ScrollView contentContainerStyle={s.body}>
         {/* Country is fixed rather than a one-option picker: the API refuses to
             take it from the client, so a control that cannot change anything
             would only invite the question. */}
@@ -127,17 +114,21 @@ export default function AddressScreen() {
         <View style={s.spacer} />
 
         <Button label="Save address" size="lg" onPress={save} busy={busy} disabled={!canSave} />
-      </ScrollView>
+        </ScrollView>
+      </View>
     </PhoneFrame>
   );
 }
 
 const s = StyleSheet.create({
-  body: { paddingHorizontal: 20, paddingBottom: 20, gap: space.lg, flexGrow: 1 },
-  back: { width: 44, height: 44, marginLeft: -12, justifyContent: "center" },
-  heading: { gap: 4 },
-  title: { fontSize: 27, fontWeight: "700", color: colors.ink, letterSpacing: -0.5 },
-  sub: { fontSize: 15, color: colors.inkMuted },
+  screen: { flex: 1, backgroundColor: colors.surface },
+  body: {
+    paddingHorizontal: 20,
+    paddingTop: space.lg,
+    paddingBottom: 20,
+    gap: space.lg,
+    flexGrow: 1,
+  },
   country: {
     flexDirection: "row",
     alignItems: "center",
