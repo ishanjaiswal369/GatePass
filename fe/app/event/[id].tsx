@@ -2,14 +2,19 @@ import { Redirect, router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { ApiError, eventsApi } from "@/api";
-import { ChevronLeftIcon, ErrorNotice, PhoneFrame } from "@/components/ui";
+import {
+  ChevronLeftIcon,
+  ErrorNotice,
+  PhoneFrame,
+  RestoringScreen,
+} from "@/components/ui";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, radius, space } from "@/theme";
 import type { EventDetail } from "@/types/api.types";
 
 export default function EventScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { token } = useSession();
+  const { token, isRestoring } = useSession();
   const [event, setEvent] = useState<EventDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,6 +38,10 @@ export default function EventScreen() {
       cancelled = true;
     };
   }, [token, id]);
+
+  if (isRestoring) {
+    return <RestoringScreen />;
+  }
 
   if (!token) {
     return <Redirect href="/" />;

@@ -11,6 +11,7 @@ import {
   Field,
   PhoneFrame,
   type NavKey,
+  RestoringScreen,
 } from "@/components/ui";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useDriverLocation } from "@/hooks/useDriverLocation";
@@ -34,7 +35,7 @@ function formatMinute(minute: number) {
  * -- a user can be a driver and a host at the same time.
  */
 export default function HostScreen() {
-  const { token } = useSession();
+  const { token, isRestoring } = useSession();
   const [profile, setProfile] = useState<HostProfile | null>(null);
   const [availability, setAvailability] = useState<HostAvailabilityRow[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -117,6 +118,10 @@ export default function HostScreen() {
     if (key === "bookings") router.push("/bookings");
     if (key === "profile") router.push("/account");
   };
+
+  if (isRestoring) {
+    return <RestoringScreen />;
+  }
 
   if (!token) {
     return <Redirect href="/" />;

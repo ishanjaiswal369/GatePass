@@ -20,6 +20,7 @@ import {
   SegmentedControl,
   SpotListItem,
   type NavKey,
+  RestoringScreen,
 } from "@/components/ui";
 import { useDriverLocation } from "@/hooks/useDriverLocation";
 import { useSession } from "@/providers/SessionProvider";
@@ -49,7 +50,7 @@ function passWhen(eventDate: string | null): string {
 }
 
 export default function HomeScreen() {
-  const { token, user } = useSession();
+  const { token, user, isRestoring } = useSession();
   const [tab, setTab] = useState<Tab>("events");
   const [query, setQuery] = useState("");
 
@@ -178,6 +179,10 @@ export default function HomeScreen() {
   }, []);
 
   // After every hook, so hook order never changes between renders.
+  if (isRestoring) {
+    return <RestoringScreen />;
+  }
+
   if (!token) {
     return <Redirect href="/" />;
   }

@@ -10,6 +10,7 @@ import {
   PhoneFrame,
   SegmentedControl,
   type NavKey,
+  RestoringScreen,
 } from "@/components/ui";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, space } from "@/theme";
@@ -23,7 +24,7 @@ const SCOPES = [
 ];
 
 export default function BookingsScreen() {
-  const { token } = useSession();
+  const { token, isRestoring } = useSession();
   const [scope, setScope] = useState<Scope>("upcoming");
   const [rows, setRows] = useState<BookingRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -57,6 +58,10 @@ export default function BookingsScreen() {
     if (key === "host") router.push("/host");
     if (key === "profile") router.push("/account");
   };
+
+  if (isRestoring) {
+    return <RestoringScreen />;
+  }
 
   if (!token) {
     return <Redirect href="/" />;

@@ -1,4 +1,4 @@
-import { router } from "expo-router";
+import { Redirect, router } from "expo-router";
 import { useCallback, useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { authApi } from "@/api";
@@ -10,6 +10,7 @@ import {
   Field,
   MailIcon,
   PhoneFrame,
+  RestoringScreen,
   SegmentedControl,
 } from "@/components/ui";
 import {
@@ -35,7 +36,7 @@ export default function EmailScreen() {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
 
-  const { signIn } = useSession();
+  const { signIn, token, isRestoring } = useSession();
   const isSignup = mode === "signup";
 
   // Google lands in the same place as a verified code: same session, same
@@ -65,6 +66,17 @@ export default function EmailScreen() {
 
   const canSubmit =
     email.trim().length > 0 && (!isSignup || firstName.trim().length > 0);
+
+  // After every hook, so hook order never changes between renders.
+  if (isRestoring) {
+    return <RestoringScreen />;
+  }
+
+  // Reloading with a stored session should land on the app, not on a sign-in
+  // form the user has already been through.
+  if (token) {
+    return <Redirect href="/home" />;
+  }
 
   return (
     <PhoneFrame>

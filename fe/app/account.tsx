@@ -8,6 +8,7 @@ import {
   DataRow,
   ErrorNotice,
   PhoneFrame,
+  RestoringScreen,
 } from "@/components/ui";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useSession } from "@/providers/SessionProvider";
@@ -15,7 +16,7 @@ import type { MeResult, SessionRow } from "@/types/api.types";
 import { colors, space, type } from "@/theme";
 
 export default function AccountScreen() {
-  const { token, signOut } = useSession();
+  const { token, signOut, isRestoring } = useSession();
   const [me, setMe] = useState<MeResult | null>(null);
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -58,6 +59,10 @@ export default function AccountScreen() {
   const fullName = [me?.firstName, me?.lastName].filter(Boolean).join(" ");
 
   // After every hook, so the hook order never changes between renders.
+  if (isRestoring) {
+    return <RestoringScreen />;
+  }
+
   if (!token) {
     return <Redirect href="/" />;
   }

@@ -3,7 +3,12 @@ import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import QRCode from "react-native-qrcode-svg";
 import { ApiError, bookingsApi } from "@/api";
-import { ChevronLeftIcon, ErrorNotice, PhoneFrame } from "@/components/ui";
+import {
+  ChevronLeftIcon,
+  ErrorNotice,
+  PhoneFrame,
+  RestoringScreen,
+} from "@/components/ui";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, radius, space } from "@/theme";
 import type { GatePassResult } from "@/types/api.types";
@@ -13,7 +18,7 @@ const REFRESH_MARGIN_SECONDS = 20;
 
 export default function PassScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { token } = useSession();
+  const { token, isRestoring } = useSession();
   const [result, setResult] = useState<GatePassResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -58,6 +63,10 @@ export default function PassScreen() {
       if (timer) clearTimeout(timer);
     };
   }, [load]);
+
+  if (isRestoring) {
+    return <RestoringScreen />;
+  }
 
   if (!token) {
     return <Redirect href="/" />;

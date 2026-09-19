@@ -302,6 +302,15 @@ Three decisions worth knowing:
   page with nothing in the terminal.** `fe/index.js` re-exports
   `expo-router/entry` from inside the project, which makes the URL a plain
   `/index.bundle` everywhere. Do not point `main` back at the package.
+- **The session survives a reload**, and restoring it is asynchronous.
+  `SessionProvider` keeps the token in `expo-secure-store` on native and in
+  `localStorage` on web (SecureStore has no web implementation). The stored
+  token is not trusted on sight: restoring calls `/auth/me` once and keeps it
+  only if the API still accepts it, since the session row can be revoked from
+  another device. While that is in flight `isRestoring` is true, and **every
+  protected screen must wait for it** -- a guard that reads `token === null`
+  on first render sends a signed-in user to sign-in before the token loads,
+  which looks exactly like the persistence not working.
 - **An auth gate is a `<Redirect>`, never `router.replace` in an effect.** A
   child screen's `useEffect` runs before the root layout has mounted its
   navigator, so a cold load of `/account` while signed out crashed with
@@ -564,7 +573,6 @@ Also missing:
   wrong the day it crosses a timezone.
 - **Google on native.** Only the web client id is wired; iOS and Android need
   a dev build.
-- **Session persistence** on the app (`expo-secure-store`).
 - **Checkout.** `event/[id]` lists prices and availability but cannot book:
   that is the `design/Booking` flow and it needs Razorpay. The driver home,
   its two tabs, the QR pass, bookings and host screens are built.
