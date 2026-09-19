@@ -87,6 +87,19 @@ export function registerApi(app: App): void {
     request(authRequests.removeSession, authController.removeSession)
   );
   app.get("/auth/me", driver, authController.me);
+  // Account deletion is soft and needs an emailed code, so a stolen session
+  // alone cannot remove an account.
+  app.get("/auth/account/deletion", driver, authController.deletionStatus);
+  app.post(
+    "/auth/account/delete/request-code",
+    driver,
+    request(authRequests.requestDeletionCode, authController.requestDeletionCode)
+  );
+  app.post(
+    "/auth/account/delete",
+    driver,
+    request(authRequests.deleteAccount, authController.deleteAccount)
+  );
   app.patch(
     "/auth/me",
     driver,

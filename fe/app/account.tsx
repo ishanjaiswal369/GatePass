@@ -1,18 +1,20 @@
 import { Redirect, router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
-import { ApiError, authApi, profileApi } from "@/api";
+import { ApiError, authApi } from "@/api";
 import {
   BottomNav,
   Button,
   Card,
   ErrorNotice,
+  HeaderAction,
   LockIcon,
   LogoutIcon,
   PhoneFrame,
   RestoringScreen,
   ScreenHeader,
   SettingsRow,
+  TrashIcon,
   UserIcon,
   type NavKey,
 } from "@/components/ui";
@@ -51,23 +53,17 @@ export default function AccountScreen() {
   const { token, signOut, isRestoring } = useSession();
 
   const [me, setMe] = useState<MeResult | null>(null);
-  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
-  const [address, setAddress] = useState<UserAddress | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  // One request: /auth/me eager-loads vehicles and address with the user.
+  const vehicles = me?.vehicles ?? [];
+  const address = me?.address ?? null;
 
   const load = useCallback(async () => {
     if (!token) return;
 
     try {
-      const [user, vehicleList, addressResult] = await Promise.all([
-        authApi.getMe(token),
-        profileApi.listVehicles(token),
-        profileApi.getAddress(token),
-      ]);
-
-      setMe(user);
-      setVehicles(vehicleList.vehicles);
-      setAddress(addressResult.address);
+      setMe(await authApi.getMe(token));
       setLoadError(null);
     } catch (err) {
       setLoadError(
@@ -121,6 +117,14 @@ export default function AccountScreen() {
           title={fullName || "Your profile"}
           sub={me?.email}
           initial={initial}
+          leading={
+            <HeaderAction
+              label="Log out"
+              icon={<LogoutIcon size={15} />}
+              onPress={endSession}
+              busy={busy}
+            />
+          }
         />
 
         <ScrollView contentContainerStyle={s.body}>
@@ -163,12 +167,11 @@ export default function AccountScreen() {
           <View style={s.spacer} />
 
           <Button
-            label="Log out"
+            label="Delete account"
             size="lg"
             variant="danger"
-            leadingIcon={<LogoutIcon />}
-            onPress={endSession}
-            busy={busy}
+            leadingIcon={<TrashIcon color={colors.danger} />}
+            onPress={() => router.push("/account/delete")}
           />
         </ScrollView>
 

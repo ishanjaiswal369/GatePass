@@ -10,11 +10,20 @@ export interface SaveVehicleInput {
   isDefault?: boolean;
 }
 
+/**
+ * Default first, then oldest first. Shared with /auth/me, which eager-loads
+ * vehicles, so both places always list them in the same order.
+ */
+export const VEHICLE_ORDER: Prisma.VehicleOrderByWithRelationInput[] = [
+  { isDefault: "desc" },
+  { createdAt: "asc" },
+];
+
 /** Nothing internal here, so the whole row is safe to return. */
 export async function list(userId: string) {
   return prisma.vehicle.findMany({
     where: { userId },
-    orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
+    orderBy: VEHICLE_ORDER,
   });
 }
 

@@ -291,6 +291,63 @@ Also driven through the app in the browser.
   remaining.
 - `UserAddress` is **not** `HostProfile`'s address: that one is where a parking
   spot is, this is where its owner lives, and a user can have both.
+- **`/auth/me` eager-loads vehicles and address** in the same Prisma query as
+  the user (`userService.getProfile`, with `include`), and also derives
+  `hasHostProfile` from that include rather than a second lookup. The profile
+  hub went from three requests (`/auth/me`, `/vehicles`, `/address`) to one.
+  `GET` and `PATCH /auth/me` share one response builder (`meResponse` in
+  `auth.controller.ts`) so their shapes cannot drift. `/vehicles` and
+  `/address` still exist for the edit screens; vehicle order is one shared
+  constant, `VEHICLE_ORDER`, so both routes list them identically.
+
+### Account deletion — soft
+
+`POST /auth/account/delete { code }` **soft-deletes**: the `User` row and
+everything attached to it (profile, vehicles, address, bookings, payments,
+host profile) stay exactly as they were, and `User.deletedAt` is stamped
+(migration 0021). Nothing is scrubbed, so restoring an account later is a
+matter of clearing `deletedAt`. A hard delete was not an option anyway:
+`Booking.driverId` has no cascade, so the database refuses it for anyone who
+has booked, and cascading a host profile would orphan pending payouts.
+
+What deletion does change:
+
+- **Every session is revoked**, this device included.
+- **Every sign-in path refuses the account** with 403 "This account has been
+  deleted.": code verify, Google, password login, password set.
+  `assertNotDeleted()` in `auth.service.ts` only runs *after* the caller has
+  proven the identity (right code, verified Google token, right password), so
+  it tells nothing to someone who does not own the address. A wrong password
+  still gets the generic 401, and `request-code` / forgot-password answer
+  exactly as for an unknown address.
+- **A host's spot leaves search**: its listings go to `CANCELLED` and its
+  availability windows are switched off. Restoring would need the host to
+  re-enable them.
+- Because the email stays on the row, **the same email cannot sign up again**
+  while the account is deleted. Restoring is the way back.
+
+**It needs an emailed code** (`/auth/account/delete/request-code`, purpose
+`ACCOUNT_DELETE`, same attempt cap as login), so an unlocked phone or a stolen
+session cannot delete an account. The address is taken from the session,
+never the request. **Blockers are checked before a code is sent and again
+before deleting** (`GET /auth/account/deletion` lists them): an upcoming
+(`PENDING`/`CONFIRMED`) booking as a driver, upcoming bookings at the user's
+spot, an unfinished payout (`PENDING`/`PROCESSING`/`DISPUTED`), or an
+organizer membership. Each is a person who would be left stranded.
+
+Soft deletion keeps personal data. If a user asks for erasure under India's
+DPDP Act, that is a separate step — a purge job that scrubs the PII of rows
+deleted long enough ago — which does not exist yet.
+
+Verified 2026-09-19 against the running API, 25/25: eager-loaded vehicles and
+address on GET and PATCH; no blockers on a clean account; wrong code with
+attempts; no token 401; delete 204; both devices signed out; row, name,
+password, vehicle and address all still present with `deletedAt` set; wrong
+password 401 vs right password 403; forgot-password silent; login code
+request 200 but verify 403; host listing `CANCELLED` with host profile kept;
+an open booking blocking the driver (409 before any code is sent) and the
+host of that spot, both unblocked once it completed. Also driven through the
+app end to end.
 
 ---
 
@@ -335,6 +392,17 @@ cooldown, and a verified-email state on name capture.
 section currently holds, so "have I filled this in?" is answered on one screen
 instead of one tap inside each of them. Editing happens in
 `account/details`, `account/vehicles` and `account/address`.
+
+- **The hub is one request**: `/auth/me` carries vehicles and address, so the
+  rows come from that alone.
+- **Log out is a pill in the header's top-left** (`HeaderAction`, through
+  `ScreenHeader`'s `leading` slot), with the avatar moved to the right. It is
+  built from the same raised-ink surface as the avatar so the two read as a
+  pair, and it clears 44px through `hitSlop` while staying 34px tall.
+- **Delete account sits at the bottom** as a `danger` button, and opens
+  `account/delete`: what deletion does, any blockers (shown before a code is
+  ever requested), then the emailed code in the six-box input and a final
+  "Delete my account". On success it signs out locally and returns to sign-in.
 
 - **The hub refetches on focus, not on mount.** Returning from a sub-screen
   does not remount it -- the hub is still on the stack -- so a plain
@@ -497,7 +565,7 @@ it needs `expo-secure-store` on native and is a separate decision.
 
 | Table | Purpose |
 |---|---|
-| `User` | `email` unique + required, `googleId` unique + nullable, `phone` optional (E.164 `+91…`), `passwordHash`/`passwordSetAt` nullable, `firstName`/`lastName` nullable, `role` |
+| `User` | `email` unique + required, `googleId` unique + nullable, `phone` optional (E.164 `+91…`), `passwordHash`/`passwordSetAt` nullable, `firstName`/`lastName` nullable, `role`, `deletedAt` nullable (soft delete) |
 | `EmailVerification` | 6-digit `code`, 5-minute expiry, `verified`, `attempts`, `purpose`, pending `firstName`/`lastName`; indexed on `(email, purpose, createdAt)` for rate limiting |
 | `Vehicle` | saved number plate + type per user, one `isDefault`; unique on `(userId, vehicleNumber)` |
 | `UserAddress` | the driver's own address, 1:1 with `User`; `country` fixed to India |
@@ -579,6 +647,7 @@ Hand-written SQL, one per concern, so each change is reviewable in isolation.
 | `0018_email_verification_purpose` | `purpose` on codes, so login and reset cannot share one | yes |
 | `0019_user_password` | `User.passwordHash`, `passwordSetAt`, both nullable | yes |
 | `0020_user_vehicle_and_address` | `Vehicle`, `UserAddress` | yes |
+| `0021_user_deleted_at` | `User.deletedAt`, for soft account deletion | yes |
 
 All twenty are applied to the local database.
 
@@ -612,8 +681,11 @@ open group left.
 | POST | `/auth/request-code` | — | Working; rate limited |
 | POST | `/auth/verify-code` | — | Working; guess-capped |
 | POST | `/auth/google` | — | Working; needs a client id configured |
-| GET | `/auth/me` | JWT | Working; returns `profileComplete` + `hasHostProfile` |
-| PATCH | `/auth/me` | JWT | Working |
+| GET | `/auth/me` | JWT | Working; `profileComplete`, `hasHostProfile`, and eager-loaded `vehicles` + `address` |
+| PATCH | `/auth/me` | JWT | Working; returns the same shape as GET |
+| GET | `/auth/account/deletion` | JWT | Working; lists what blocks deletion |
+| POST | `/auth/account/delete/request-code` | JWT | Working; mails an `ACCOUNT_DELETE` code, 409 if blocked |
+| POST | `/auth/account/delete` | JWT | Working; soft-deletes, 204 |
 | POST | `/auth/password/request-code` | — | Working; mails a `PASSWORD_RESET` code |
 | POST | `/auth/password/set` | — | Working; sets the password, returns a session |
 | POST | `/auth/login` | — | Working; email + password |
@@ -653,7 +725,7 @@ would force the strictest policy of the three onto all of them.
 
 | Call | Fills |
 |---|---|
-| `GET /auth/me` | avatar initial, and `hasHostProfile` (also on every sign-in response) |
+| `GET /auth/me` | avatar initial, and `hasHostProfile` (also on every sign-in response); also vehicles and address for the profile hub |
 | `GET /bookings/active` | the ACTIVE PASS card (200 with `booking: null` when there is none) |
 | `GET /events?limit=…` | the UPCOMING NEAR YOU list |
 

@@ -12,6 +12,7 @@ import {
 } from "../integrations/google/verify.js";
 import {
   badRequest,
+  forbidden,
   notFound,
   serviceUnavailable,
   tooManyRequests,
@@ -33,6 +34,19 @@ async function sessionUser(user: User) {
     ...toAuthUser(user),
     hasHostProfile: await hostService.exists(user.id),
   };
+}
+
+/**
+ * Soft-deleted accounts keep their row and data but can never sign in again.
+ *
+ * Only called after the caller has proven the identity -- a correct code, a
+ * verified Google token, or the right password -- so saying "deleted" tells
+ * nothing to someone who does not already own the address.
+ */
+function assertNotDeleted(user: { deletedAt: Date | null }): void {
+  if (user.deletedAt) {
+    throw forbidden("This account has been deleted.");
+  }
 }
 
 const CODE_TTL_MINUTES = 5;
@@ -201,6 +215,10 @@ export async function verifyCode(input: VerifyCodeInput) {
 
   let user = await prisma.user.findUnique({ where: { email } });
 
+  if (user) {
+    assertNotDeleted(user);
+  }
+
   if (!user) {
     // New account, created only now that the email is proven. The name is
     // absent when the code came from the sign-in screen; that user lands with
@@ -272,10 +290,16 @@ export async function signInWithGoogle(input: GoogleSignInInput) {
 
   let user = await prisma.user.findUnique({ where: { googleId } });
 
+  if (user) {
+    assertNotDeleted(user);
+  }
+
   if (!user) {
     const byEmail = await prisma.user.findUnique({ where: { email } });
 
     if (byEmail) {
+      // Checked before linking, so a deleted account never gains a Google id.
+      assertNotDeleted(byEmail);
       // Existing email-code account adopts this Google identity. The name is
       // only filled where we have none -- an account's own name is never
       // overwritten, same rule as verifyCode.
@@ -328,10 +352,13 @@ export async function requestPasswordCode(
 ): Promise<{ code?: string }> {
   const user = await prisma.user.findUnique({
     where: { email: input.email },
-    select: { id: true },
+    select: { id: true, deletedAt: true },
   });
 
-  if (!user) {
+  // A deleted account answers exactly like an unknown one: no mail, same
+  // response, so this endpoint still reveals nothing about which addresses
+  // exist.
+  if (!user || user.deletedAt) {
     return {};
   }
 
@@ -401,6 +428,8 @@ export async function setPassword(input: SetPasswordInput) {
     throw badRequest("Invalid or expired code");
   }
 
+  assertNotDeleted(user);
+
   await prisma.emailVerification.update({
     where: { id: verification.id },
     data: { verified: true },
@@ -460,6 +489,10 @@ export async function loginWithPassword(input: LoginWithPasswordInput) {
   if (!user || !user.passwordHash || !ok) {
     throw unauthorized("Incorrect email or password");
   }
+
+  // After the password check: the right password proves ownership, so only
+  // then is it safe to say the account was deleted.
+  assertNotDeleted(user);
 
   const { token } = await createSession(
     { id: user.id, email: user.email, role: user.role },
@@ -573,4 +606,55 @@ export async function changePassword(input: ChangePasswordInput) {
   changePasswordFailures.delete(userId);
 
   return { user: await sessionUser(updated), signedOutSessions: count };
+}
+
+/**
+ * Checks an emailed code for a given purpose and spends it, with the same
+ * attempt cap as login: five wrong guesses burn the row, after which even the
+ * right code fails and a new one is needed.
+ */
+export async function consumeCode(input: {
+  email: string;
+  purpose: VerificationPurpose;
+  code: string;
+}): Promise<void> {
+  const { email, purpose, code } = input;
+
+  const verification = await prisma.emailVerification.findFirst({
+    where: {
+      email,
+      purpose,
+      verified: false,
+      expiresAt: { gt: new Date() },
+      attempts: { lt: MAX_VERIFY_ATTEMPTS },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  if (!verification) {
+    throw badRequest("Invalid or expired code");
+  }
+
+  if (verification.code !== code) {
+    const { attempts } = await prisma.emailVerification.update({
+      where: { id: verification.id },
+      data: { attempts: { increment: 1 } },
+      select: { attempts: true },
+    });
+
+    const remaining = MAX_VERIFY_ATTEMPTS - attempts;
+
+    if (remaining <= 0) {
+      throw tooManyRequests("Too many incorrect attempts. Request a new code.");
+    }
+
+    throw badRequest(
+      `Invalid code. ${remaining} attempt${remaining === 1 ? "" : "s"} left.`
+    );
+  }
+
+  await prisma.emailVerification.update({
+    where: { id: verification.id },
+    data: { verified: true },
+  });
 }

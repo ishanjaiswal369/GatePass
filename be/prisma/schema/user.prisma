@@ -15,6 +15,10 @@ model User {
   passwordSetAt   DateTime?
   gstNumber       String?
   bankAccountId   String?
+  // Set when the user deletes their account. Deletion is soft: the row and
+  // all its data are kept as they were, sign-in is refused, and clearing this
+  // restores the account. Bookings, payments and settlements point here too.
+  deletedAt       DateTime?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

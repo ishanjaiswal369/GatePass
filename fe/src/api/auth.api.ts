@@ -1,5 +1,6 @@
 import type {
   ChangePasswordResult,
+  DeletionStatus,
   MeResult,
   SessionRow,
   VerifyCodeResult,
@@ -98,5 +99,30 @@ export const changePassword = (
   request<ChangePasswordResult>("/auth/password/change", {
     method: "POST",
     body: input,
+    token,
+  });
+
+/** What would stop the account being deleted now. */
+export const getDeletionStatus = (token: string) =>
+  request<DeletionStatus>("/auth/account/deletion", { token });
+
+/**
+ * Mails a confirmation code to the signed-in account's own address -- the API
+ * takes the address from the session, never from the app.
+ */
+export const requestDeletionCode = async (token: string) =>
+  request<{ message: string; code?: string }>(
+    "/auth/account/delete/request-code",
+    { method: "POST", body: await deviceFields(), token }
+  );
+
+/**
+ * Soft-deletes the account. Every session is revoked server-side, including
+ * this one, so the caller must sign out locally afterwards.
+ */
+export const deleteAccount = (token: string, code: string) =>
+  request<null>("/auth/account/delete", {
+    method: "POST",
+    body: { code },
     token,
   });

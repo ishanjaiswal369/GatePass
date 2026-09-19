@@ -106,6 +106,15 @@ const changePasswordBody = z.object({
   newPassword: passwordSchema,
 });
 
+const requestDeletionCodeBody = z.object({
+  deviceId: z.string().min(1),
+  deviceType: z.enum(DEVICE_TYPES).default(DEFAULT_DEVICE_TYPE),
+});
+
+const deleteAccountBody = z.object({
+  code: z.string().regex(/^\d{6}$/, "must be a 6-digit code"),
+});
+
 const removeSessionParams = z.object({
   sessionId: z.string().uuid(),
 });
@@ -119,6 +128,8 @@ export const authRequests = {
   setPassword: { body: setPasswordBody } satisfies RequestSchemas,
   login: { body: loginBody } satisfies RequestSchemas,
   changePassword: { body: changePasswordBody } satisfies RequestSchemas,
+  requestDeletionCode: { body: requestDeletionCodeBody } satisfies RequestSchemas,
+  deleteAccount: { body: deleteAccountBody } satisfies RequestSchemas,
   removeSession: { params: removeSessionParams } satisfies RequestSchemas,
 };
 
@@ -135,3 +146,7 @@ export type LoginInput = RequestInput<typeof authRequests.login>;
 export type ChangePasswordInput = RequestInput<
   typeof authRequests.changePassword
 >;
+export type RequestDeletionCodeInput = RequestInput<
+  typeof authRequests.requestDeletionCode
+>;
+export type DeleteAccountInput = RequestInput<typeof authRequests.deleteAccount>;

@@ -40,8 +40,19 @@ export interface ChangePasswordResult {
   signedOutSessions: number;
 }
 
+/**
+ * GET/PATCH /auth/me. Vehicles and address are eager-loaded in the same
+ * response, so the profile hub is one request rather than three.
+ */
 export interface MeResult extends AuthUser {
   profileComplete: boolean;
+  vehicles: Vehicle[];
+  address: UserAddress | null;
+}
+
+export interface DeletionStatus {
+  /** Why the account cannot be deleted right now. Empty means it can. */
+  blockers: string[];
 }
 
 export interface SessionRow {

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { colors, HIT_SLOP_MIN, space } from "@/theme";
@@ -17,12 +18,18 @@ export function ScreenHeader({
   sub,
   initial,
   onBack,
+  leading,
 }: {
   title: string;
   sub?: string | null;
   /** Renders the avatar disc instead of a back button, for a root screen. */
   initial?: string;
   onBack?: () => void;
+  /**
+   * An action for the top-left corner of a root screen, which has no back
+   * button to put there. The avatar moves to the right to make room.
+   */
+  leading?: ReactNode;
 }) {
   const insets = useScreenInsets();
 
@@ -38,10 +45,12 @@ export function ScreenHeader({
           >
             <ChevronLeftIcon color={colors.onInk} />
           </Pressable>
+        ) : leading ? (
+          leading
         ) : null}
 
         {initial ? (
-          <View style={s.avatar}>
+          <View style={[s.avatar, leading ? s.avatarRight : null]}>
             <Text style={s.avatarText}>{initial}</Text>
           </View>
         ) : null}
@@ -82,6 +91,7 @@ const s = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  avatarRight: { marginLeft: "auto" },
   avatarText: { fontSize: 14, fontWeight: "600", color: colors.onInk },
   copy: { gap: 4 },
   title: {

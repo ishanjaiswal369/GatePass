@@ -10,11 +10,37 @@ import type {
   SetPasswordInput,
   LoginInput,
   ChangePasswordInput,
+  RequestDeletionCodeInput,
+  DeleteAccountInput,
 } from "../requests/auth.request.js";
+import * as accountService from "../services/account.service.js";
 import * as authService from "../services/auth.service.js";
 import * as sessionService from "../services/session.service.js";
-import * as hostService from "../services/host.service.js";
 import * as userService from "../services/user.service.js";
+
+/**
+ * The /auth/me shape, shared by GET and PATCH so both always agree. Vehicles
+ * and address are eager-loaded in the same query as the user -- the profile
+ * screen shows all three, and fetching them separately cost two extra round
+ * trips on every visit.
+ */
+async function meResponse(userId: string) {
+  const user = await userService.getProfile(userId);
+
+  if (!user) {
+    throw notFound("User not found");
+  }
+
+  const { vehicles, address, hostProfile } = user;
+
+  return {
+    ...userService.toAuthUser(user),
+    profileComplete: user.firstName !== null,
+    hasHostProfile: hostProfile !== null,
+    vehicles,
+    address,
+  };
+}
 
 export const authController = {
   requestCode: async (
@@ -119,23 +145,7 @@ export const authController = {
   },
 
   me: async (request: FastifyRequest, reply: FastifyReply) => {
-    const [user, isHost] = await Promise.all([
-      userService.getById(request.user.userId),
-      // Carried here rather than behind its own request: the bottom nav's Host
-      // item has to know on first paint whether it opens onboarding or the
-      // dashboard, and a second round-trip would make it flicker.
-      hostService.exists(request.user.userId),
-    ]);
-
-    if (!user) {
-      throw notFound("User not found");
-    }
-
-    return reply.send({
-      ...userService.toAuthUser(user),
-      profileComplete: user.firstName !== null,
-      hasHostProfile: isHost,
-    });
+    return reply.send(await meResponse(request.user.userId));
   },
 
   updateMe: async (
@@ -143,15 +153,35 @@ export const authController = {
     request: FastifyRequest,
     reply: FastifyReply
   ) => {
-    const user = await userService.updateProfile(
+    await userService.updateProfile(request.user.userId, input.body);
+    return reply.send(await meResponse(request.user.userId));
+  },
+
+  /** What would stop a deletion now, so the screen can say so up front. */
+  deletionStatus: async (request: FastifyRequest, reply: FastifyReply) => {
+    return reply.send({
+      blockers: await accountService.deletionBlockers(request.user.userId),
+    });
+  },
+
+  requestDeletionCode: async (
+    input: RequestDeletionCodeInput,
+    request: FastifyRequest,
+    reply: FastifyReply
+  ) => {
+    const { code } = await accountService.requestDeletionCode(
       request.user.userId,
       input.body
     );
+    return reply.send({ message: "Confirmation code sent", code });
+  },
 
-    return reply.send({
-      ...userService.toAuthUser(user),
-      profileComplete: user.firstName !== null,
-      hasHostProfile: await hostService.exists(request.user.userId),
-    });
+  deleteAccount: async (
+    input: DeleteAccountInput,
+    request: FastifyRequest,
+    reply: FastifyReply
+  ) => {
+    await accountService.deleteAccount(request.user.userId, input.body.code);
+    return reply.code(204).send();
   },
 };

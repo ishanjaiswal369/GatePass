@@ -2,6 +2,7 @@ import { Prisma, type User } from "@prisma/client";
 import type { Role } from "../constants/enums/index.js";
 import { conflict } from "../lib/errors.js";
 import { prisma } from "../lib/prisma.js";
+import { VEHICLE_ORDER } from "./vehicle.service.js";
 
 export interface CreateUserInput {
   email: string;
@@ -42,6 +43,22 @@ export async function list() {
 
 export async function getById(id: string) {
   return prisma.user.findUnique({ where: { id } });
+}
+
+/**
+ * Everything the profile screen shows, in one query: the user plus vehicles,
+ * address and whether a host profile exists. /auth/me returns this so the app
+ * does not follow up with /vehicles and /address on every visit.
+ */
+export async function getProfile(id: string) {
+  return prisma.user.findUnique({
+    where: { id },
+    include: {
+      vehicles: { orderBy: VEHICLE_ORDER },
+      address: true,
+      hostProfile: { select: { id: true } },
+    },
+  });
 }
 
 export async function create(input: CreateUserInput) {

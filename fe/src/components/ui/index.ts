@@ -30,6 +30,7 @@ export {
   UserIcon,
 } from "./Icon";
 export { EventListItem } from "./EventListItem";
+export { HeaderAction } from "./HeaderAction";
 export { HomeHeader } from "./HomeHeader";
 export { LocationPrompt } from "./LocationPrompt";
 export { DevCodeNotice, ErrorNotice } from "./Notice";

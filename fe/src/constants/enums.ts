@@ -31,7 +31,11 @@ export const LISTING_TYPES = [
 ] as const;
 export type ListingType = (typeof LISTING_TYPES)[number];
 
-export const VERIFICATION_PURPOSES = ["LOGIN", "PASSWORD_RESET"] as const;
+export const VERIFICATION_PURPOSES = [
+  "LOGIN",
+  "PASSWORD_RESET",
+  "ACCOUNT_DELETE",
+] as const;
 export type VerificationPurpose = (typeof VERIFICATION_PURPOSES)[number];
 
 export const VERIFICATION_STATUSES = [
