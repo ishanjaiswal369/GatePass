@@ -29,6 +29,12 @@ export interface VerifyCodeResult {
   profileComplete: boolean;
 }
 
+export interface ChangePasswordResult {
+  user: AuthUser;
+  /** Other devices signed out by the change; the caller's own is kept. */
+  signedOutSessions: number;
+}
+
 export interface MeResult extends AuthUser {
   profileComplete: boolean;
   /** Whether a HostProfile row exists, so the Host tab knows where it leads. */

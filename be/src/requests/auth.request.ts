@@ -99,6 +99,13 @@ const loginBody = z.object({
   fcmToken: z.string().min(1).optional(),
 });
 
+const changePasswordBody = z.object({
+  // Not passwordSchema: the current password may predate a rule change, and
+  // refusing it here would lock that user out of changing it.
+  currentPassword: z.string().min(1),
+  newPassword: passwordSchema,
+});
+
 const removeSessionParams = z.object({
   sessionId: z.string().uuid(),
 });
@@ -111,6 +118,7 @@ export const authRequests = {
   requestPasswordCode: { body: requestPasswordCodeBody } satisfies RequestSchemas,
   setPassword: { body: setPasswordBody } satisfies RequestSchemas,
   login: { body: loginBody } satisfies RequestSchemas,
+  changePassword: { body: changePasswordBody } satisfies RequestSchemas,
   removeSession: { params: removeSessionParams } satisfies RequestSchemas,
 };
 
@@ -124,3 +132,6 @@ export type RequestPasswordCodeInput = RequestInput<
 >;
 export type SetPasswordInput = RequestInput<typeof authRequests.setPassword>;
 export type LoginInput = RequestInput<typeof authRequests.login>;
+export type ChangePasswordInput = RequestInput<
+  typeof authRequests.changePassword
+>;

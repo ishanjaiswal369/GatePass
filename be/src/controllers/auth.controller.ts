@@ -9,6 +9,7 @@ import type {
   RequestPasswordCodeInput,
   SetPasswordInput,
   LoginInput,
+  ChangePasswordInput,
 } from "../requests/auth.request.js";
 import * as authService from "../services/auth.service.js";
 import * as sessionService from "../services/session.service.js";
@@ -101,6 +102,20 @@ export const authController = {
     reply: FastifyReply
   ) => {
     return reply.send(await authService.loginWithPassword(input.body));
+  },
+
+  changePassword: async (
+    input: ChangePasswordInput,
+    request: FastifyRequest,
+    reply: FastifyReply
+  ) => {
+    return reply.send(
+      await authService.changePassword({
+        userId: request.user.userId,
+        sessionId: request.user.sessionId,
+        ...input.body,
+      })
+    );
   },
 
   me: async (request: FastifyRequest, reply: FastifyReply) => {

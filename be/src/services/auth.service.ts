@@ -11,6 +11,7 @@ import {
 } from "../integrations/google/verify.js";
 import {
   badRequest,
+  notFound,
   serviceUnavailable,
   tooManyRequests,
   unauthorized,
@@ -456,4 +457,106 @@ export async function loginWithPassword(input: LoginWithPasswordInput) {
     user: toAuthUser(user),
     profileComplete: user.firstName !== null,
   };
+}
+
+/** Wrong current-password guesses allowed per user inside the window. */
+const MAX_CHANGE_PASSWORD_FAILURES = 5;
+const CHANGE_PASSWORD_WINDOW_MS = 15 * 60_000;
+
+/**
+ * Recent wrong current-password attempts, per user.
+ *
+ * Without a cap, anyone holding a stolen session could use this endpoint to
+ * guess the account's password and then reuse it wherever the owner reuses
+ * it. In memory is enough while the API runs as one process; it resets on
+ * restart and would need moving to the database or Redis before running more
+ * than one instance.
+ */
+const changePasswordFailures = new Map<string, number[]>();
+
+function recentFailures(userId: string, now: number): number[] {
+  const kept = (changePasswordFailures.get(userId) ?? []).filter(
+    (at) => now - at < CHANGE_PASSWORD_WINDOW_MS
+  );
+  changePasswordFailures.set(userId, kept);
+  return kept;
+}
+
+export interface ChangePasswordInput {
+  userId: string;
+  /** The caller's own session, which survives the change. */
+  sessionId: string;
+  currentPassword: string;
+  newPassword: string;
+}
+
+/**
+ * Changes the password of a signed-in user who can prove the current one.
+ *
+ * Unlike setPassword, the caller's own session is kept: they have just proven
+ * who they are, and signing them out of the screen they are using would be
+ * punishing the right person. Every other session is revoked, since a password
+ * change is usually a reaction to someone else having it.
+ *
+ * A wrong current password answers 400, not 401. The session is valid; only
+ * the password is wrong, and a 401 would read as "you are signed out".
+ */
+export async function changePassword(input: ChangePasswordInput) {
+  const { userId, sessionId, currentPassword, newPassword } = input;
+  const now = Date.now();
+
+  const failures = recentFailures(userId, now);
+
+  if (failures.length >= MAX_CHANGE_PASSWORD_FAILURES) {
+    const retryAfter = Math.ceil(
+      (failures[0]! + CHANGE_PASSWORD_WINDOW_MS - now) / 1000
+    );
+    throw tooManyRequests(
+      `Too many incorrect attempts. Try again in ${Math.ceil(retryAfter / 60)} min.`
+    );
+  }
+
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+
+  if (!user) {
+    throw notFound("User not found");
+  }
+
+  if (!user.passwordHash) {
+    // Code-only and Google accounts have nothing to prove; they set a
+    // password through the emailed-code flow instead.
+    throw badRequest(
+      "This account has no password yet. Set one with an emailed code."
+    );
+  }
+
+  if (!(await verifyPassword(currentPassword, user.passwordHash))) {
+    failures.push(now);
+    const remaining = MAX_CHANGE_PASSWORD_FAILURES - failures.length;
+    throw badRequest(
+      remaining > 0
+        ? `Current password is incorrect. ${remaining} attempt${remaining === 1 ? "" : "s"} left.`
+        : "Current password is incorrect."
+    );
+  }
+
+  if (await verifyPassword(newPassword, user.passwordHash)) {
+    throw badRequest("Choose a password different from your current one.");
+  }
+
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data: {
+      passwordHash: await hashPassword(newPassword),
+      passwordSetAt: new Date(),
+    },
+  });
+
+  const { count } = await prisma.userSession.deleteMany({
+    where: { userId, id: { not: sessionId } },
+  });
+
+  changePasswordFailures.delete(userId);
+
+  return { user: toAuthUser(updated), signedOutSessions: count };
 }

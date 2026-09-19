@@ -1,4 +1,5 @@
 import type {
+  ChangePasswordResult,
   MeResult,
   SessionRow,
   VerifyCodeResult,
@@ -84,4 +85,18 @@ export const loginWithPassword = async (input: {
   request<VerifyCodeResult>("/auth/login", {
     method: "POST",
     body: { ...input, ...(await deviceFields()), deviceName },
+  });
+
+/**
+ * Changes a known password. The caller's own session survives, so the token
+ * in hand keeps working; every other device is signed out.
+ */
+export const changePassword = (
+  token: string,
+  input: { currentPassword: string; newPassword: string }
+) =>
+  request<ChangePasswordResult>("/auth/password/change", {
+    method: "POST",
+    body: input,
+    token,
   });

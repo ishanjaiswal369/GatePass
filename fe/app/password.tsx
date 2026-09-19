@@ -4,6 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { authApi } from "@/api";
 import {
   Button,
+  CheckIcon,
   DevCodeNotice,
   ErrorNotice,
   Field,
@@ -12,26 +13,41 @@ import {
   ScreenHeader,
   RestoringScreen,
 } from "@/components/ui";
+import { ChangePasswordForm } from "@/features/auth/ChangePasswordForm";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useSession } from "@/providers/SessionProvider";
-import { colors, space } from "@/theme";
+import { colors, radius, space } from "@/theme";
 
 const MIN_PASSWORD_LENGTH = 10;
 
 /**
- * Setting a password, from either direction.
+ * Every way to set a password, on one screen.
  *
- * Signed in it is "set or change your password" from the profile; signed out
- * it is "forgot password" from the sign-in screen. Both prove the email the
- * same way, so they are one screen rather than two near-identical ones -- the
- * only difference is whether the address is already known.
+ * - Signed in with a password: change it by entering the current one.
+ * - Signed in without one, or "forgot it?" from the change form: set it with
+ *   an emailed code.
+ * - Signed out: forgot-password, also by emailed code.
+ *
+ * The emailed-code paths prove the address the same way, so they share this
+ * screen rather than living in near-identical copies.
  */
 export default function PasswordScreen() {
   const { token, user, signIn, isRestoring } = useSession();
 
   const signedIn = Boolean(token);
 
-  const [email, setEmail] = useState(user?.email ?? "");
+  // Derived, not initial state: on a reload `user` is still null during the
+  // first render, and a useState initialiser would lock the screen into the
+  // emailed-code flow before the session had even been restored.
+  const [forgotCurrent, setForgotCurrent] = useState(false);
+  const changeMode = signedIn && Boolean(user?.hasPassword) && !forgotCurrent;
+  const [changedDevices, setChangedDevices] = useState<number | null>(null);
+
+  // Signed in, the address comes from the session -- read on every render,
+  // for the same reason as changeMode: an initialiser would capture the null
+  // user of the first render after a reload and leave the address empty.
+  const [typedEmail, setEmail] = useState("");
+  const email = signedIn ? (user?.email ?? "") : typedEmail;
   const [sent, setSent] = useState(false);
   const [devCode, setDevCode] = useState<string | undefined>();
   const [code, setCode] = useState("");
@@ -73,21 +89,50 @@ export default function PasswordScreen() {
       <View style={s.screen}>
         <ScreenHeader
           title={
-            signedIn
-              ? user?.hasPassword
-                ? "Change password"
-                : "Set a password"
-              : "Reset password"
+            changedDevices !== null
+              ? "Password changed"
+              : signedIn
+                ? user?.hasPassword
+                  ? forgotCurrent
+                    ? "Reset password"
+                    : "Change password"
+                  : "Set a password"
+                : "Reset password"
           }
           sub={
-            sent
-              ? `Enter the 6-digit code we sent to ${email.trim()}.`
-              : "We'll email you a code to confirm it's you."
+            changedDevices !== null
+              ? undefined
+              : changeMode
+                ? "Enter your current password, then choose a new one."
+                : sent
+                  ? `Enter the 6-digit code we sent to ${email.trim()}.`
+                  : "We'll email you a code to confirm it's you."
           }
           onBack={() => router.back()}
         />
 
         <ScrollView contentContainerStyle={s.body}>
+        {changedDevices !== null ? (
+          <View style={s.done}>
+            <View style={s.badge}>
+              <CheckIcon />
+            </View>
+            <Text style={s.doneTitle}>Your new password is set</Text>
+            <Text style={s.doneBody}>
+              {changedDevices === 0
+                ? "You're still signed in here. No other devices were signed in."
+                : `You're still signed in here. ${changedDevices} other device${changedDevices === 1 ? " was" : "s were"} signed out.`}
+            </Text>
+            <View style={s.spacer} />
+            <Button label="Done" size="lg" onPress={() => router.back()} />
+          </View>
+        ) : changeMode ? (
+          <ChangePasswordForm
+            onChanged={setChangedDevices}
+            onForgot={() => setForgotCurrent(true)}
+          />
+        ) : (
+        <>
         {/* Signed in, the address is already known and is not up for editing:
             changing it here would mail a code to someone else's inbox. */}
         {signedIn ? (
@@ -170,6 +215,8 @@ export default function PasswordScreen() {
             />
           </>
         )}
+        </>
+        )}
         </ScrollView>
       </View>
     </PhoneFrame>
@@ -197,6 +244,17 @@ const s = StyleSheet.create({
   emailValue: { fontSize: 15, fontWeight: "600", color: colors.ink },
   note: { fontSize: 12, color: colors.inkFaint, lineHeight: 18 },
   spacer: { flexGrow: 1, minHeight: space.lg },
+  done: { flexGrow: 1, gap: space.md, paddingTop: space.xl },
+  badge: {
+    width: 52,
+    height: 52,
+    borderRadius: radius.pill,
+    backgroundColor: colors.success,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  doneTitle: { fontSize: 20, fontWeight: "700", color: colors.ink },
+  doneBody: { fontSize: 14, color: colors.inkMuted, lineHeight: 21 },
   resend: { minHeight: 44, alignItems: "center", justifyContent: "center" },
   resendLabel: { fontSize: 14, fontWeight: "600", color: colors.inkMuted },
 });

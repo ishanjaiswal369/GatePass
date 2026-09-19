@@ -245,6 +245,34 @@ neither requires a session.
   one symbol" pushes people towards shorter, more guessable passwords and
   breaks password managers; length is what costs an attacker.
 
+**Changing a known password** is a separate, signed-in endpoint,
+`POST /auth/password/change { currentPassword, newPassword }`, with no
+emailed code — proving the current password is the check.
+
+- **The caller's own session survives; every other one is revoked.** That is
+  the opposite of `password/set`, deliberately: the person changing it has just
+  proven who they are, and a change is usually a reaction to someone else
+  having the password.
+- **A wrong current password answers 400, not 401.** The session is valid; a
+  401 would read to the app as "you are signed out".
+- **Five wrong current-password guesses lock the endpoint for that user for
+  15 minutes**, and during the lock even the right password is refused.
+  Without that, a stolen session would be a way to guess the password and reuse
+  it wherever the owner reuses it. The counter is **in memory**: it resets when
+  the API restarts and is not shared between instances, so it has to move to
+  the database or Redis before the API runs as more than one process.
+- The new password must differ from the current one, and accounts with no
+  password yet (code-only, Google) are told to set one by emailed code.
+- The current password is not checked against `passwordSchema`, so one that
+  predates a rule change can still be changed.
+
+Verified 2026-09-19 against the running API, 12/12: no-password account
+refused; wrong current with the attempts count; same-as-current; too-short
+new; no token → 401; success reports one other device signed out; own session
+still works; the other device's is revoked; old password no longer logs in;
+new one does; after five wrong guesses the right password is refused with 429.
+Also driven through the app in the browser.
+
 ### Profile
 
 - **Phone is normalised to `+91XXXXXXXXXX` at the request boundary**, so the
@@ -320,11 +348,18 @@ instead of one tap inside each of them. Editing happens in
   rather than a settings page bolted on. It owns the safe-area inset, which is
   why the screens under it no longer take one.
 
-- **`app/password.tsx` serves both directions.** Signed in it is "set or
-  change your password"; signed out it is forgot-password. Both prove the
-  email the same way, so they are one screen and the only difference is
-  whether the address is already known -- and when it is, it is not editable,
-  because changing it there would mail a code to someone else's inbox.
+- **`app/password.tsx` holds every password path.** Signed in with a password
+  it opens on **change**: current, new and confirm
+  (`features/auth/ChangePasswordForm`), with a "Forgot it?" link into the
+  emailed-code flow. Signed in without a password it is "set a password" by
+  code; signed out it is forgot-password. When the address is already known it
+  is not editable, because changing it there would mail a code to someone
+  else's inbox. After a change it shows how many other devices were signed out.
+- **The mode and the signed-in email are derived on every render, never held
+  in initial state.** After a reload `user` is null for the first render while
+  the session restores; a `useState(user?.email)` initialiser captured that
+  null, which left the reset flow with an empty address and a disabled button.
+  That was a real bug, found while building the change form.
 - **Setting a password adopts the returned token.** The API revokes every
   earlier session, so the one the app was holding stops working at that exact
   moment; ignoring the new token would log the user out of their own success.
@@ -569,6 +604,7 @@ open group left.
 | POST | `/auth/password/request-code` | — | Working; mails a `PASSWORD_RESET` code |
 | POST | `/auth/password/set` | — | Working; sets the password, returns a session |
 | POST | `/auth/login` | — | Working; email + password |
+| POST | `/auth/password/change` | JWT | Working; current + new password, keeps own session |
 | GET/POST/PATCH/DELETE | `/vehicles` | JWT | Working |
 | GET / PUT | `/address` | JWT | Working |
 | POST | `/auth/logout` | JWT | Working |

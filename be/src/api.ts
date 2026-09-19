@@ -71,6 +71,13 @@ export function registerApi(app: App): void {
     request(authRequests.setPassword, authController.setPassword)
   );
   app.post("/auth/login", request(authRequests.login, authController.login));
+  // Changing a known password needs no emailed code: proving the current one
+  // is the check. Signed-in only, and it keeps the caller's own session.
+  app.post(
+    "/auth/password/change",
+    driver,
+    request(authRequests.changePassword, authController.changePassword)
+  );
 
   app.post("/auth/logout", driver, authController.logout);
   app.get("/auth/sessions", driver, authController.listSessions);
