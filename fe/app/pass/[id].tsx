@@ -9,6 +9,7 @@ import {
   PhoneFrame,
   RestoringScreen,
 } from "@/components/ui";
+import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, radius, space } from "@/theme";
 import type { GatePassResult } from "@/types/api.types";
@@ -19,6 +20,7 @@ const REFRESH_MARGIN_SECONDS = 20;
 export default function PassScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { token, isRestoring } = useSession();
+  const insets = useScreenInsets();
   const [result, setResult] = useState<GatePassResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -79,7 +81,7 @@ export default function PassScreen() {
           onPress={() => router.back()}
           accessibilityRole="button"
           accessibilityLabel="Back"
-          style={s.back}
+          style={[s.back, { top: insets.top + 20 }]}
         >
           <ChevronLeftIcon color={colors.onInk} />
         </Pressable>
@@ -133,7 +135,7 @@ const s = StyleSheet.create({
     gap: space.xl,
     padding: 28,
   },
-  back: { position: "absolute", top: 44, left: 20, width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  back: { position: "absolute", left: 20, width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   errorWrap: { alignSelf: "stretch" },
   heading: { alignItems: "center", gap: 6 },
   event: {

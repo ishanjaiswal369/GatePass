@@ -8,6 +8,7 @@ import {
   PhoneFrame,
   RestoringScreen,
 } from "@/components/ui";
+import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, radius, space } from "@/theme";
 import type { EventDetail } from "@/types/api.types";
@@ -15,6 +16,7 @@ import type { EventDetail } from "@/types/api.types";
 export default function EventScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { token, isRestoring } = useSession();
+  const insets = useScreenInsets();
   const [event, setEvent] = useState<EventDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -59,7 +61,7 @@ export default function EventScreen() {
 
   return (
     <PhoneFrame>
-      <ScrollView contentContainerStyle={s.body}>
+      <ScrollView contentContainerStyle={[s.body, { paddingTop: insets.top + 32 }]}>
         <Pressable
           onPress={() => router.back()}
           accessibilityRole="button"
@@ -122,7 +124,7 @@ export default function EventScreen() {
 }
 
 const s = StyleSheet.create({
-  body: { padding: 20, paddingTop: 56, gap: space.lg },
+  body: { padding: 20, gap: space.lg },
   back: { width: 44, height: 44, marginLeft: -12, justifyContent: "center" },
   loading: { paddingVertical: space.xl },
   heading: { gap: 6 },

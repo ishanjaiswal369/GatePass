@@ -12,6 +12,7 @@ import {
   PhoneFrame,
 } from "@/components/ui";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
+import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, radius, space, type } from "@/theme";
 
@@ -24,6 +25,7 @@ export default function VerifyScreen() {
     devCode?: string;
   }>();
   const { signIn } = useSession();
+  const insets = useScreenInsets();
 
   const [code, setCode] = useState("");
   const [secondsLeft, setSecondsLeft] = useState(RESEND_COOLDOWN_SECONDS);
@@ -44,7 +46,7 @@ export default function VerifyScreen() {
 
   return (
     <PhoneFrame>
-      <ScrollView contentContainerStyle={s.body}>
+      <ScrollView contentContainerStyle={[s.body, { paddingTop: insets.top + 28 }]}>
         <Pressable style={s.back} onPress={() => router.replace("/")}>
           <ChevronLeftIcon />
         </Pressable>
@@ -97,7 +99,7 @@ export default function VerifyScreen() {
 }
 
 const s = StyleSheet.create({
-  body: { padding: 28, paddingTop: 52, gap: 20, flexGrow: 1 },
+  body: { padding: 28, gap: 20, flexGrow: 1 },
   back: {
     width: 40,
     height: 40,

@@ -1,4 +1,5 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { colors, HIT_SLOP_MIN, space } from "@/theme";
 import { CalendarIcon, HomeIcon, HostIcon, UserIcon } from "./Icon";
 
@@ -20,8 +21,11 @@ export function BottomNav({
   active: NavKey;
   onNavigate: (key: NavKey) => void;
 }) {
+  const insets = useScreenInsets();
+
   return (
-    <View style={s.bar}>
+    // Height grows by the home-indicator inset so the row itself stays 78.
+    <View style={[s.bar, { height: 78 + insets.bottom, paddingBottom: insets.bottom }]}>
       {ITEMS.map(({ key, label, Icon }) => {
         const isActive = key === active;
         return (
@@ -43,7 +47,6 @@ export function BottomNav({
 
 const s = StyleSheet.create({
   bar: {
-    height: 78,
     flexDirection: "row",
     alignItems: "stretch",
     backgroundColor: colors.surface,

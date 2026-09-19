@@ -12,6 +12,7 @@ import {
   type NavKey,
   RestoringScreen,
 } from "@/components/ui";
+import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, space } from "@/theme";
 import type { BookingRow } from "@/types/api.types";
@@ -25,6 +26,7 @@ const SCOPES = [
 
 export default function BookingsScreen() {
   const { token, isRestoring } = useSession();
+  const insets = useScreenInsets();
   const [scope, setScope] = useState<Scope>("upcoming");
   const [rows, setRows] = useState<BookingRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -70,7 +72,7 @@ export default function BookingsScreen() {
   return (
     <PhoneFrame>
       <View style={s.screen}>
-        <View style={s.head}>
+        <View style={[s.head, { paddingTop: insets.top + 32 }]}>
           <Text style={s.title}>Bookings</Text>
           <SegmentedControl segments={SCOPES} value={scope} onChange={setScope} />
         </View>
@@ -107,7 +109,7 @@ export default function BookingsScreen() {
 
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.surface },
-  head: { paddingHorizontal: 20, paddingTop: 56, paddingBottom: space.lg, gap: space.lg },
+  head: { paddingHorizontal: 20, paddingBottom: space.lg, gap: space.lg },
   title: { fontSize: 27, fontWeight: "700", color: colors.ink, letterSpacing: -0.5 },
   body: { paddingHorizontal: 20, paddingBottom: 20, gap: space.md },
   loading: { paddingVertical: space.xl },

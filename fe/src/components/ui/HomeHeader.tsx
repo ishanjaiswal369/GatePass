@@ -1,5 +1,6 @@
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
+import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { colors, HIT_SLOP_MIN, radius, space } from "@/theme";
 import { SearchIcon } from "./Icon";
 
@@ -34,8 +35,11 @@ export function HomeHeader({
   onSubmitQuery?: () => void;
   onPressProfile: () => void;
 }) {
+  const insets = useScreenInsets();
+
   return (
-    <View style={s.header}>
+    // The background extends under the status bar; only the content is inset.
+    <View style={[s.header, { paddingTop: insets.top + 20 }]}>
       <View style={s.row}>
         <View style={s.brand}>
           <BarrierMark />
@@ -75,7 +79,6 @@ export function HomeHeader({
 const s = StyleSheet.create({
   header: {
     backgroundColor: colors.ink,
-    paddingTop: 44,
     paddingBottom: 18,
     paddingHorizontal: 20,
     gap: space.lg,

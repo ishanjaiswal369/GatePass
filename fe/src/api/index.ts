@@ -1,4 +1,5 @@
-export { ApiError, API_URL, deviceId, deviceType } from "./client";
+export { ApiError, API_URL, deviceType } from "./client";
+export { getDeviceId } from "@/lib/deviceId";
 
 export * as authApi from "./auth.api";
 export * as bookingsApi from "./bookings.api";

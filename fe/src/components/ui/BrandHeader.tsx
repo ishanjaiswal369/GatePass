@@ -1,5 +1,6 @@
 import { StyleSheet, Text, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
+import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { colors, space } from "@/theme";
 
 /** The parking-barrier mark: post plus boom with drop bars. */
@@ -36,8 +37,10 @@ export function BrandHeader({
   headline: string;
   sub: string;
 }) {
+  const insets = useScreenInsets();
+
   return (
-    <View style={s.header}>
+    <View style={[s.header, { paddingTop: insets.top + 32 }]}>
       <View style={s.brand}>
         <BarrierMark />
         <Text style={s.wordmark}>GatePass</Text>
@@ -53,7 +56,6 @@ export function BrandHeader({
 const s = StyleSheet.create({
   header: {
     backgroundColor: colors.ink,
-    paddingTop: 56,
     paddingBottom: space.xxl,
     paddingHorizontal: 28,
     gap: 22,

@@ -1,5 +1,6 @@
 import { Platform } from "react-native";
 import type { DeviceType } from "@/constants/enums";
+import { getDeviceId } from "@/lib/deviceId";
 
 export const API_URL =
   process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
@@ -30,24 +31,6 @@ export const deviceType: DeviceType =
   Platform.OS === "ios" ? "IOS" : Platform.OS === "android" ? "ANDROID" : "WEB";
 
 export const deviceName = Platform.OS === "web" ? "Browser" : Platform.OS;
-
-/**
- * Stable per install so repeat logins reuse one UserSession row instead of
- * piling up. Falls back to per-load where there is no localStorage.
- */
-export const deviceId = (() => {
-  const fresh = `dev-${Math.random().toString(36).slice(2, 10)}`;
-  try {
-    const store = (globalThis as { localStorage?: Storage }).localStorage;
-    if (!store) return fresh;
-    const saved = store.getItem("gatepass.deviceId");
-    if (saved) return saved;
-    store.setItem("gatepass.deviceId", fresh);
-    return fresh;
-  } catch {
-    return fresh;
-  }
-})();
 
 export interface RequestOptions {
   method?: "GET" | "POST" | "PATCH" | "DELETE";
@@ -93,5 +76,13 @@ export async function request<T>(
   return data as T;
 }
 
-/** Device fields every auth call sends. */
-export const deviceFields = { deviceId, deviceType };
+/**
+ * Device fields every auth call sends. Async because the installation id lives
+ * in the platform's real store -- see lib/deviceId.
+ */
+export async function deviceFields(): Promise<{
+  deviceId: string;
+  deviceType: DeviceType;
+}> {
+  return { deviceId: await getDeviceId(), deviceType };
+}

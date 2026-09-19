@@ -311,6 +311,16 @@ Three decisions worth knowing:
   protected screen must wait for it** -- a guard that reads `token === null`
   on first render sends a signed-in user to sign-in before the token loads,
   which looks exactly like the persistence not working.
+- **Nothing assumes a browser.** `PhoneFrame` simulates a handset on web and
+  is a plain full-bleed `View` on native, or a phone would render the app as a
+  rounded card floating inside its own screen. Screens take their top padding
+  from `useScreenInsets()` rather than hardcoding it -- real safe-area insets
+  on a device, a fixed stand-in for the status bar on web -- so a dark header
+  reaches the top edge while its content clears the notch. Anything stored
+  goes through `lib/storage`, which is SecureStore on native and localStorage
+  on web; **`localStorage` must never be reached for directly**, because on
+  native it silently does not exist. That is what made `deviceId` regenerate
+  on every launch and open a fresh `UserSession` row each time.
 - **An auth gate is a `<Redirect>`, never `router.replace` in an effect.** A
   child screen's `useEffect` runs before the root layout has mounted its
   navigator, so a cold load of `/account` while signed out crashed with

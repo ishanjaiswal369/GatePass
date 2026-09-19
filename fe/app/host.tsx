@@ -15,6 +15,7 @@ import {
 } from "@/components/ui";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useDriverLocation } from "@/hooks/useDriverLocation";
+import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, space } from "@/theme";
 import type { HostAvailabilityRow, HostProfile } from "@/types/api.types";
@@ -36,6 +37,7 @@ function formatMinute(minute: number) {
  */
 export default function HostScreen() {
   const { token, isRestoring } = useSession();
+  const insets = useScreenInsets();
   const [profile, setProfile] = useState<HostProfile | null>(null);
   const [availability, setAvailability] = useState<HostAvailabilityRow[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -130,7 +132,7 @@ export default function HostScreen() {
   return (
     <PhoneFrame>
       <View style={s.screen}>
-        <ScrollView contentContainerStyle={s.body}>
+        <ScrollView contentContainerStyle={[s.body, { paddingTop: insets.top + 32 }]}>
           {loadError ? <ErrorNotice message={loadError} /> : null}
 
           {!loaded ? (
@@ -235,7 +237,7 @@ export default function HostScreen() {
 
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.surface },
-  body: { paddingHorizontal: 20, paddingTop: 56, paddingBottom: 20, gap: space.lg },
+  body: { paddingHorizontal: 20, paddingBottom: 20, gap: space.lg },
   heading: { gap: 6 },
   title: { fontSize: 27, fontWeight: "700", color: colors.ink, letterSpacing: -0.5 },
   sub: { fontSize: 15, color: colors.inkMuted, lineHeight: 22 },

@@ -10,30 +10,30 @@ import { deviceFields, deviceName, request } from "./client";
  * on the verification row until the code is confirmed, so an unverified email
  * never creates a user.
  */
-export const requestCode = (input: {
+export const requestCode = async (input: {
   email: string;
   firstName?: string;
   lastName?: string;
 }) =>
   request<{ message: string; code?: string }>("/auth/request-code", {
     method: "POST",
-    body: { ...input, ...deviceFields },
+    body: { ...input, ...(await deviceFields()) },
   });
 
-export const verifyCode = (input: { email: string; code: string }) =>
+export const verifyCode = async (input: { email: string; code: string }) =>
   request<VerifyCodeResult>("/auth/verify-code", {
     method: "POST",
-    body: { ...input, ...deviceFields, deviceName },
+    body: { ...input, ...(await deviceFields()), deviceName },
   });
 
 /**
  * Only the token crosses the wire. The API reads the email and name out of its
  * verified payload -- anything this client claimed about itself is ignored.
  */
-export const signInWithGoogle = (idToken: string) =>
+export const signInWithGoogle = async (idToken: string) =>
   request<VerifyCodeResult>("/auth/google", {
     method: "POST",
-    body: { idToken, ...deviceFields, deviceName },
+    body: { idToken, ...(await deviceFields()), deviceName },
   });
 
 export const getMe = (token: string) => request<MeResult>("/auth/me", { token });

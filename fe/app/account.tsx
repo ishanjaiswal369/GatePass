@@ -11,12 +11,14 @@ import {
   RestoringScreen,
 } from "@/components/ui";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
+import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { useSession } from "@/providers/SessionProvider";
 import type { MeResult, SessionRow } from "@/types/api.types";
 import { colors, space, type } from "@/theme";
 
 export default function AccountScreen() {
   const { token, signOut, isRestoring } = useSession();
+  const insets = useScreenInsets();
   const [me, setMe] = useState<MeResult | null>(null);
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -69,7 +71,7 @@ export default function AccountScreen() {
 
   return (
     <PhoneFrame>
-      <ScrollView contentContainerStyle={s.body}>
+      <ScrollView contentContainerStyle={[s.body, { paddingTop: insets.top + 32 }]}>
         <View style={s.heading}>
           <Text style={s.title}>{fullName || "Signed in"}</Text>
           <Text style={s.sub}>{me?.email}</Text>
@@ -111,7 +113,7 @@ export default function AccountScreen() {
 }
 
 const s = StyleSheet.create({
-  body: { padding: 28, paddingTop: 56, gap: 18, flexGrow: 1 },
+  body: { padding: 28, gap: 18, flexGrow: 1 },
   heading: { gap: space.xs },
   title: {
     fontSize: 27,

@@ -12,6 +12,7 @@ import {
   UserIcon,
 } from "@/components/ui";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
+import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, radius, space, type } from "@/theme";
 
@@ -21,6 +22,7 @@ import { colors, radius, space, type } from "@/theme";
  */
 export default function ProfileScreen() {
   const { token, setUser } = useSession();
+  const insets = useScreenInsets();
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
 
@@ -44,7 +46,7 @@ export default function ProfileScreen() {
 
   return (
     <PhoneFrame>
-      <ScrollView contentContainerStyle={s.body}>
+      <ScrollView contentContainerStyle={[s.body, { paddingTop: insets.top + 48 }]}>
         <View style={s.badge}>
           <CheckIcon />
         </View>
@@ -100,7 +102,7 @@ export default function ProfileScreen() {
 }
 
 const s = StyleSheet.create({
-  body: { padding: 28, paddingTop: 72, gap: 18, flexGrow: 1 },
+  body: { padding: 28, gap: 18, flexGrow: 1 },
   badge: {
     width: 52,
     height: 52,
