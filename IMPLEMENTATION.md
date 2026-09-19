@@ -231,7 +231,9 @@ fe/
       <domain>.api.ts   one file per domain, like be/'s services
     components/ui/      design system, one component per file, barrel-exported
     features/auth/      Google sign-in (hook + isolating component)
-    hooks/              useAsyncAction: the busy/error/try-catch shape
+    hooks/              useAsyncAction (busy/error shape), useDriverLocation,
+                        useScreenInsets (safe areas)
+    lib/                storage (SecureStore/localStorage), tokenStore, deviceId
     providers/          SessionProvider
     theme/tokens.ts     every colour, gap and radius
     constants/enums.ts  mirrors be/src/constants/enums/
@@ -581,11 +583,36 @@ Also missing:
 - **Timezone.** Host availability windows are interpreted as `Asia/Kolkata`,
   hard-coded in `spot.service.ts`. Correct for a single-market product and
   wrong the day it crosses a timezone.
-- **Google on native.** Only the web client id is wired; iOS and Android need
-  a dev build.
+- **Native readiness.** The app is React Native, so the same code builds for
+  iOS and Android, and `PhoneFrame`, the safe areas and every stored value
+  already branch per platform. Four things still assume a browser or are
+  unconfigured, and all four bite only on a real device:
+  - `EXPO_PUBLIC_API_URL` defaults to `http://localhost:3000`, which on a phone
+    is the phone. A LAN address is needed in development and HTTPS in
+    production -- iOS ATS and Android (API 28+) block cleartext anyway.
+  - `app.json` does not declare the `expo-location` plugin, so iOS has no
+    `NSLocationWhenInUseUsageDescription`. Requesting location without it
+    crashes on device and fails App Store review.
+  - Only the web Google client id is wired; iOS and Android need their own,
+    plus a dev build (Expo Go will not do native Google sign-in here).
+  - The Android adaptive icon sets `backgroundColor` but no `foregroundImage`.
 - **Checkout.** `event/[id]` lists prices and availability but cannot book:
   that is the `design/Booking` flow and it needs Razorpay. The driver home,
   its two tabs, the QR pass, bookings and host screens are built.
+- **Dead and unused columns.** `User.gstNumber` and `User.bankAccountId` are
+  no longer read or written anywhere: `Organizer` and `HostProfile` carry
+  those now. `User.phone` is returned by the auth endpoints but **nothing ever
+  sets it** -- it is left over from phone-era auth. Razorpay checkout, gate
+  staff contact and booking SMS all want a real number, so it needs collecting
+  and verifying rather than dropping.
+- **Saved vehicles.** `POST /bookings` takes `vehicleNumber` as free text on
+  every booking, so a driver retypes a number plate at each checkout. A
+  `Vehicle` table per user would remove that, pick the right
+  `ParkingCapacity` by vehicle type automatically, and give the gate scanner a
+  plate to verify against.
+- **`profileComplete` is thin.** It means `firstName !== null` and nothing
+  more. "Can this user actually book" (name + phone + a vehicle) is a
+  different question and is not modelled.
 - Organizer dashboard, push notifications (the `fcmToken` column is reserved
   but unused), recurring/commercial listing types.
 
