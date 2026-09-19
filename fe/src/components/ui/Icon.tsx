@@ -62,6 +62,72 @@ export function InfoIcon({ size = 17, color = colors.inkMuted }: IconProps) {
   );
 }
 
+export function SearchIcon({ size = 18, color = colors.inkFaint }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Circle cx={11} cy={11} r={7} stroke={color} strokeWidth={2} />
+      <Path d="m20 20-3.5-3.5" stroke={color} strokeWidth={2} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+export function QrIcon({ size = 16, color = colors.ink }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Rect x={3} y={3} width={7} height={7} rx={1} stroke={color} strokeWidth={2} />
+      <Rect x={14} y={3} width={7} height={7} rx={1} stroke={color} strokeWidth={2} />
+      <Rect x={3} y={14} width={7} height={7} rx={1} stroke={color} strokeWidth={2} />
+      <Path d="M14 14h3v3M21 21h-3v-3" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
+export function HomeIcon({ size = 21, color = colors.inkFaint }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M3 10.5 12 3l9 7.5" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M5.5 9.5V21h13V9.5" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
+export function CalendarIcon({ size = 21, color = colors.inkFaint }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Rect x={3} y={4} width={18} height={17} rx={2} stroke={color} strokeWidth={2} />
+      <Path d="M3 9h18M8 2v4M16 2v4" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
+/** The host mark: a house with a bay under it. */
+export function HostIcon({ size = 21, color = colors.inkFaint }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M4 11.5 12 5l8 6.5" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M6.5 10.5V20h11v-9.5" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M12 20v-5" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
+export function PinIcon({ size = 18, color = colors.onPrimary }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      <Circle cx={12} cy={10} r={3} stroke={color} strokeWidth={2} />
+    </Svg>
+  );
+}
+
+export function ShieldIcon({ size = 15, color = colors.inkMuted }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M12 3l7 3v6c0 4.2-2.9 7.7-7 9-4.1-1.3-7-4.8-7-9V6l7-3Z" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
 /** Google's mark. Brand colours are fixed, so it takes no `color`. */
 export function GoogleIcon({ size = 18 }: { size?: number }) {
   return (

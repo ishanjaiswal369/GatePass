@@ -39,7 +39,7 @@ export default function VerifyScreen() {
     signIn(result.token, result.user);
 
     // The API says whether a name was captured at signup; without one we ask.
-    router.replace(result.profileComplete ? "/account" : "/profile");
+    router.replace(result.profileComplete ? "/home" : "/profile");
   });
 
   return (

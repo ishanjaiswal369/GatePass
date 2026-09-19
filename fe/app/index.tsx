@@ -43,7 +43,7 @@ export default function EmailScreen() {
   const onGoogleSuccess = useCallback(
     (result: VerifyCodeResult) => {
       signIn(result.token, result.user);
-      router.replace(result.profileComplete ? "/account" : "/profile");
+      router.replace(result.profileComplete ? "/home" : "/profile");
     },
     [signIn]
   );

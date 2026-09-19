@@ -36,7 +36,10 @@ export default function ProfileScreen() {
     });
 
     setUser(user);
-    router.replace("/account");
+    // Straight to the driver home: the name was the only thing missing, and
+    // the account screen is a destination people go looking for, not one they
+    // should be dropped into.
+    router.replace("/home");
   });
 
   return (

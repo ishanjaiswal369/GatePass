@@ -221,7 +221,9 @@ backend's: **the routing layer is thin, and the work lives behind it.**
 
 ```
 fe/
-  app/                  routes only: index, verify, profile, account
+  metro.config.js       workspace resolution (see below)
+  app/                  routes only: index, verify, profile, home,
+                        bookings, host, account, event/[id], pass/[id]
   src/
     api/
       client.ts         the only caller of fetch; ApiError carries HTTP status
@@ -243,6 +245,35 @@ Screens follow the published design canvas: dark brand header, first/last name
 on one row, a six-box code input, a live resend timer matching the API's 60 s
 cooldown, and a verified-email state on name capture.
 
+### Driver home
+
+`app/home.tsx` is the screen the canvas designs, built against the live API and
+driven end to end in a browser (sign in → Events → Nearby → pass).
+
+- **Two tabs, Events first.** Events has real organizer listings; Nearby has
+  almost no hosts yet, so it cannot be the landing tab.
+- **Location is asked on the Nearby tab, on a button press** -- never on app
+  open. `useDriverLocation` runs nothing on mount. A cold permission prompt
+  with no visible reason gets denied, and a denial is far harder to undo than
+  a delay. A refusal falls back to typing an area, which resolves through
+  `GET /geocode`.
+- **The pass card sits above discovery**, because a driver mid-booking needs
+  the QR before anything else here. `GET /bookings/active` answers 200 with
+  `booking: null`, so "no pass" is a layout state rather than an error.
+- **Three parallel calls, no aggregate endpoint.** The feed is shared and
+  cacheable, the pass is per-user and must be fresh. A failing pass call stays
+  silent instead of blanking the feed.
+- **Host is one nav item, not a mode switch.** It opens onboarding or the
+  dashboard depending on `hasHostProfile` from `/auth/me` -- carried in that
+  response so the nav renders correctly on first paint.
+- `app/pass/[id].tsx` re-mints the five-minute pass on a timer, so the code on
+  screen is never the one that just expired.
+
+Screens reached from the home screen but **not** in the canvas --
+`bookings`, `host`, `event/[id]` -- are built plainly from the same tokens so
+the nav has no dead ends. `event/[id]` is read-only: checkout is its own
+designed flow and needs Razorpay.
+
 Three decisions worth knowing:
 
 - **The code input is six boxes over one hidden field**, not six inputs. That
@@ -255,6 +286,13 @@ Three decisions worth knowing:
   the button; development shows it disabled with a one-line hint naming the
   variable to set (`GoogleSignInUnconfigured`, which mounts no hook), because a
   silently missing button read as a missing feature.
+- **`metro.config.js` is load-bearing.** Dependencies hoist to the repo root
+  in this npm workspace, so the entry point sits one level above Metro's
+  project root. Without `watchFolders`, `nodeModulesPaths` and
+  `server.unstable_serverRoot` pointing at the workspace root, Expo emits a
+  script URL of `/../node_modules/expo-router/entry.bundle`, the browser
+  normalises the `/..` away, the request 404s and **the page renders blank
+  white with nothing in the terminal.** Verified both ways in a real browser.
 - **An auth gate is a `<Redirect>`, never `router.replace` in an effect.** A
   child screen's `useEffect` runs before the root layout has mounted its
   navigator, so a cold load of `/account` while signed out crashed with
@@ -518,9 +556,9 @@ Also missing:
 - **Google on native.** Only the web client id is wired; iOS and Android need
   a dev build.
 - **Session persistence** on the app (`expo-secure-store`).
-- **Driver booking screens.** Designed (`design/EventDetail`, `Booking`,
-  `Pass`) but not built. The home screen's two tabs are designed in the
-  canvas and the APIs behind them are live; the screens themselves are next.
+- **Checkout.** `event/[id]` lists prices and availability but cannot book:
+  that is the `design/Booking` flow and it needs Razorpay. The driver home,
+  its two tabs, the QR pass, bookings and host screens are built.
 - Organizer dashboard, push notifications (the `fcmToken` column is reserved
   but unused), recurring/commercial listing types.
 

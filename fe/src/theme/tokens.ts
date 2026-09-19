@@ -20,6 +20,19 @@ export const colors = {
   devSurface: "#fffbeb",
   devBorder: "#fcd34d",
   devInk: "#92400e",
+
+  // Surfaces that sit *on* the dark header: a search field and an avatar need
+  // their own steps, because canvas/border are tuned for the light body.
+  inkSurface: "#1b2434",
+  inkBorder: "#2f3a4d",
+  inkRaised: "#212c3e",
+  inkRaisedBorder: "#333f54",
+  onInkMuted: "#98a2b3",
+
+  /** The one warm accent: scarcity badges and the active pass marker. */
+  accent: "#b45309",
+  accentSurface: "#fdf3e7",
+  accentInk: "#92400e",
 } as const;
 
 export const space = {
