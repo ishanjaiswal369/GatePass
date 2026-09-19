@@ -1,3 +1,4 @@
+import type { User } from "@prisma/client";
 import { env } from "../config/env.js";
 import type {
   DeviceType,
@@ -19,7 +20,20 @@ import {
 import { hashPassword, verifyPassword } from "../lib/password.js";
 import { prisma } from "../lib/prisma.js";
 import { createSession, revokeAllUserSessions } from "./session.service.js";
+import * as hostService from "./host.service.js";
 import { toAuthUser } from "./user.service.js";
+
+/**
+ * The user as the app keeps it in its session. Carries hasHostProfile on every
+ * sign-in, not only on /auth/me, so the Host tab can choose onboarding or the
+ * dashboard on first paint straight after logging in.
+ */
+async function sessionUser(user: User) {
+  return {
+    ...toAuthUser(user),
+    hasHostProfile: await hostService.exists(user.id),
+  };
+}
 
 const CODE_TTL_MINUTES = 5;
 
@@ -210,7 +224,7 @@ export async function verifyCode(input: VerifyCodeInput) {
 
   return {
     token,
-    user: toAuthUser(user),
+    user: await sessionUser(user),
     profileComplete: user.firstName !== null,
   };
 }
@@ -287,7 +301,7 @@ export async function signInWithGoogle(input: GoogleSignInInput) {
 
   return {
     token,
-    user: toAuthUser(user),
+    user: await sessionUser(user),
     profileComplete: user.firstName !== null,
   };
 }
@@ -409,7 +423,7 @@ export async function setPassword(input: SetPasswordInput) {
 
   return {
     token,
-    user: toAuthUser(updated),
+    user: await sessionUser(updated),
     profileComplete: updated.firstName !== null,
   };
 }
@@ -454,7 +468,7 @@ export async function loginWithPassword(input: LoginWithPasswordInput) {
 
   return {
     token,
-    user: toAuthUser(user),
+    user: await sessionUser(user),
     profileComplete: user.firstName !== null,
   };
 }
@@ -558,5 +572,5 @@ export async function changePassword(input: ChangePasswordInput) {
 
   changePasswordFailures.delete(userId);
 
-  return { user: toAuthUser(updated), signedOutSessions: count };
+  return { user: await sessionUser(updated), signedOutSessions: count };
 }

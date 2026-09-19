@@ -75,6 +75,11 @@ Screens import `{ Button, Field } from "@/components/ui"` — never a deep path.
 
 **Every pressable clears 44px** (`HIT_SLOP_MIN`).
 
+**Destructive actions use `<Button variant="danger">`** (log out, delete):
+card surface and border with the palette's one red, plus a `leadingIcon`. Not
+`ghost`, which reads as a secondary link rather than something with
+consequences.
+
 **API errors carry status.** `ApiError.status` lets a screen tell a 429 rate
 limit from a 400 wrong code. Use `err instanceof ApiError` — `useAsyncAction`
 already does this and exposes `error` as a string.

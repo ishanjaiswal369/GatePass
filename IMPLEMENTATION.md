@@ -393,8 +393,21 @@ driven end to end in a browser (sign in → Events → Nearby → pass).
   cacheable, the pass is per-user and must be fresh. A failing pass call stays
   silent instead of blanking the feed.
 - **Host is one nav item, not a mode switch.** It opens onboarding or the
-  dashboard depending on `hasHostProfile` from `/auth/me` -- carried in that
-  response so the nav renders correctly on first paint.
+  dashboard depending on `user.hasHostProfile`, which the session holds.
+  - Every sign-in response carries it (code, Google, password login, password
+    set and change, all through `sessionUser()` in `auth.service.ts`), as
+    well as `/auth/me`. Before, only `/auth/me` did, so straight after a
+    login the app did not know and `host.tsx` fetched `/host/profile` just to
+    find out. The field existed for exactly this but nothing read it.
+  - A known non-host now gets onboarding with **no request at all**; a known
+    host sees the "Your spot" frame immediately while its details load.
+  - It is derived from whether a `HostProfile` row exists, not a role: a
+    user can be a driver and a host at once. It becomes true when the Host
+    onboarding form is submitted, which creates the profile and the
+    published spot in one transaction, and never goes back to false.
+  - A stale flag (the user became a host on another device) makes onboarding
+    return 409; the app treats that as "already a host", flips the flag and
+    loads the dashboard rather than showing an error.
 - `app/pass/[id].tsx` re-mints the five-minute pass on a timer, so the code on
   screen is never the one that just expired.
 
@@ -640,7 +653,7 @@ would force the strictest policy of the three onto all of them.
 
 | Call | Fills |
 |---|---|
-| `GET /auth/me` | avatar initial, and which screen the Host tab opens |
+| `GET /auth/me` | avatar initial, and `hasHostProfile` (also on every sign-in response) |
 | `GET /bookings/active` | the ACTIVE PASS card (200 with `booking: null` when there is none) |
 | `GET /events?limit=…` | the UPCOMING NEAR YOU list |
 

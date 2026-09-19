@@ -21,6 +21,11 @@ export interface AuthUser {
   role: Role;
   /** Whether a password is set. The hash itself never leaves the server. */
   hasPassword: boolean;
+  /**
+   * Whether a HostProfile exists. Sent with every sign-in and /auth/me, so the
+   * Host tab picks onboarding or the dashboard without a request of its own.
+   */
+  hasHostProfile: boolean;
 }
 
 export interface VerifyCodeResult {
@@ -37,8 +42,6 @@ export interface ChangePasswordResult {
 
 export interface MeResult extends AuthUser {
   profileComplete: boolean;
-  /** Whether a HostProfile row exists, so the Host tab knows where it leads. */
-  hasHostProfile: boolean;
 }
 
 export interface SessionRow {

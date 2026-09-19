@@ -8,6 +8,7 @@ import {
   Card,
   ErrorNotice,
   LockIcon,
+  LogoutIcon,
   PhoneFrame,
   RestoringScreen,
   ScreenHeader,
@@ -164,7 +165,8 @@ export default function AccountScreen() {
           <Button
             label="Log out"
             size="lg"
-            variant="ghost"
+            variant="danger"
+            leadingIcon={<LogoutIcon />}
             onPress={endSession}
             busy={busy}
           />

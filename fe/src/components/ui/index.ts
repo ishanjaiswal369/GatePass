@@ -20,6 +20,7 @@ export {
   HostIcon,
   InfoIcon,
   LockIcon,
+  LogoutIcon,
   MailIcon,
   PinIcon,
   QrIcon,

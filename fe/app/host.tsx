@@ -34,9 +34,16 @@ function formatMinute(minute: number) {
  * One nav item, two destinations: onboarding when no HostProfile exists, the
  * dashboard when it does. The fork is decided by the API, not by a role claim
  * -- a user can be a driver and a host at the same time.
+ *
+ * Which one to show comes from `user.hasHostProfile`, which every sign-in and
+ * /auth/me carries. So a non-host lands on onboarding with no request at all,
+ * and a host sees the dashboard frame at once while its details load.
  */
 export default function HostScreen() {
-  const { token, isRestoring } = useSession();
+  const { token, user, setUser, isRestoring } = useSession();
+  // Read from the session every render, never captured in initial state: after
+  // a reload `user` is null until the session restores.
+  const isHost = user?.hasHostProfile;
   const insets = useScreenInsets();
   const [profile, setProfile] = useState<HostProfile | null>(null);
   const [availability, setAvailability] = useState<HostAvailabilityRow[]>([]);
@@ -51,7 +58,8 @@ export default function HostScreen() {
   const { coords, requestLocation } = useDriverLocation();
 
   useEffect(() => {
-    if (!token) return;
+    // Not a host: onboarding needs nothing from the server.
+    if (!token || isHost === false) return;
 
     let cancelled = false;
 
@@ -76,7 +84,7 @@ export default function HostScreen() {
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, [token, isHost]);
 
   const { run: submit, busy, error } = useAsyncAction(async () => {
     if (!token) return;
@@ -93,16 +101,25 @@ export default function HostScreen() {
       );
     }
 
-    const { profile: created } = await hostApi.createProfile(token, {
-      addressLine: addressLine.trim(),
-      city: city.trim(),
-      state: state.trim(),
-      pincode: pincode.trim(),
-      latitude: at.latitude,
-      longitude: at.longitude,
-    });
+    try {
+      const { profile: created } = await hostApi.createProfile(token, {
+        addressLine: addressLine.trim(),
+        city: city.trim(),
+        state: state.trim(),
+        pincode: pincode.trim(),
+        latitude: at.latitude,
+        longitude: at.longitude,
+      });
 
-    setProfile(created);
+      setProfile(created);
+    } catch (err) {
+      // 409: this account became a host elsewhere (another device) after this
+      // session was loaded, so its flag is stale. Flipping it below loads the
+      // existing dashboard instead of stranding the user on an error.
+      if (!(err instanceof ApiError && err.status === 409)) throw err;
+    }
+
+    if (user) setUser({ ...user, hasHostProfile: true });
   });
 
   const { run: toggleWindow } = useAsyncAction(
@@ -135,8 +152,18 @@ export default function HostScreen() {
         <ScrollView contentContainerStyle={[s.body, { paddingTop: insets.top + 32 }]}>
           {loadError ? <ErrorNotice message={loadError} /> : null}
 
-          {!loaded ? (
-            <ActivityIndicator color={colors.ink} style={s.loading} />
+          {/* Spinner only when there is something to wait for. A known
+              non-host skips it and gets onboarding on first paint. */}
+          {!profile && !loaded && isHost !== false ? (
+            <>
+              {/* Known host: the dashboard frame shows now, details follow. */}
+              {isHost ? (
+                <View style={s.heading}>
+                  <Text style={s.title}>Your spot</Text>
+                </View>
+              ) : null}
+              <ActivityIndicator color={colors.ink} style={s.loading} />
+            </>
           ) : profile ? (
             <>
               <View style={s.heading}>
