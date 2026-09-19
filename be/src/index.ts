@@ -4,6 +4,8 @@ import { env } from "./config/env.js";
 import { app } from "./lib/app.js";
 import { registerErrorHandler } from "./lib/errors.js";
 import { prisma } from "./lib/prisma.js";
+import { recordRoutes, routeCount } from "./lib/routes.js";
+import { BUILD_STAMP } from "./lib/build.js";
 
 await app.register(cors, { origin: true });
 
@@ -15,6 +17,14 @@ const PORT = env.PORT;
 async function start() {
   try {
     await app.listen({ port: PORT, host: "0.0.0.0" });
+
+    // Routes are only countable once they are all registered and the server
+    // is up. Logged as well as served, so a stale container is visible in
+    // `docker compose logs be` without anyone having to call /health.
+    recordRoutes(app);
+    console.log(
+      `GatePass API on :${PORT} — build ${BUILD_STAMP}, ${routeCount()} routes`
+    );
   } catch (err) {
     // console, not app.log: the Fastify logger is disabled, so app.log.error
     // would swallow the reason the server failed to start.

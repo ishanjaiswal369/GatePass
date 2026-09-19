@@ -753,15 +753,33 @@ from a built image. It does **not** pick up source changes, and its baked-in
 migrations than exist and then claim none are pending. For development, run
 the API from source with `npm run dev` instead.
 
-This has already caused a real failure. After a Docker restart the old `be`
-container started, took port 3000, and answered the new `POST /auth/google`
-with `404 Route not found`, which the app showed as "Not Found" right after a
-successful Google login. Whenever `be/` changes and the container is in use,
-rebuild it:
+This has caused real failures three times: `POST /auth/google`, then
+`GET /events` and `GET /bookings/active`, then `GET /vehicles` and
+`GET /address` — each one a new route answering `404 Route not found` while
+every older route worked, which looks exactly like a frontend bug. Whenever
+`be/` changes and the container is in use, rebuild it:
 
 ```bash
 docker compose up -d --build be
 ```
+
+**`GET /health` now says whether the running code is current**, so this is one
+call to check rather than an afternoon:
+
+```json
+{ "status": "ok", "build": "2026-09-19T12:04:11Z", "routes": 31, … }
+```
+
+`build` is stamped into the image at build time (`source` when running from
+`npm run dev`), and `routes` is counted from Fastify's own route table once
+the server is listening. A container started without `--build` reports an
+older stamp and a lower count. The same line is printed at startup, so
+`docker compose logs be` shows it too.
+
+The tell from the other side is the 404 body itself: Fastify answers an
+unregistered route with `{"message":"Route GET:/address not found",…}`, so a
+`Content-Length` of exactly 79 on `/address` means the route does not exist on
+that server — not that the handler failed.
 
 ### Environment
 
