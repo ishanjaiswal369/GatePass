@@ -4,6 +4,10 @@ model EmailVerification {
   code       String
   deviceId   String?
   deviceType String?
+  // What this code is allowed to do. Without it a password-reset code would
+  // also sign you in, and a login code would let anyone who intercepted it set
+  // a password -- the two flows must never share a row.
+  purpose    String     @default("LOGIN")
   // Pending signup details, carried until the code is verified so that an
   // unverified email never creates a User row. Null when the code was
   // requested from the sign-in screen.
@@ -17,8 +21,8 @@ model EmailVerification {
   createdAt  DateTime   @default(now())
 
   @@index([email])
-  // Rate limiting counts recent rows per email.
-  @@index([email, createdAt])
+  // Rate limiting counts recent rows per email, per purpose.
+  @@index([email, purpose, createdAt])
 }
 
 model UserSession {

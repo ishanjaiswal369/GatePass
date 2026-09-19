@@ -214,6 +214,58 @@ first Google sign-in (the email-fallback branch), and Google on iOS/Android.
 
 ---
 
+### Passwords
+
+A password is an **addition**, not a replacement: email codes and Google
+sign-in are untouched, and `User.passwordHash` stays null for most accounts.
+It is set from the profile screen or through forgot-password — the same two
+endpoints serve both, because both have to prove the email either way, so
+neither requires a session.
+
+- **`EmailVerification.purpose` is what makes this safe.** `verifyCode` picks
+  the newest unverified row for an address, so without a purpose a
+  password-reset code would sign its holder in and a login code would let
+  someone set a password. Both flows filter on it, and the rate limit counts
+  per purpose so one cannot exhaust the other's allowance.
+- **Setting a password revokes every existing session** and issues a fresh
+  one. For forgot-password that is the point: whoever else was signed in is
+  cut off. It also means the signed-in profile flow ends holding a working
+  token instead of being logged out by its own success.
+- **Hashing is scrypt from `node:crypto`** — no dependency, and no native
+  module to build in the Alpine image, which is what bcrypt and argon2 both
+  bring. Cost parameters live inside the stored value
+  (`scrypt$N$r$p$salt$hash`), so they can be raised later without
+  invalidating existing hashes.
+- **Nothing reveals whether an address is registered.** `password/request-code`
+  answers identically for a known and an unknown email; `login` returns one
+  message for a wrong password, an unknown account and an account with no
+  password, and runs the hash comparison against a dummy value in the last two
+  cases so the timing matches.
+- Passwords have a **minimum length and no composition rules**. "One capital,
+  one symbol" pushes people towards shorter, more guessable passwords and
+  breaks password managers; length is what costs an attacker.
+
+### Profile
+
+- **Phone is normalised to `+91XXXXXXXXXX` at the request boundary**, so the
+  unique column cannot hold `9876543210` and `+91 98765 43210` as two rows for
+  one number. Only mobile prefixes (6-9) are accepted — OTP, Razorpay contact
+  and gate calls all assume a mobile. **The number is stored unverified**;
+  there is no phone OTP yet.
+- **Vehicle numbers are normalised too** (uppercase, separators stripped), so
+  the unique index really does stop the same plate being saved twice. The
+  format check is deliberately loose: Indian plates span state series, the BH
+  series and older formats, and a strict regex rejecting a real plate is a
+  worse failure than storing an odd one.
+- **Exactly one vehicle is the default.** The first one saved becomes it
+  whatever the caller asked for, promoting a new default clears the old one in
+  the same transaction, and deleting the default promotes the oldest
+  remaining.
+- `UserAddress` is **not** `HostProfile`'s address: that one is where a parking
+  spot is, this is where its owner lives, and a user can have both.
+
+---
+
 ## 4. Frontend
 
 Full conventions are in [fe/README.md](fe/README.md). The rule is the
@@ -358,8 +410,10 @@ it needs `expo-secure-store` on native and is a separate decision.
 
 | Table | Purpose |
 |---|---|
-| `User` | `email` unique + required, `googleId` unique + nullable, `phone` optional, `firstName`/`lastName` nullable, `role`, `gstNumber`, `bankAccountId` |
-| `EmailVerification` | 6-digit `code`, 5-minute expiry, `verified`, `attempts`, pending `firstName`/`lastName`; indexed on `(email, createdAt)` for rate limiting |
+| `User` | `email` unique + required, `googleId` unique + nullable, `phone` optional (E.164 `+91…`), `passwordHash`/`passwordSetAt` nullable, `firstName`/`lastName` nullable, `role` |
+| `EmailVerification` | 6-digit `code`, 5-minute expiry, `verified`, `attempts`, `purpose`, pending `firstName`/`lastName`; indexed on `(email, purpose, createdAt)` for rate limiting |
+| `Vehicle` | saved number plate + type per user, one `isDefault`; unique on `(userId, vehicleNumber)` |
+| `UserAddress` | the driver's own address, 1:1 with `User`; `country` fixed to India |
 | `UserSession` | per-device session, `deviceId`, `fcmToken` (reserved), `lastActiveAt`, `expiresAt` |
 | `Listing` | an organizer's event **or** a host's spot; exactly one of `organizerId`/`hostProfileId` is set (DB `CHECK`) |
 | `HostProfile` | 1:1 optional on `User`. Its existence *is* the answer to "is this user a host" -- never `role` |
@@ -435,8 +489,11 @@ Hand-written SQL, one per concern, so each change is reviewable in isolation.
 | `0015_listing_host_and_discovery` | host-owned listings, one-owner `CHECK`, feed indexes | yes |
 | `0016_listing_organizer_entity` | repoints `Listing.organizerId` at `Organizer`, with backfill | yes |
 | `0017_settlement_payee` | settlement paid to an organizer or a host, one-payee `CHECK` | yes |
+| `0018_email_verification_purpose` | `purpose` on codes, so login and reset cannot share one | yes |
+| `0019_user_password` | `User.passwordHash`, `passwordSetAt`, both nullable | yes |
+| `0020_user_vehicle_and_address` | `Vehicle`, `UserAddress` | yes |
 
-All seventeen are applied to the local database.
+All twenty are applied to the local database.
 
 `0016` backfills one `Organizer` and one `OWNER` membership per user who owns
 a listing or settlement today. The new id is derived from the owner's user id
@@ -470,6 +527,11 @@ open group left.
 | POST | `/auth/google` | — | Working; needs a client id configured |
 | GET | `/auth/me` | JWT | Working; returns `profileComplete` + `hasHostProfile` |
 | PATCH | `/auth/me` | JWT | Working |
+| POST | `/auth/password/request-code` | — | Working; mails a `PASSWORD_RESET` code |
+| POST | `/auth/password/set` | — | Working; sets the password, returns a session |
+| POST | `/auth/login` | — | Working; email + password |
+| GET/POST/PATCH/DELETE | `/vehicles` | JWT | Working |
+| GET / PUT | `/address` | JWT | Working |
 | POST | `/auth/logout` | JWT | Working |
 | GET / DELETE | `/auth/sessions` | JWT | Working |
 | GET | `/events` | JWT | Working; the Events tab feed |
@@ -599,17 +661,16 @@ Also missing:
 - **Checkout.** `event/[id]` lists prices and availability but cannot book:
   that is the `design/Booking` flow and it needs Razorpay. The driver home,
   its two tabs, the QR pass, bookings and host screens are built.
-- **Dead and unused columns.** `User.gstNumber` and `User.bankAccountId` are
-  no longer read or written anywhere: `Organizer` and `HostProfile` carry
-  those now. `User.phone` is returned by the auth endpoints but **nothing ever
-  sets it** -- it is left over from phone-era auth. Razorpay checkout, gate
-  staff contact and booking SMS all want a real number, so it needs collecting
-  and verifying rather than dropping.
-- **Saved vehicles.** `POST /bookings` takes `vehicleNumber` as free text on
-  every booking, so a driver retypes a number plate at each checkout. A
-  `Vehicle` table per user would remove that, pick the right
-  `ParkingCapacity` by vehicle type automatically, and give the gate scanner a
-  plate to verify against.
+- **Dead columns.** `User.gstNumber` and `User.bankAccountId` are no longer
+  read or written anywhere: `Organizer` and `HostProfile` carry those now.
+  They are still in the schema and should be dropped.
+- **Bookings do not use saved vehicles yet.** The `Vehicle` table exists and
+  the profile manages it, but `POST /bookings` still takes `vehicleNumber` as
+  free text. Wiring checkout to pick a saved vehicle — and to preselect the
+  `ParkingCapacity` matching its type — is the next step.
+- **Phone is unverified.** `PATCH /auth/me` stores a normalised `+91` number,
+  but nothing proves the user holds it. Razorpay and gate contact both assume
+  it is real, so an SMS OTP is needed before either depends on it.
 - **`profileComplete` is thin.** It means `firstName !== null` and nothing
   more. "Can this user actually book" (name + phone + a vehicle) is a
   different question and is not modelled.

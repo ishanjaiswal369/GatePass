@@ -1,5 +1,6 @@
-import type { User } from "@prisma/client";
+import { Prisma, type User } from "@prisma/client";
 import type { Role } from "../constants/enums/index.js";
+import { conflict } from "../lib/errors.js";
 import { prisma } from "../lib/prisma.js";
 
 export interface CreateUserInput {
@@ -13,6 +14,8 @@ export interface CreateUserInput {
 export interface UpdateProfileInput {
   firstName?: string;
   lastName?: string | null;
+  /** Already normalised to +91XXXXXXXXXX by the request layer. */
+  phone?: string;
 }
 
 /**
@@ -27,6 +30,9 @@ export function toAuthUser(user: User) {
     firstName: user.firstName,
     lastName: user.lastName,
     role: user.role,
+    // Whether a password exists, never the hash. The profile screen shows
+    // "Set password" or "Change password" from this.
+    hasPassword: user.passwordHash !== null,
   };
 }
 
@@ -43,5 +49,17 @@ export async function create(input: CreateUserInput) {
 }
 
 export async function updateProfile(id: string, input: UpdateProfileInput) {
-  return prisma.user.update({ where: { id }, data: input });
+  try {
+    return await prisma.user.update({ where: { id }, data: input });
+  } catch (error) {
+    // phone is unique. Without this the caller sees a raw Prisma error
+    // instead of being told the number is already on another account.
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002"
+    ) {
+      throw conflict("That phone number is already in use");
+    }
+    throw error;
+  }
 }

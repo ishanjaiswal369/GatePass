@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { DEFAULT_DEVICE_TYPE, DEVICE_TYPES } from "../constants/enums/index.js";
+import { normalisePhone } from "../lib/phone.js";
 import type { RequestInput, RequestSchemas } from "../lib/request.js";
 
 const emailSchema = z
@@ -40,15 +41,63 @@ const googleSignInBody = z.object({
   fcmToken: z.string().min(1).optional(),
 });
 
+/**
+ * Normalised here rather than in the service, so everything downstream sees
+ * one shape. normalisePhone throws a 400 with a readable message on anything
+ * that is not an Indian mobile.
+ */
+const phoneSchema = z.string().trim().transform(normalisePhone);
+
+/**
+ * Minimum length only. Composition rules ("one capital, one symbol") push
+ * people towards shorter, more predictable passwords and a manager cannot
+ * always satisfy them; length is what actually costs an attacker.
+ */
+const passwordSchema = z
+  .string()
+  .min(10, "must be at least 10 characters")
+  .max(200);
+
 const updateProfileBody = z
   .object({
     firstName: nameSchema.optional(),
     lastName: nameSchema.nullable().optional(),
+    phone: phoneSchema.optional(),
   })
   .refine(
-    (value) => value.firstName !== undefined || value.lastName !== undefined,
-    { message: "provide firstName or lastName" }
+    (value) =>
+      value.firstName !== undefined ||
+      value.lastName !== undefined ||
+      value.phone !== undefined,
+    { message: "provide firstName, lastName or phone" }
   );
+
+const requestPasswordCodeBody = z.object({
+  email: emailSchema,
+  deviceId: z.string().min(1),
+  deviceType: z.enum(DEVICE_TYPES).default(DEFAULT_DEVICE_TYPE),
+});
+
+const setPasswordBody = z.object({
+  email: emailSchema,
+  code: z.string().regex(/^\d{6}$/, "must be a 6-digit code"),
+  password: passwordSchema,
+  deviceId: z.string().min(1),
+  deviceType: z.enum(DEVICE_TYPES).default(DEFAULT_DEVICE_TYPE),
+  deviceName: z.string().min(1).optional(),
+  fcmToken: z.string().min(1).optional(),
+});
+
+const loginBody = z.object({
+  email: emailSchema,
+  // Not passwordSchema: an old password that predates a rule change must
+  // still be able to log in and be changed.
+  password: z.string().min(1),
+  deviceId: z.string().min(1),
+  deviceType: z.enum(DEVICE_TYPES).default(DEFAULT_DEVICE_TYPE),
+  deviceName: z.string().min(1).optional(),
+  fcmToken: z.string().min(1).optional(),
+});
 
 const removeSessionParams = z.object({
   sessionId: z.string().uuid(),
@@ -59,6 +108,9 @@ export const authRequests = {
   verifyCode: { body: verifyCodeBody } satisfies RequestSchemas,
   googleSignIn: { body: googleSignInBody } satisfies RequestSchemas,
   updateProfile: { body: updateProfileBody } satisfies RequestSchemas,
+  requestPasswordCode: { body: requestPasswordCodeBody } satisfies RequestSchemas,
+  setPassword: { body: setPasswordBody } satisfies RequestSchemas,
+  login: { body: loginBody } satisfies RequestSchemas,
   removeSession: { params: removeSessionParams } satisfies RequestSchemas,
 };
 
@@ -67,3 +119,8 @@ export type VerifyCodeInput = RequestInput<typeof authRequests.verifyCode>;
 export type GoogleSignInInput = RequestInput<typeof authRequests.googleSignIn>;
 export type UpdateProfileInput = RequestInput<typeof authRequests.updateProfile>;
 export type RemoveSessionInput = RequestInput<typeof authRequests.removeSession>;
+export type RequestPasswordCodeInput = RequestInput<
+  typeof authRequests.requestPasswordCode
+>;
+export type SetPasswordInput = RequestInput<typeof authRequests.setPassword>;
+export type LoginInput = RequestInput<typeof authRequests.login>;

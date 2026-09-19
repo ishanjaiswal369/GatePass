@@ -1,3 +1,4 @@
+import { addressController } from "./controllers/address.controller.js";
 import { authController } from "./controllers/auth.controller.js";
 import { bookingController } from "./controllers/booking.controller.js";
 import { capacityController } from "./controllers/capacity.controller.js";
@@ -9,12 +10,14 @@ import { listingController } from "./controllers/listing.controller.js";
 import { paymentController } from "./controllers/payment.controller.js";
 import { settlementController } from "./controllers/settlement.controller.js";
 import { spotController } from "./controllers/spot.controller.js";
+import { vehicleController } from "./controllers/vehicle.controller.js";
 import type { App } from "./lib/app.js";
 import { request } from "./lib/request.js";
 import { authenticate } from "./middleware/authenticate.js";
 import { requireAdmin } from "./middleware/require-admin.js";
 import { requireHost } from "./middleware/require-host.js";
 import { requireOrganizerStaff } from "./middleware/require-organizer-staff.js";
+import { addressRequests } from "./requests/address.request.js";
 import { authRequests } from "./requests/auth.request.js";
 import { bookingRequests } from "./requests/booking.request.js";
 import { capacityRequests } from "./requests/capacity.request.js";
@@ -25,6 +28,7 @@ import { listingRequests } from "./requests/listing.request.js";
 import { paymentRequests } from "./requests/payment.request.js";
 import { settlementRequests } from "./requests/settlement.request.js";
 import { spotRequests } from "./requests/spot.request.js";
+import { vehicleRequests } from "./requests/vehicle.request.js";
 
 /**
  * Route registration, grouped by who is allowed to call it.
@@ -55,6 +59,19 @@ export function registerApi(app: App): void {
     "/auth/google",
     request(authRequests.googleSignIn, authController.googleSignIn)
   );
+  // Password. Setting one is always gated on an emailed code, so the same two
+  // endpoints serve "set a password" from the profile and "forgot password"
+  // from the sign-in screen -- both are unauthenticated for that reason.
+  app.post(
+    "/auth/password/request-code",
+    request(authRequests.requestPasswordCode, authController.requestPasswordCode)
+  );
+  app.post(
+    "/auth/password/set",
+    request(authRequests.setPassword, authController.setPassword)
+  );
+  app.post("/auth/login", request(authRequests.login, authController.login));
+
   app.post("/auth/logout", driver, authController.logout);
   app.get("/auth/sessions", driver, authController.listSessions);
   app.delete(
@@ -67,6 +84,30 @@ export function registerApi(app: App): void {
     "/auth/me",
     driver,
     request(authRequests.updateProfile, authController.updateMe)
+  );
+
+  // Profile
+  app.get("/vehicles", driver, vehicleController.list);
+  app.post(
+    "/vehicles",
+    driver,
+    request(vehicleRequests.create, vehicleController.create)
+  );
+  app.patch(
+    "/vehicles/:id",
+    driver,
+    request(vehicleRequests.update, vehicleController.update)
+  );
+  app.delete(
+    "/vehicles/:id",
+    driver,
+    request(vehicleRequests.remove, vehicleController.remove)
+  );
+  app.get("/address", driver, addressController.get);
+  app.put(
+    "/address",
+    driver,
+    request(addressRequests.save, addressController.save)
   );
 
   // Driver discovery -- the Events tab of the home screen.

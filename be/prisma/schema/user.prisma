@@ -9,12 +9,18 @@ model User {
   firstName       String?
   lastName        String?
   role            String   @default("DRIVER")
+  // scrypt hash, null until the user sets one. Email-code and Google sign-in
+  // stay available either way -- a password is an addition, not a migration.
+  passwordHash    String?
+  passwordSetAt   DateTime?
   gstNumber       String?
   bankAccountId   String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   hostProfile     HostProfile?
+  vehicles        Vehicle[]
+  address         UserAddress?
   organizerMemberships OrganizerMember[]
   bookings        Booking[]
   sessions        UserSession[]

@@ -1,5 +1,8 @@
 import { env } from "../config/env.js";
-import type { DeviceType } from "../constants/enums/index.js";
+import type {
+  DeviceType,
+  VerificationPurpose,
+} from "../constants/enums/index.js";
 import { getEmailProvider } from "../integrations/email/index.js";
 import {
   GoogleIdentityError,
@@ -12,8 +15,9 @@ import {
   tooManyRequests,
   unauthorized,
 } from "../lib/errors.js";
+import { hashPassword, verifyPassword } from "../lib/password.js";
 import { prisma } from "../lib/prisma.js";
-import { createSession } from "./session.service.js";
+import { createSession, revokeAllUserSessions } from "./session.service.js";
 import { toAuthUser } from "./user.service.js";
 
 const CODE_TTL_MINUTES = 5;
@@ -36,6 +40,8 @@ export interface RequestCodeInput {
   deviceType: DeviceType;
   firstName?: string;
   lastName?: string;
+  /** LOGIN unless a password flow asked for the code. */
+  purpose?: VerificationPurpose;
 }
 
 /**
@@ -49,6 +55,7 @@ export async function requestCode(
   input: RequestCodeInput
 ): Promise<{ code?: string }> {
   const { email, deviceId, deviceType, firstName, lastName } = input;
+  const purpose = input.purpose ?? "LOGIN";
 
   const now = Date.now();
   const windowStart = new Date(now - RATE_WINDOW_MINUTES * 60_000);
@@ -60,8 +67,10 @@ export async function requestCode(
     where: { email, createdAt: { lt: windowStart } },
   });
 
+  // Counted per purpose, so asking for a password reset cannot use up the
+  // login allowance or vice versa.
   const recent = await prisma.emailVerification.findMany({
-    where: { email, createdAt: { gte: windowStart } },
+    where: { email, purpose, createdAt: { gte: windowStart } },
     orderBy: { createdAt: "desc" },
     select: { createdAt: true },
   });
@@ -95,7 +104,16 @@ export async function requestCode(
   expiresAt.setMinutes(expiresAt.getMinutes() + CODE_TTL_MINUTES);
 
   const verification = await prisma.emailVerification.create({
-    data: { email, code, deviceId, deviceType, firstName, lastName, expiresAt },
+    data: {
+      email,
+      code,
+      deviceId,
+      deviceType,
+      firstName,
+      lastName,
+      purpose,
+      expiresAt,
+    },
   });
 
   try {
@@ -126,6 +144,8 @@ export async function verifyCode(input: VerifyCodeInput) {
   const verification = await prisma.emailVerification.findFirst({
     where: {
       email,
+      // A password-reset code must never sign anyone in.
+      purpose: "LOGIN",
       verified: false,
       expiresAt: { gt: new Date() },
       // A row that has used up its guesses is no longer a candidate, so the
@@ -257,6 +277,173 @@ export async function signInWithGoogle(input: GoogleSignInInput) {
         data: { email, googleId, firstName, lastName },
       });
     }
+  }
+
+  const { token } = await createSession(
+    { id: user.id, email: user.email, role: user.role },
+    { deviceId, deviceType, deviceName, fcmToken }
+  );
+
+  return {
+    token,
+    user: toAuthUser(user),
+    profileComplete: user.firstName !== null,
+  };
+}
+
+/** Wrong guesses allowed against a password-reset code, same cap as login. */
+const MAX_PASSWORD_ATTEMPTS = MAX_VERIFY_ATTEMPTS;
+
+export interface RequestPasswordCodeInput {
+  email: string;
+  deviceId: string;
+  deviceType: DeviceType;
+}
+
+/**
+ * Mails a code for setting a password. Serves both entry points -- the profile
+ * screen of a signed-in user, and forgot-password from the sign-in screen.
+ *
+ * Like requestCode, it answers the same way whether or not the address has an
+ * account, so it cannot be used to discover which emails are registered. That
+ * means an unknown address gets no mail but still gets a success response.
+ */
+export async function requestPasswordCode(
+  input: RequestPasswordCodeInput
+): Promise<{ code?: string }> {
+  const user = await prisma.user.findUnique({
+    where: { email: input.email },
+    select: { id: true },
+  });
+
+  if (!user) {
+    return {};
+  }
+
+  return requestCode({ ...input, purpose: "PASSWORD_RESET" });
+}
+
+export interface SetPasswordInput {
+  email: string;
+  code: string;
+  password: string;
+  deviceId: string;
+  deviceType: DeviceType;
+  deviceName?: string;
+  fcmToken?: string;
+}
+
+/**
+ * Sets the password once the emailed code checks out.
+ *
+ * Every existing session is revoked and a fresh one issued. For
+ * forgot-password that is the point -- whoever else was signed in is cut off
+ * -- and it also means the signed-in profile flow ends holding a working
+ * token instead of being logged out by its own success.
+ */
+export async function setPassword(input: SetPasswordInput) {
+  const { email, code, password, deviceId, deviceType, deviceName, fcmToken } =
+    input;
+
+  const verification = await prisma.emailVerification.findFirst({
+    where: {
+      email,
+      purpose: "PASSWORD_RESET",
+      verified: false,
+      expiresAt: { gt: new Date() },
+      attempts: { lt: MAX_PASSWORD_ATTEMPTS },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  if (!verification) {
+    throw badRequest("Invalid or expired code");
+  }
+
+  if (verification.code !== code) {
+    const { attempts } = await prisma.emailVerification.update({
+      where: { id: verification.id },
+      data: { attempts: { increment: 1 } },
+      select: { attempts: true },
+    });
+
+    const remaining = MAX_PASSWORD_ATTEMPTS - attempts;
+
+    if (remaining <= 0) {
+      throw tooManyRequests("Too many incorrect attempts. Request a new code.");
+    }
+
+    throw badRequest(
+      `Invalid code. ${remaining} attempt${remaining === 1 ? "" : "s"} left.`
+    );
+  }
+
+  const user = await prisma.user.findUnique({ where: { email } });
+
+  if (!user) {
+    // requestPasswordCode never mails an unknown address, so reaching here
+    // means the account went away between the two calls.
+    throw badRequest("Invalid or expired code");
+  }
+
+  await prisma.emailVerification.update({
+    where: { id: verification.id },
+    data: { verified: true },
+  });
+
+  const updated = await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      passwordHash: await hashPassword(password),
+      passwordSetAt: new Date(),
+    },
+  });
+
+  await revokeAllUserSessions(user.id);
+
+  const { token } = await createSession(
+    { id: updated.id, email: updated.email, role: updated.role },
+    { deviceId, deviceType, deviceName, fcmToken }
+  );
+
+  return {
+    token,
+    user: toAuthUser(updated),
+    profileComplete: updated.firstName !== null,
+  };
+}
+
+export interface LoginWithPasswordInput {
+  email: string;
+  password: string;
+  deviceId: string;
+  deviceType: DeviceType;
+  deviceName?: string;
+  fcmToken?: string;
+}
+
+/**
+ * Signs in with email and password.
+ *
+ * A missing account and a wrong password answer identically, and an account
+ * with no password still runs the hash comparison against a dummy value --
+ * otherwise the response time alone says whether an address is registered and
+ * whether it has a password set.
+ */
+export async function loginWithPassword(input: LoginWithPasswordInput) {
+  const { email, password, deviceId, deviceType, deviceName, fcmToken } = input;
+
+  const user = await prisma.user.findUnique({ where: { email } });
+
+  const stored =
+    user?.passwordHash ??
+    // A real hash of a value nobody can supply, so the work is identical.
+    "scrypt$16384$8$1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
+  const ok = await verifyPassword(password, stored);
+
+  if (!user || !user.passwordHash || !ok) {
+    throw unauthorized("Incorrect email or password");
   }
 
   const { token } = await createSession(

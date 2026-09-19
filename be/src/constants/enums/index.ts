@@ -49,3 +49,9 @@ export {
   DEFAULT_ORGANIZER_MEMBER_ROLE,
   type OrganizerMemberRole,
 } from "./organizer-member-role.js";
+
+export {
+  VERIFICATION_PURPOSES,
+  DEFAULT_VERIFICATION_PURPOSE,
+  type VerificationPurpose,
+} from "./verification-purpose.js";

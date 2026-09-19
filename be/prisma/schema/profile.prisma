@@ -1,0 +1,34 @@
+/// A vehicle the driver books with. Saved so a number plate is picked at
+/// checkout instead of retyped, and so the gate has a plate to check against.
+model Vehicle {
+  id            String   @id @default(uuid())
+  userId        String
+  /// Stored normalised: uppercase, no spaces or hyphens.
+  vehicleNumber String
+  vehicleType   String
+  /// Pre-selected at checkout. At most one per user, enforced in the service.
+  isDefault     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, vehicleNumber])
+  @@index([userId])
+}
+
+/// The driver's own address. Separate from HostProfile's address, which is
+/// where a parking spot is rather than where its owner lives.
+model UserAddress {
+  id          String   @id @default(uuid())
+  userId      String   @unique
+  /// Single market for now; the column exists so adding a second is data.
+  country     String   @default("India")
+  state       String
+  city        String
+  addressLine String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}

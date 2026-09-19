@@ -6,6 +6,9 @@ import type {
   RequestCodeInput,
   UpdateProfileInput,
   VerifyCodeInput,
+  RequestPasswordCodeInput,
+  SetPasswordInput,
+  LoginInput,
 } from "../requests/auth.request.js";
 import * as authService from "../services/auth.service.js";
 import * as sessionService from "../services/session.service.js";
@@ -71,6 +74,33 @@ export const authController = {
     );
 
     return reply.send({ message: "Session removed successfully" });
+  },
+
+  requestPasswordCode: async (
+    input: RequestPasswordCodeInput,
+    _request: FastifyRequest,
+    reply: FastifyReply
+  ) => {
+    const result = await authService.requestPasswordCode(input.body);
+    // Same answer for a registered and an unknown address, so the response
+    // cannot be used to enumerate accounts.
+    return reply.send({ message: "If that email has an account, a code is on its way", ...result });
+  },
+
+  setPassword: async (
+    input: SetPasswordInput,
+    _request: FastifyRequest,
+    reply: FastifyReply
+  ) => {
+    return reply.send(await authService.setPassword(input.body));
+  },
+
+  login: async (
+    input: LoginInput,
+    _request: FastifyRequest,
+    reply: FastifyReply
+  ) => {
+    return reply.send(await authService.loginWithPassword(input.body));
   },
 
   me: async (request: FastifyRequest, reply: FastifyReply) => {

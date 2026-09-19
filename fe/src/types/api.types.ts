@@ -19,6 +19,8 @@ export interface AuthUser {
   firstName: string | null;
   lastName: string | null;
   role: Role;
+  /** Whether a password is set. The hash itself never leaves the server. */
+  hasPassword: boolean;
 }
 
 export interface VerifyCodeResult {
@@ -164,4 +166,21 @@ export interface GeocodeResult {
   description: string;
   latitude: number;
   longitude: number;
+}
+
+export interface Vehicle {
+  id: string;
+  vehicleNumber: string;
+  vehicleType: VehicleType;
+  isDefault: boolean;
+  createdAt: string;
+}
+
+export interface UserAddress {
+  id: string;
+  /** Always "India" for now; the API does not accept it from the client. */
+  country: string;
+  state: string;
+  city: string;
+  addressLine: string;
 }
