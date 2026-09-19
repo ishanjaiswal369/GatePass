@@ -221,6 +221,7 @@ backend's: **the routing layer is thin, and the work lives behind it.**
 
 ```
 fe/
+  index.js              entry point; must live here, not in node_modules
   metro.config.js       workspace resolution (see below)
   app/                  routes only: index, verify, profile, home,
                         bookings, host, account, event/[id], pass/[id]
@@ -286,13 +287,21 @@ Three decisions worth knowing:
   the button; development shows it disabled with a one-line hint naming the
   variable to set (`GoogleSignInUnconfigured`, which mounts no hook), because a
   silently missing button read as a missing feature.
-- **`metro.config.js` is load-bearing.** Dependencies hoist to the repo root
-  in this npm workspace, so the entry point sits one level above Metro's
-  project root. Without `watchFolders`, `nodeModulesPaths` and
-  `server.unstable_serverRoot` pointing at the workspace root, Expo emits a
-  script URL of `/../node_modules/expo-router/entry.bundle`, the browser
-  normalises the `/..` away, the request 404s and **the page renders blank
-  white with nothing in the terminal.** Verified both ways in a real browser.
+- **`index.js` and `metro.config.js` are both load-bearing.** Dependencies
+  hoist to the repo root in this npm workspace, so `fe/node_modules` is nearly
+  empty. `metro.config.js` points `watchFolders` and `nodeModulesPaths` at the
+  workspace root so Metro can resolve anything at all.
+
+  The entry point is a second, separate trap. `"main": "expo-router/entry"`
+  resolves to the hoisted copy *outside* Metro's project root, so Expo writes
+  the `<script>` URL as a relative path to it — and that breaks differently on
+  each OS. On macOS and Linux it is `/../node_modules/expo-router/entry.bundle`
+  and the browser strips the `/..`, so the request 404s. On Windows the
+  separators are backslashes, so it arrives percent-encoded as
+  `..%5Cnode_modules%5C...` and Metro answers 500. **Both fail as a blank white
+  page with nothing in the terminal.** `fe/index.js` re-exports
+  `expo-router/entry` from inside the project, which makes the URL a plain
+  `/index.bundle` everywhere. Do not point `main` back at the package.
 - **An auth gate is a `<Redirect>`, never `router.replace` in an effect.** A
   child screen's `useEffect` runs before the root layout has mounted its
   navigator, so a cold load of `/account` while signed out crashed with
