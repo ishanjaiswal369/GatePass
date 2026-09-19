@@ -13,16 +13,19 @@ export {
   CalendarIcon,
   CheckIcon,
   ChevronLeftIcon,
+  ChevronRightIcon,
   ClockIcon,
   GoogleIcon,
   HomeIcon,
   HostIcon,
   InfoIcon,
+  LockIcon,
   MailIcon,
   PinIcon,
   QrIcon,
   SearchIcon,
   ShieldIcon,
+  TrashIcon,
   UserIcon,
 } from "./Icon";
 export { EventListItem } from "./EventListItem";
@@ -33,3 +36,4 @@ export { SpotListItem } from "./SpotListItem";
 export { PhoneFrame } from "./PhoneFrame";
 export { RestoringScreen } from "./RestoringScreen";
 export { SegmentedControl, type Segment } from "./SegmentedControl";
+export { SettingsRow } from "./SettingsRow";

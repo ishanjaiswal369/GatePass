@@ -1,6 +1,6 @@
 import { Redirect, router } from "expo-router";
 import { useCallback, useState } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { authApi } from "@/api";
 import {
   ArrowRightIcon,
@@ -8,6 +8,7 @@ import {
   Button,
   ErrorNotice,
   Field,
+  LockIcon,
   MailIcon,
   PhoneFrame,
   RestoringScreen,
@@ -35,6 +36,10 @@ export default function EmailScreen() {
   const [email, setEmail] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
+  // Password sign-in is opt-in on the sign-in tab rather than a third
+  // segment: codes stay the default path, and most accounts have no password.
+  const [usePassword, setUsePassword] = useState(false);
+  const [password, setPassword] = useState("");
 
   const { signIn, token, isRestoring } = useSession();
   const isSignup = mode === "signup";
@@ -64,8 +69,21 @@ export default function EmailScreen() {
     });
   });
 
+  const { run: signInWithPassword, busy: signingIn, error: passwordError } =
+    useAsyncAction(async () => {
+      const result = await authApi.loginWithPassword({
+        email: email.trim(),
+        password,
+      });
+
+      signIn(result.token, result.user);
+      router.replace(result.profileComplete ? "/home" : "/profile");
+    });
+
   const canSubmit =
     email.trim().length > 0 && (!isSignup || firstName.trim().length > 0);
+
+  const passwordMode = !isSignup && usePassword;
 
   // After every hook, so hook order never changes between renders.
   if (isRestoring) {
@@ -85,7 +103,9 @@ export default function EmailScreen() {
         sub={
           isSignup
             ? "Concerts, matches and fairs across India."
-            : "Enter your email and we'll send a code."
+            : usePassword
+              ? "Enter your email and password."
+              : "Enter your email and we'll send a code."
         }
       />
 
@@ -135,16 +155,68 @@ export default function EmailScreen() {
           icon={<MailIcon />}
         />
 
-        {error ? <ErrorNotice message={error} /> : null}
+        {passwordMode ? (
+          <Field
+            label="Password"
+            value={password}
+            onChangeText={setPassword}
+            placeholder="••••••••••"
+            secureTextEntry
+            autoCapitalize="none"
+            autoCorrect={false}
+            icon={<LockIcon />}
+          />
+        ) : null}
 
-        <Button
-          label="Send code"
-          size="lg"
-          onPress={run}
-          busy={busy}
-          disabled={!canSubmit}
-          icon={<ArrowRightIcon />}
-        />
+        {error || passwordError ? (
+          <ErrorNotice message={error ?? passwordError ?? ""} />
+        ) : null}
+
+        {passwordMode ? (
+          <Button
+            label="Sign in"
+            size="lg"
+            onPress={signInWithPassword}
+            busy={signingIn}
+            disabled={!canSubmit || password.length === 0}
+            icon={<ArrowRightIcon />}
+          />
+        ) : (
+          <Button
+            label="Send code"
+            size="lg"
+            onPress={run}
+            busy={busy}
+            disabled={!canSubmit}
+            icon={<ArrowRightIcon />}
+          />
+        )}
+
+        {!isSignup ? (
+          <View style={s.altRow}>
+            <Pressable
+              onPress={() => {
+                setUsePassword((on) => !on);
+                setPassword("");
+                clearError();
+              }}
+              accessibilityRole="button"
+              style={s.altHit}
+            >
+              <Text style={s.altLabel}>
+                {usePassword ? "Use an email code" : "Use a password"}
+              </Text>
+            </Pressable>
+
+            <Pressable
+              onPress={() => router.push("/password")}
+              accessibilityRole="button"
+              style={s.altHit}
+            >
+              <Text style={s.altLabel}>Forgot password?</Text>
+            </Pressable>
+          </View>
+        ) : null}
 
         {isGoogleConfigured ? (
           <GoogleSignIn onSuccess={onGoogleSuccess} disabled={busy} />
@@ -165,6 +237,13 @@ export default function EmailScreen() {
 }
 
 const s = StyleSheet.create({
+  altRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  altHit: { minHeight: 44, justifyContent: "center" },
+  altLabel: { fontSize: 13, fontWeight: "600", color: colors.inkMuted },
   body: { padding: 28, gap: 18, flexGrow: 1 },
   nameRow: { flexDirection: "row", gap: space.md },
   nameCell: { flexGrow: 1, flexShrink: 1, flexBasis: 0 },

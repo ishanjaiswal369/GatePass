@@ -275,8 +275,9 @@ backend's: **the routing layer is thin, and the work lives behind it.**
 fe/
   index.js              entry point; must live here, not in node_modules
   metro.config.js       workspace resolution (see below)
-  app/                  routes only: index, verify, profile, home,
-                        bookings, host, account, event/[id], pass/[id]
+  app/                  routes only: index, verify, profile, home, bookings,
+                        host, password, account (+ details, vehicles,
+                        address), event/[id], pass/[id]
   src/
     api/
       client.ts         the only caller of fetch; ApiError carries HTTP status
@@ -299,6 +300,32 @@ fe/
 Screens follow the published design canvas: dark brand header, first/last name
 on one row, a six-box code input, a live resend timer matching the API's 60 s
 cooldown, and a verified-email state on name capture.
+
+### Profile
+
+`app/account.tsx` is a hub rather than a form: each row shows what that
+section currently holds, so "have I filled this in?" is answered on one screen
+instead of one tap inside each of them. Editing happens in
+`account/details`, `account/vehicles` and `account/address`.
+
+- **`app/password.tsx` serves both directions.** Signed in it is "set or
+  change your password"; signed out it is forgot-password. Both prove the
+  email the same way, so they are one screen and the only difference is
+  whether the address is already known -- and when it is, it is not editable,
+  because changing it there would mail a code to someone else's inbox.
+- **Setting a password adopts the returned token.** The API revokes every
+  earlier session, so the one the app was holding stops working at that exact
+  moment; ignoring the new token would log the user out of their own success.
+- **The phone field edits ten digits with a fixed `+91` prefix.** Non-digits
+  are stripped as they are typed, so the value cannot drift from what the API
+  will accept, and the prefix is shown rather than typed.
+- **Vehicle numbers uppercase as you type**, matching how the API stores them,
+  so what the driver sees is what gets saved.
+- **Country on the address screen is text, not a one-option picker.** The API
+  refuses to take it from the client; a control that cannot change anything
+  only invites the question.
+- Password sign-in is **opt-in on the sign-in tab**, not a third segment:
+  codes stay the default and most accounts have no password.
 
 ### Driver home
 

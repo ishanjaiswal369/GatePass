@@ -54,3 +54,34 @@ export const revokeSession = (token: string, sessionId: string) =>
 
 export const logout = (token: string) =>
   request<{ message: string }>("/auth/logout", { method: "POST", token });
+
+/**
+ * Mails a code for setting a password. Used by both entry points -- the
+ * profile screen and forgot-password -- so it takes no token. The response is
+ * identical for a registered and an unknown address by design.
+ */
+export const requestPasswordCode = async (email: string) =>
+  request<{ message: string; code?: string }>("/auth/password/request-code", {
+    method: "POST",
+    body: { email, ...(await deviceFields()) },
+  });
+
+/** Returns a fresh session: every earlier one is revoked server-side. */
+export const setPassword = async (input: {
+  email: string;
+  code: string;
+  password: string;
+}) =>
+  request<VerifyCodeResult>("/auth/password/set", {
+    method: "POST",
+    body: { ...input, ...(await deviceFields()), deviceName },
+  });
+
+export const loginWithPassword = async (input: {
+  email: string;
+  password: string;
+}) =>
+  request<VerifyCodeResult>("/auth/login", {
+    method: "POST",
+    body: { ...input, ...(await deviceFields()), deviceName },
+  });

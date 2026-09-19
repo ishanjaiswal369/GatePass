@@ -33,7 +33,9 @@ export const deviceType: DeviceType =
 export const deviceName = Platform.OS === "web" ? "Browser" : Platform.OS;
 
 export interface RequestOptions {
-  method?: "GET" | "POST" | "PATCH" | "DELETE";
+  // PUT is here for idempotent upserts -- saving the address is the same
+  // request whether or not one exists yet.
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
   token?: string;
 }
