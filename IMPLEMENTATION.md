@@ -1,6 +1,6 @@
 # GatePass — Implementation Notes
 
-Last updated: 2026-09-18
+Last updated: 2026-09-19
 
 A paid marketplace for parking at public ticketed events in India. Organizers
 list parking capacity at a venue; drivers reserve and pay in advance; the
@@ -54,10 +54,11 @@ be/
     services/           business logic and Prisma access
     integrations/
       email/            Resend + console providers
+      geocode/          Ola + Google providers, off by default
       google/verify.ts  Google ID token verification
       http.ts           axios + retry
-    middleware/         authenticate
-    lib/                app, errors, prisma, request wrapper
+    middleware/         authenticate, requireHost, requireOrganizerStaff, requireAdmin
+    lib/                app, errors, prisma, request wrapper, pagination
 fe/                     Expo app — see section 4 and fe/README.md
 design/                 canvas source (.dc.html + canvas.json), splash render + philosophy
 ```
@@ -284,14 +285,23 @@ it needs `expo-secure-store` on native and is a separate decision.
 | `User` | `email` unique + required, `googleId` unique + nullable, `phone` optional, `firstName`/`lastName` nullable, `role`, `gstNumber`, `bankAccountId` |
 | `EmailVerification` | 6-digit `code`, 5-minute expiry, `verified`, `attempts`, pending `firstName`/`lastName`; indexed on `(email, createdAt)` for rate limiting |
 | `UserSession` | per-device session, `deviceId`, `fcmToken` (reserved), `lastActiveAt`, `expiresAt` |
-| `Listing` | organizer's event; `listingType` (only `EVENT` in use), `status`, venue, coords |
+| `Listing` | an organizer's event **or** a host's spot; exactly one of `organizerId`/`hostProfileId` is set (DB `CHECK`) |
+| `HostProfile` | 1:1 optional on `User`. Its existence *is* the answer to "is this user a host" -- never `role` |
+| `HostAvailability` | weekly windows for a host spot: `dayOfWeek`, minute range, `pricePerHour`, `isActive` toggle |
+| `Organizer` / `OrganizerMember` | the business entity and its staff logins; listings and settlements hang off the entity |
 | `ParkingCapacity` | per `(listing, vehicleType)`: `totalCapacity`, `bookedCount`, `price` |
 | `Booking` | `quantity`, `amount` snapshot, `status`, `idempotencyKey` unique, `qrToken` unique |
 | `Payment` | separate from `Booking` because payment state and booking state are different machines; Razorpay ids |
-| `Settlement` / `SettlementItem` | per-period organizer payout with a per-booking breakdown |
+| `Settlement` / `SettlementItem` | per-period payout with a per-booking breakdown; paid to an organizer **or** a host (DB `CHECK`) |
 
 `createdBy`/`updatedBy` columns exist on `Listing`, `Booking`, `Payment` and
-`Settlement`. **Only listing creation actually populates them.**
+`Settlement`. Listing, booking, payment and settlement creation populate them.
+
+**Driver and host are not roles.** A person can be both at once, which one
+`role` column cannot express. `User.role` still exists and is used for `ADMIN`
+only; `DRIVER` is simply "any signed-in user". Host status is a `HostProfile`
+row, checked in the database on every request -- never baked into the JWT,
+which would be stale for the token's full 30-day life.
 
 Naming is Prisma's default: PascalCase tables, camelCase columns. Adding
 `@@map`/`@map` for DB-level snake_case is still an open idea.
@@ -342,8 +352,22 @@ Hand-written SQL, one per concern, so each change is reviewable in isolation.
 | `0008_split_user_name` | `User.name` → `firstName`/`lastName`; pending name on `EmailVerification` | yes |
 | `0009_verification_attempts` | `EmailVerification.attempts`; `(email, createdAt)` index | yes |
 | `0010_user_google_id` | `User.googleId`, nullable + unique | yes |
+| `0011_parking_capacity_gate` | `ParkingCapacity.gate` for the pass | yes |
+| `0012_host_profile` | `HostProfile` | yes |
+| `0013_organizer` | `Organizer`, `OrganizerMember` | yes |
+| `0014_host_availability` | `HostAvailability` + range `CHECK`s | yes |
+| `0015_listing_host_and_discovery` | host-owned listings, one-owner `CHECK`, feed indexes | yes |
+| `0016_listing_organizer_entity` | repoints `Listing.organizerId` at `Organizer`, with backfill | yes |
+| `0017_settlement_payee` | settlement paid to an organizer or a host, one-payee `CHECK` | yes |
 
-All ten are applied to the local database.
+All seventeen are applied to the local database.
+
+`0016` backfills one `Organizer` and one `OWNER` membership per user who owns
+a listing or settlement today. The new id is derived from the owner's user id
+(`md5('organizer:' || id)::uuid`) rather than `gen_random_uuid()`, so three
+statements agree on it without a temp table and without joining on a display
+name -- two organizers both called "Ravi Kumar" would otherwise have been
+handed each other's listings. Verified against exactly that case.
 
 `0006` contains `DELETE FROM "User" WHERE "email" IS NULL` — a deliberate
 dev-stage cleanup of phone-era users. **That line must never run against
@@ -359,64 +383,142 @@ npx prisma migrate dev --create-only --name <name> --schema prisma/schema
 
 ## 8. API surface
 
+Everything except `/health` and `/auth/*` sign-in requires a JWT. There is no
+open group left.
+
 | Method | Path | Auth | State |
 |---|---|---|---|
 | GET | `/health` | — | Working; reports the email provider |
 | POST | `/auth/request-code` | — | Working; rate limited |
 | POST | `/auth/verify-code` | — | Working; guess-capped |
 | POST | `/auth/google` | — | Working; needs a client id configured |
-| GET | `/auth/me` | JWT | Working; returns `profileComplete` |
+| GET | `/auth/me` | JWT | Working; returns `profileComplete` + `hasHostProfile` |
 | PATCH | `/auth/me` | JWT | Working |
 | POST | `/auth/logout` | JWT | Working |
-| GET | `/auth/sessions` | JWT | Working |
-| DELETE | `/auth/sessions/:sessionId` | JWT | Working |
-| GET / POST | `/users` | **none** | CRUD stub |
-| GET / POST | `/listings` | JWT | CRUD stub; populates audit columns |
-| GET / POST | `/capacities` | **none** | CRUD stub |
-| GET / POST | `/bookings` | **none** | CRUD stub — see below |
-| GET / POST | `/payments` | **none** | CRUD stub |
-| GET / POST | `/settlements`, `/settlement-items` | **none** | CRUD stub |
+| GET / DELETE | `/auth/sessions` | JWT | Working |
+| GET | `/events` | JWT | Working; the Events tab feed |
+| GET | `/events/:id` | JWT | Working |
+| GET | `/spots/nearby` | JWT | Working; the Nearby tab |
+| GET | `/geocode` | JWT | Working when a provider is configured, else 503 |
+| GET | `/bookings` | JWT | Working; driver-scoped, cursor paginated |
+| GET | `/bookings/active` | JWT | Working; the home screen's pass card |
+| GET | `/bookings/:id` | JWT | Working |
+| GET | `/bookings/:id/pass` | JWT | Working; mints a 5-minute pass |
+| POST | `/bookings` | JWT | Working; atomic and idempotent |
+| GET / POST | `/payments` | JWT | Stub, but scoped and server-priced |
+| GET / POST | `/host/profile` | JWT | Working; onboarding |
+| GET/POST/PATCH/DELETE | `/host/availability` | Host | Working |
+| GET | `/host/settlements` | Host | Working (engine not built) |
+| GET / POST | `/listings` | Organizer | Working; scoped to the caller's organizers |
+| GET / POST | `/capacities` | Organizer | Working; scoped |
+| GET | `/settlements` | Organizer | Working (engine not built) |
+| POST | `/settlements`, `/settlement-items` | Admin | Stub; the payout engine will own these |
+
+`GET /users`, `POST /users` and `GET /users/:id` **were removed.** They had no
+auth and returned whole `User` rows, so anyone who could reach the API could
+dump every user's email and phone number. `/auth/me` covers what the app
+needed from them.
+
+### The driver home screen
+
+Three parallel calls, deliberately not one aggregate endpoint: the feed is
+shared and cacheable, the pass is per-user and must be fresh, and one endpoint
+would force the strictest policy of the three onto all of them.
+
+| Call | Fills |
+|---|---|
+| `GET /auth/me` | avatar initial, and which screen the Host tab opens |
+| `GET /bookings/active` | the ACTIVE PASS card (200 with `booking: null` when there is none) |
+| `GET /events?limit=…` | the UPCOMING NEAR YOU list |
+
+`GET /events` takes `q`, `latitude`+`longitude`, `radiusKm`, `from`, `to`,
+`cursor` and `limit`. `minPrice`, `spotsLeft` and `vehicleTypes` are computed
+in one SQL statement with a join and `GROUP BY`, not by loading capacity rows
+into Node. Only `PUBLISHED`/`ONGOING` listings with an `eventDate` appear --
+the card renders a day and a month, so an undated listing has nothing to show,
+and `DRAFT` must never leak.
+
+### Booking correctness
+
+The three bugs that section 9 used to describe are fixed and verified against
+a live Postgres:
+
+- **Oversell.** The capacity claim is a single conditional `UPDATE` --
+  `SET bookedCount = bookedCount + n WHERE id = ? AND bookedCount + n <=
+  totalCapacity` -- so the check and the increment cannot be split by a
+  concurrent request. Verified: 8 simultaneous bookings against a capacity of
+  2 produced exactly 2 bookings and `bookedCount = 2`.
+- **Idempotency.** A repeated `idempotencyKey` returns the original booking
+  with `200` instead of `201`, and does not increment capacity twice. The
+  racing case is covered by catching the unique violation: the loser's whole
+  transaction rolls back, its capacity increment included. A key belonging to
+  *another* user answers `409` rather than handing over their booking.
+- **Server-derived fields.** `driverId` comes from the JWT, `amount` from
+  `ParkingCapacity.price`, and `qrToken` from `randomBytes(32)`. None of the
+  three is accepted from the request body any more.
+
+### Passes
+
+`qrToken` is the durable secret and never appears in any response. Displaying
+a pass calls `GET /bookings/:id/pass`, which returns a JWT with `typ:
+"gate-pass"`, the booking id and a hash of `qrToken`, valid for five minutes.
+A screenshot is therefore worthless within minutes, and rotating `qrToken`
+invalidates every pass already issued. **The gate scanner that verifies these
+is not built** -- `pass.service.verify` exists for it.
 
 ---
 
 ## 9. What is not built yet
 
-Auth is finished. Everything past it is scaffolding — the tables and routes
-exist, but the logic that makes them correct does not.
+Auth, discovery and booking correctness are done. What remains:
 
-**Booking is the clearest example.** `POST /bookings` is a bare
-`prisma.booking.create()`, which means:
-
-- **No oversell prevention.** The atomic conditional update on
-  `ParkingCapacity.bookedCount` — the whole point of that counter — is not
-  written. Concurrent bookings will oversell a venue.
-- **No idempotency handling.** `idempotencyKey` is accepted and has a unique
-  index, but a retry hits a raw constraint violation instead of returning the
-  original booking.
-- **`driverId`, `amount` and `qrToken` are all taken from the request body.**
-  All three must be server-derived: the driver from the JWT, the price from
-  `ParkingCapacity`, and the QR token generated server-side. As written, a
-  caller can book as another user at a price they choose.
+**The gap that matters most: unpaid holds are never released.** A booking is
+created `PENDING` and has already claimed its capacity. If the driver never
+pays, that slot stays claimed forever -- an event can show "sold out" with
+nobody actually coming. Nothing expires it today. The fix is a `holdExpiresAt`
+column plus a sweeper that releases expired `PENDING` rows, and it has to land
+with the payment flow, because the two are the same problem seen from two
+sides. **Do not run a real event sale before this exists.**
 
 Also missing:
 
-- **Auth on most routes.** Only `/listings` and the `/auth/*` session routes
-  check a JWT. Bookings, payments and settlements are open.
-- **Role checks.** `role` is in the JWT but nothing enforces it, so a driver
-  can call organizer endpoints.
-- **Google on native.** Only the web client id is wired for testing; iOS and
-  Android client ids are needed once there is a dev build.
-- **Razorpay.** No order creation, no webhook, no capture.
+- **Razorpay.** `POST /payments` opens a row with the booking's own amount and
+  a fixed `CREATED` status, which is as far as a stub can honestly go. No
+  order creation, no webhook, no capture -- so nothing ever reaches
+  `CONFIRMED` on its own, and the pass card stays empty in a real flow.
+- **The gate scanner.** Passes are minted but nothing verifies them yet.
 - **Settlement calculation.** Commission and payout maths are not written.
-- **QR pass generation and delivery.**
-- **Driver booking screens.** Designed (`design/EventDetail`, `Booking`,
-  `Pass`) but not in a canvas yet and not built.
+  Hosts are paid through the same periodic engine as organizers in v1; instant
+  payout (Razorpay Route) is a deliberate omission -- it needs a linked
+  account and KYC that self-serve onboarding does not collect.
+- **Host verification.** Onboarding submits as `ACTIVE`. `panNumber` is only
+  format-checked; nothing confirms it is real.
+- **Booking a host spot.** `/spots/nearby` finds them, but the booking flow is
+  per-slot against `ParkingCapacity`, and a host spot is priced per hour
+  against a `HostAvailability` window. `POST /bookings` refuses an
+  `INDEPENDENT_SPOT` with a 400 rather than charging the wrong amount.
+- **Search quality.** `GET /events?q=` is `ILIKE '%…%'`, which cannot use an
+  index. Fine at this catalogue size; a `pg_trgm` GIN index is the next step
+  and was left out because `CREATE EXTENSION` needs rights a managed Postgres
+  may not grant.
+- **Geo at scale.** Radius search is a bounding-box prefilter on a plain
+  B-tree plus haversine in SQL. Honest to a few thousand listings; PostGIS or
+  `earthdistance` is the answer if it becomes the hot path.
+- **Timezone.** Host availability windows are interpreted as `Asia/Kolkata`,
+  hard-coded in `spot.service.ts`. Correct for a single-market product and
+  wrong the day it crosses a timezone.
+- **Google on native.** Only the web client id is wired; iOS and Android need
+  a dev build.
 - **Session persistence** on the app (`expo-secure-store`).
-- Organizer dashboard, geo-search, push notifications (the `fcmToken` column
-  is reserved but unused), recurring/commercial listing types.
+- **Driver booking screens.** Designed (`design/EventDetail`, `Booking`,
+  `Pass`) but not built. The home screen's two tabs are designed in the
+  canvas and the APIs behind them are live; the screens themselves are next.
+- Organizer dashboard, push notifications (the `fcmToken` column is reserved
+  but unused), recurring/commercial listing types.
 
-`JWT_SECRET` in the local `.env` is still a placeholder string. It passes the
-16-character minimum, so validation will not catch it.
+`JWT_SECRET` no longer accepts the `.env.example` placeholder -- the server
+refuses to start on a known stand-in value, because a published secret signs
+valid tokens for every user. Generate one with `openssl rand -base64 48`.
 
 ---
 

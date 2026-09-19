@@ -1,13 +1,14 @@
 import { z } from "zod";
-import { PAYMENT_STATUSES } from "../constants/enums/index.js";
 import type { RequestInput, RequestSchemas } from "../lib/request.js";
 
+/**
+ * amount and status are absent by design -- both are derived from the booking
+ * in payment.service. razorpayPaymentId arrives from the webhook, never from
+ * the app.
+ */
 const createPaymentBody = z.object({
   bookingId: z.string().uuid(),
   razorpayOrderId: z.string().min(1).optional(),
-  razorpayPaymentId: z.string().min(1).optional(),
-  amount: z.number().nonnegative(),
-  status: z.enum(PAYMENT_STATUSES).optional(),
 });
 
 export const paymentRequests = {

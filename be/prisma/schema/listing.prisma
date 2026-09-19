@@ -1,6 +1,9 @@
 model Listing {
   id            String        @id @default(uuid())
-  organizerId   String
+  // An event listing belongs to an organizer; an INDEPENDENT_SPOT belongs to
+  // a host. Exactly one of the two is set, which the create path enforces.
+  organizerId   String?
+  hostProfileId String?
   listingType   String        @default("EVENT")
   name          String
   venueName     String
@@ -13,7 +16,8 @@ model Listing {
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
-  organizer     User          @relation(fields: [organizerId], references: [id])
+  organizer     Organizer?    @relation(fields: [organizerId], references: [id])
+  hostProfile   HostProfile?  @relation("ListingHost", fields: [hostProfileId], references: [id])
   creator       User?         @relation("ListingCreatedBy", fields: [createdBy], references: [id])
   updater       User?         @relation("ListingUpdatedBy", fields: [updatedBy], references: [id])
   capacities    ParkingCapacity[]
@@ -23,6 +27,9 @@ model ParkingCapacity {
   id            String    @id @default(uuid())
   listingId     String
   vehicleType   String
+  // Entrance the driver is sent to, printed on the pass. Per vehicle type
+  // because bikes and cars rarely share a gate. Null where a venue has one.
+  gate          String?
   totalCapacity Int
   bookedCount   Int       @default(0)
   price         Decimal

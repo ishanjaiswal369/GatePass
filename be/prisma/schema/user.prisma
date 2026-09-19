@@ -14,9 +14,9 @@ model User {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  listings        Listing[]
+  hostProfile     HostProfile?
+  organizerMemberships OrganizerMember[]
   bookings        Booking[]
-  settlements     Settlement[]
   sessions        UserSession[]
   createdListings Listing[]   @relation("ListingCreatedBy")
   updatedListings Listing[]   @relation("ListingUpdatedBy")

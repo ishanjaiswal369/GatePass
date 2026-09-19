@@ -1,6 +1,10 @@
 model Settlement {
   id                String              @id @default(uuid())
-  organizerId       String
+  // Exactly one payee is set. Hosts are paid by the same periodic engine as
+  // organizers in v1 -- instant payout (Razorpay Route) is a known, deliberate
+  // omission, not an oversight.
+  organizerId       String?
+  hostProfileId     String?
   periodStart       DateTime
   periodEnd         DateTime
   grossAmount       Decimal
@@ -12,7 +16,8 @@ model Settlement {
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
 
-  organizer         User                @relation(fields: [organizerId], references: [id])
+  organizer         Organizer?          @relation(fields: [organizerId], references: [id])
+  hostProfile       HostProfile?        @relation(fields: [hostProfileId], references: [id])
   items             SettlementItem[]
   creator           User?               @relation("SettlementCreatedBy", fields: [createdBy], references: [id])
   updater           User?               @relation("SettlementUpdatedBy", fields: [updatedBy], references: [id])

@@ -1,0 +1,31 @@
+/// A business entity that lists events. Separate from User because an
+/// organizer outlives any one person's login and will need several of them.
+model Organizer {
+  id            String   @id @default(uuid())
+  name          String
+  gstNumber     String?
+  bankAccountId String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  members       OrganizerMember[]
+  listings      Listing[]
+  settlements   Settlement[]
+}
+
+/// Join table so an organizer can have several staff logins later. Today it
+/// holds one row per organizer; the shape is what stops a painful migration
+/// once teams arrive.
+model OrganizerMember {
+  id          String   @id @default(uuid())
+  organizerId String
+  userId      String
+  memberRole  String   @default("OWNER")
+  createdAt   DateTime @default(now())
+
+  organizer   Organizer @relation(fields: [organizerId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizerId, userId])
+  @@index([userId])
+}

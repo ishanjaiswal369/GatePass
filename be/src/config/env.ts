@@ -12,6 +12,17 @@ const booleanFromString = (defaultValue: boolean) =>
     .default(String(defaultValue))
     .transform((value) => value === "true");
 
+/**
+ * Values shipped in .env.example or obvious stand-ins. Rejected outright: a
+ * placeholder JWT secret is not a weak secret, it is a published one.
+ */
+const PLACEHOLDER_SECRETS = new Set([
+  "change-me-to-a-long-random-string",
+  "your-secret-key-change-this",
+  "supersecretsupersecret",
+  "changeme-changeme-changeme",
+]);
+
 const EnvSchema = z
   .object({
     NODE_ENV: z
@@ -19,7 +30,16 @@ const EnvSchema = z
       .default("development"),
     PORT: z.coerce.number().int().positive().default(3000),
     DATABASE_URL: z.string().url(),
-    JWT_SECRET: z.string().min(16, "must be at least 16 characters"),
+    JWT_SECRET: z
+      .string()
+      .min(16, "must be at least 16 characters")
+      .refine((value) => !PLACEHOLDER_SECRETS.has(value.toLowerCase()), {
+        // The length check alone passes the template value, which then signs
+        // every session token and every gate pass with a secret that is in the
+        // repository. Anyone could mint a valid token for any user.
+        message:
+          "is still the example value -- generate one with: openssl rand -base64 48",
+      }),
     JWT_EXPIRES_IN: z
       .string()
       .regex(/^\d+[smhd]$/, 'must look like "30d", "12h", "15m" or "60s"')
@@ -47,6 +67,13 @@ const EnvSchema = z
           : []
       ),
 
+    // Place search for the "enter an area manually" field. Proxied through
+    // the API rather than called from the app: an EXPO_PUBLIC_ key ships
+    // inside the bundle, where anyone can pull it out and spend the quota.
+    GEOCODE_PROVIDER: z.enum(["ola", "google", "none"]).default("none"),
+    OLA_MAPS_API_KEY: emptyToUndefined,
+    GOOGLE_MAPS_API_KEY: emptyToUndefined,
+
     INTEGRATION_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
     INTEGRATION_MAX_RETRIES: z.coerce.number().int().min(0).default(2),
 
@@ -58,6 +85,22 @@ const EnvSchema = z
         code: z.ZodIssueCode.custom,
         path: ["RESEND_API_KEY"],
         message: "required when EMAIL_PROVIDER=resend",
+      });
+    }
+
+    if (value.GEOCODE_PROVIDER === "ola" && !value.OLA_MAPS_API_KEY) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["OLA_MAPS_API_KEY"],
+        message: "required when GEOCODE_PROVIDER=ola",
+      });
+    }
+
+    if (value.GEOCODE_PROVIDER === "google" && !value.GOOGLE_MAPS_API_KEY) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["GOOGLE_MAPS_API_KEY"],
+        message: "required when GEOCODE_PROVIDER=google",
       });
     }
   });

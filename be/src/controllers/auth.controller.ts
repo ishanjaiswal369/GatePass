@@ -9,6 +9,7 @@ import type {
 } from "../requests/auth.request.js";
 import * as authService from "../services/auth.service.js";
 import * as sessionService from "../services/session.service.js";
+import * as hostService from "../services/host.service.js";
 import * as userService from "../services/user.service.js";
 
 export const authController = {
@@ -73,7 +74,13 @@ export const authController = {
   },
 
   me: async (request: FastifyRequest, reply: FastifyReply) => {
-    const user = await userService.getById(request.user.userId);
+    const [user, isHost] = await Promise.all([
+      userService.getById(request.user.userId),
+      // Carried here rather than behind its own request: the bottom nav's Host
+      // item has to know on first paint whether it opens onboarding or the
+      // dashboard, and a second round-trip would make it flicker.
+      hostService.exists(request.user.userId),
+    ]);
 
     if (!user) {
       throw notFound("User not found");
@@ -82,6 +89,7 @@ export const authController = {
     return reply.send({
       ...userService.toAuthUser(user),
       profileComplete: user.firstName !== null,
+      hasHostProfile: isHost,
     });
   },
 
@@ -98,6 +106,7 @@ export const authController = {
     return reply.send({
       ...userService.toAuthUser(user),
       profileComplete: user.firstName !== null,
+      hasHostProfile: await hostService.exists(request.user.userId),
     });
   },
 };

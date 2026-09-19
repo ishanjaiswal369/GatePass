@@ -22,6 +22,34 @@ export const BOOKING_STATUSES = [
 ] as const;
 export type BookingStatus = (typeof BOOKING_STATUSES)[number];
 
+export const LISTING_TYPES = [
+  "EVENT",
+  "RECURRING",
+  "COMMERCIAL",
+  // A private spot rented out by an individual host.
+  "INDEPENDENT_SPOT",
+] as const;
+export type ListingType = (typeof LISTING_TYPES)[number];
+
+export const VERIFICATION_STATUSES = [
+  "PENDING",
+  "ACTIVE",
+  "REJECTED",
+  "SUSPENDED",
+] as const;
+export type VerificationStatus = (typeof VERIFICATION_STATUSES)[number];
+
+export const ORGANIZER_MEMBER_ROLES = ["OWNER", "MANAGER", "STAFF"] as const;
+export type OrganizerMemberRole = (typeof ORGANIZER_MEMBER_ROLES)[number];
+
+export const PAYMENT_STATUSES = [
+  "CREATED",
+  "CAPTURED",
+  "FAILED",
+  "REFUNDED",
+] as const;
+export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
+
 export const LISTING_STATUSES = [
   "DRAFT",
   "PUBLISHED",

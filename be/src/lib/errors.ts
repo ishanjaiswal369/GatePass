@@ -30,6 +30,9 @@ export const badRequest = (message: string) =>
 export const unauthorized = (message: string) =>
   new AppError(message, 401, "UNAUTHORIZED");
 
+export const forbidden = (message: string) =>
+  new AppError(message, 403, "FORBIDDEN");
+
 export const notFound = (message: string) =>
   new AppError(message, 404, "NOT_FOUND");
 

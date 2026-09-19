@@ -37,3 +37,15 @@ export {
   DEFAULT_DEVICE_TYPE,
   type DeviceType,
 } from "./device-type.js";
+
+export {
+  VERIFICATION_STATUSES,
+  DEFAULT_VERIFICATION_STATUS,
+  type VerificationStatus,
+} from "./verification-status.js";
+
+export {
+  ORGANIZER_MEMBER_ROLES,
+  DEFAULT_ORGANIZER_MEMBER_ROLE,
+  type OrganizerMemberRole,
+} from "./organizer-member-role.js";

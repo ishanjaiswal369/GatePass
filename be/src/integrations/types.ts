@@ -2,7 +2,8 @@ export type IntegrationCapability =
   | "email"
   | "whatsapp"
   | "payment"
-  | "push";
+  | "push"
+  | "geocode";
 
 export interface SendResult {
   providerMessageId: string;

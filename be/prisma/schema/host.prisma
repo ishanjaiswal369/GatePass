@@ -1,0 +1,54 @@
+/// A user who rents out their own parking space. Deliberately a separate table
+/// rather than a `role` value: a person can be a driver and a host at the same
+/// time, and one `role` column cannot hold both. "Is this user a host" is
+/// answered by the existence of this row, never by the JWT.
+model HostProfile {
+  id                 String   @id @default(uuid())
+  userId             String   @unique
+  addressLine        String
+  city               String
+  state              String
+  pincode            String
+  latitude           Decimal
+  longitude          Decimal
+  panNumber          String?
+  bankAccountId      String?
+  // Onboarding submits as ACTIVE; the checks behind PENDING are not automated
+  // yet. Kept as a column so turning verification on later is a data change,
+  // not a schema change.
+  verificationStatus String   @default("ACTIVE")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  user               User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  availability       HostAvailability[]
+  listings           Listing[]         @relation("ListingHost")
+  settlements        Settlement[]
+}
+
+/// When a host's spot can be booked, as weekly recurring windows. This cannot
+/// live in ParkingCapacity: that models a fixed count of slots for one fixed
+/// date, while a host's spot is the same single space offered again every
+/// week. Pricing here is hourly and the amount is pricePerHour x duration.
+model HostAvailability {
+  id            String   @id @default(uuid())
+  hostProfileId String
+  // 0 = Sunday .. 6 = Saturday, matching JS getDay().
+  dayOfWeek     Int
+  // Minutes from midnight, local venue time. Integers rather than DateTime
+  // because these are times of day, not instants.
+  startMinute   Int
+  endMinute     Int
+  pricePerHour  Decimal
+  // Host's kill switch. Off means the window stays configured but the spot
+  // stops appearing in search, which is what a host wants when their own car
+  // is parked there.
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  hostProfile   HostProfile @relation(fields: [hostProfileId], references: [id], onDelete: Cascade)
+
+  @@index([hostProfileId])
+  @@index([dayOfWeek, isActive])
+}
