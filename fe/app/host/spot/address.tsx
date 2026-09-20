@@ -9,6 +9,7 @@ import {
   WizardShell,
 } from "@/components/ui";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
+import { useDriverLocation } from "@/hooks/useDriverLocation";
 import { useSpotDraft } from "@/hooks/useSpotDraft";
 import { TOTAL_STEPS, nextStepPath, stepNumber } from "@/constants/wizard";
 import { colors, radius, space, type } from "@/theme";
@@ -29,6 +30,7 @@ const NUDGE = 0.0001;
 
 export default function AddressScreen() {
   const { spot, loading, isRestoring, token } = useSpotDraft();
+  const { requestLocation } = useDriverLocation();
 
   const [addressLine, setAddressLine] = useState("");
   const [city, setCity] = useState("");
@@ -66,6 +68,13 @@ export default function AddressScreen() {
       .catch(() => undefined);
   }, [token]);
 
+  const { run: useMyLocation, busy: locating } = useAsyncAction(async () => {
+    const at = await requestLocation();
+    if (!at) return;
+    setLatitude(at.latitude);
+    setLongitude(at.longitude);
+  });
+
   const { run: search, busy: searching } = useAsyncAction(async () => {
     if (!token || query.trim().length < 3) return;
 
@@ -82,24 +91,35 @@ export default function AddressScreen() {
   });
 
   const { run: save, busy, error } = useAsyncAction(async () => {
-    if (!token || !spot || latitude === null || longitude === null) return;
+    if (!token || latitude === null || longitude === null) return;
 
-    await spotListingApi.saveAddress(token, spot.id, {
+    const address = {
       addressLine: addressLine.trim(),
       city: city.trim(),
       state: stateName.trim(),
       pincode: pincode.trim(),
       latitude,
       longitude,
-      googlePlaceId: placeId,
-    });
+    };
+
+    if (spot) {
+      await spotListingApi.saveAddress(token, spot.id, {
+        ...address,
+        googlePlaceId: placeId,
+      });
+    } else {
+      // No host profile yet: this step creates it, and the API opens the
+      // draft listing alongside. This is the only place the address is
+      // collected -- onboarding used to ask for it separately, which had a
+      // host typing it twice into two rows that could then disagree.
+      await hostApi.createProfile(token, address);
+    }
 
     router.push(nextStepPath("address"));
   });
 
   if (isRestoring || loading) return <RestoringScreen />;
   if (!token) return <Redirect href="/" />;
-  if (!spot) return <Redirect href="/host/spot" />;
 
   const hasPin = latitude !== null && longitude !== null;
   const canContinue = Boolean(
@@ -177,6 +197,18 @@ export default function AddressScreen() {
           Nudge the pin to the gate or entrance drivers should head for.
         </Text>
 
+        <Pressable
+          onPress={useMyLocation}
+          disabled={locating}
+          accessibilityRole="button"
+          style={({ pressed }) => [s.locate, pressed && s.locatePressed]}
+        >
+          <PinIcon color={colors.ink} size={15} />
+          <Text style={s.locateLabel}>
+            {locating ? "Finding you…" : "Use my current location"}
+          </Text>
+        </Pressable>
+
         <View style={s.pad}>
           <NudgeButton label="↑" onPress={() => nudge(NUDGE, 0)} disabled={!hasPin} />
           <View style={s.padRow}>
@@ -236,6 +268,20 @@ const s = StyleSheet.create({
   pinTitle: { ...type.label, color: colors.ink },
   pinValue: { fontSize: 15, fontWeight: "600", color: colors.accent },
   pinHint: { ...type.caption, color: colors.inkMuted, marginBottom: space.md },
+  locate: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: space.sm,
+    minHeight: 44,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.canvas,
+    marginBottom: space.md,
+  },
+  locatePressed: { backgroundColor: colors.border },
+  locateLabel: { fontSize: 13, fontWeight: "600", color: colors.ink },
   pad: { alignItems: "center", gap: space.sm },
   padRow: { flexDirection: "row", gap: 56 },
   nudge: {

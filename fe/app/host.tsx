@@ -8,19 +8,26 @@ import {
   Card,
   DataRow,
   ErrorNotice,
-  Field,
   PhoneFrame,
   type NavKey,
   RestoringScreen,
 } from "@/components/ui";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
-import { useDriverLocation } from "@/hooks/useDriverLocation";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, space } from "@/theme";
 import type { HostAvailabilityRow, HostProfile } from "@/types/api.types";
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function Need({ text }: { text: string }) {
+  return (
+    <View style={s.need}>
+      <View style={s.needDot} />
+      <Text style={s.needText}>{text}</Text>
+    </View>
+  );
+}
 
 function formatMinute(minute: number) {
   // End-of-day is stored as 1440, which "% 24" would render as 00:00 -- a
@@ -50,12 +57,7 @@ export default function HostScreen() {
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const [addressLine, setAddressLine] = useState("");
-  const [city, setCity] = useState("");
-  const [state, setState] = useState("");
-  const [pincode, setPincode] = useState("");
 
-  const { coords, requestLocation } = useDriverLocation();
 
   useEffect(() => {
     // Not a host: onboarding needs nothing from the server.
@@ -86,46 +88,7 @@ export default function HostScreen() {
     };
   }, [token, isHost]);
 
-  const { run: submit, busy, error } = useAsyncAction(async () => {
-    if (!token) return;
-
-    // The spot's coordinates are what the Nearby search matches on, so they
-    // are taken from the device rather than typed -- a mistyped pin makes a
-    // listing invisible in a way nobody would think to check.
-    const at = coords ?? (await requestLocation());
-
-    if (!at) {
-      throw new ApiError(
-        "Location is needed to place your spot on the map.",
-        400
-      );
-    }
-
-    try {
-      const { profile: created } = await hostApi.createProfile(token, {
-        addressLine: addressLine.trim(),
-        city: city.trim(),
-        state: state.trim(),
-        pincode: pincode.trim(),
-        latitude: at.latitude,
-        longitude: at.longitude,
-      });
-
-      setProfile(created);
-    } catch (err) {
-      // 409: this account became a host elsewhere (another device) after this
-      // session was loaded, so its flag is stale. Flipping it below loads the
-      // existing dashboard instead of stranding the user on an error.
-      if (!(err instanceof ApiError && err.status === 409)) throw err;
-    }
-
-    if (user) setUser({ ...user, hasHostProfile: true });
-
-    // Straight into the wizard. Onboarding only opens the draft, so dropping
-    // the host on the dashboard here leaves them looking at an empty spot with
-    // no sign that eight more steps stand between them and a live listing.
-    router.push("/host/spot");
-  });
+  const [error] = useState<string | null>(null);
 
   const { run: toggleWindow } = useAsyncAction(
     async (id: string, next: boolean) => {
@@ -218,48 +181,36 @@ export default function HostScreen() {
           ) : (
             <>
               <View style={s.heading}>
-                <Text style={s.title}>Rent out your spot</Text>
+                <Text style={s.title}>Rent out your space</Text>
                 <Text style={s.sub}>
-                  Start with where it is. Photos, hours, price and payout come
-                  next.
+                  Earn from a driveway, garage or parking bay you already have.
                 </Text>
               </View>
 
               {error ? <ErrorNotice message={error} /> : null}
 
-              <Field
-                label="Address"
-                value={addressLine}
-                onChangeText={setAddressLine}
-                placeholder="12 Carter Road"
-              />
-              <Field label="City" value={city} onChangeText={setCity} placeholder="Mumbai" />
-              <Field
-                label="State"
-                value={state}
-                onChangeText={setState}
-                placeholder="Maharashtra"
-              />
-              <Field
-                label="Pincode"
-                value={pincode}
-                onChangeText={setPincode}
-                placeholder="400050"
-                keyboardType="number-pad"
-                maxLength={6}
-              />
+              <Card heading="What you will need">
+                <View style={s.needs}>
+                  <Need text="Photos of the space" />
+                  <Need text="The address, and a pin you can move to the exact entrance" />
+                  <Need text="Proof you may rent it out — an electricity bill or property tax receipt" />
+                  <Need text="Your PAN and bank details, so you can be paid" />
+                </View>
+              </Card>
 
+              {/* Straight into the wizard. The address used to be collected
+                  here first, which asked a host for it twice and left two
+                  copies free to disagree; the wizard's first step owns it now. */}
               <Button
-                label="Submit"
+                label="Get started"
                 size="lg"
-                busy={busy}
-                onPress={submit}
-                disabled={!addressLine.trim() || !city.trim() || !state.trim() || pincode.length !== 6}
+                onPress={() => router.push("/host/spot")}
               />
 
               <Text style={s.fine}>
-                This saves a draft. You will finish the listing next, then we
-                check your ownership proof before it goes live.
+                We check your ownership proof before a listing goes live, and
+                your payout account has to be active. Both usually take a
+                couple of days.
               </Text>
             </>
           )}
@@ -291,4 +242,14 @@ const s = StyleSheet.create({
   windowDay: { fontSize: 15, fontWeight: "600", color: colors.ink },
   windowPrice: { fontSize: 12, color: colors.inkFaint },
   fine: { fontSize: 12, color: colors.inkFaint, lineHeight: 18 },
+  needs: { gap: space.md, paddingTop: space.xs },
+  need: { flexDirection: "row", gap: space.md, alignItems: "flex-start" },
+  needDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: colors.accent,
+    marginTop: 7,
+  },
+  needText: { flex: 1, fontSize: 14, lineHeight: 20, color: colors.inkMuted },
 });

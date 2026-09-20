@@ -10,6 +10,7 @@ import {
   ScreenHeader,
 } from "@/components/ui";
 import { useSpotDraft } from "@/hooks/useSpotDraft";
+import { FIRST_STEP_PATH } from "@/constants/wizard";
 import { colors, radius, space, type } from "@/theme";
 
 /**
@@ -74,7 +75,7 @@ function StartOrResume({ hasDraft }: { hasDraft: boolean }) {
       <Button
         label={hasDraft ? "Continue where you left off" : "Get started"}
         size="lg"
-        onPress={() => router.push("/host/spot/type")}
+        onPress={() => router.push(FIRST_STEP_PATH)}
       />
     </>
   );
@@ -116,7 +117,7 @@ function SubmittedState({
         <Button
           label="Edit and resubmit"
           size="lg"
-          onPress={() => router.push("/host/spot/type")}
+          onPress={() => router.push(FIRST_STEP_PATH)}
         />
       ) : null}
     </>

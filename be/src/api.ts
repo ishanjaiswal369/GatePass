@@ -13,6 +13,7 @@ import { paymentController } from "./controllers/payment.controller.js";
 import { settlementController } from "./controllers/settlement.controller.js";
 import { spotController } from "./controllers/spot.controller.js";
 import { spotListingController } from "./controllers/spot-listing.controller.js";
+import { uploadController } from "./controllers/upload.controller.js";
 import { vehicleController } from "./controllers/vehicle.controller.js";
 import type { App } from "./lib/app.js";
 import { request } from "./lib/request.js";
@@ -51,6 +52,12 @@ export function registerApi(app: App): void {
 
   // Health
   app.get("/health", healthController.get);
+
+  // Local object storage (STORAGE_PROVIDER=local only). Unauthenticated by
+  // design: the signed, expiring URL is the credential, the same way it is
+  // with a presigned S3 URL.
+  app.put("/uploads/*", uploadController.put);
+  app.get("/uploads/*", uploadController.get);
 
   // Auth
   app.post(

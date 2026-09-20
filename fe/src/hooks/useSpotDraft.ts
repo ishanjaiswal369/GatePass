@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { spotListingApi } from "@/api";
+import { ApiError, spotListingApi } from "@/api";
 import { useSession } from "@/providers/SessionProvider";
 import type { SpotListing } from "@/types/api.types";
 
@@ -33,8 +33,15 @@ export function useSpotDraft() {
       setSpot(
         current ? await spotListingApi.getById(token, current.id) : null
       );
-    } catch {
-      setError("Could not load your spot");
+    } catch (err) {
+      // 403 means this user is not a host yet, which is the expected state on
+      // the first step -- the profile is created by the address step. Anything
+      // else is a real failure worth showing.
+      if (err instanceof ApiError && err.status === 403) {
+        setSpot(null);
+      } else {
+        setError("Could not load your spot");
+      }
     } finally {
       setLoading(false);
     }

@@ -6,8 +6,11 @@
  * every later screen counting wrong.
  */
 export const WIZARD_STEPS = [
-  "type",
+  // Address first, and it is the only place the address is asked for. It used
+  // to be collected again by host onboarding before the wizard opened, which
+  // meant a host typed it twice and the two copies were free to disagree.
   "address",
+  "type",
   "photos",
   "availability",
   "pricing",
@@ -29,3 +32,6 @@ export function nextStepPath(step: WizardStep): string {
   const next = WIZARD_STEPS[WIZARD_STEPS.indexOf(step) + 1];
   return next ? `/host/spot/${next}` : "/host/spot";
 }
+
+/** Where the wizard opens. Derived, so reordering the steps moves it too. */
+export const FIRST_STEP_PATH = `/host/spot/${WIZARD_STEPS[0]}` as const;

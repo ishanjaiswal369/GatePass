@@ -84,6 +84,10 @@ const EnvSchema = z
       .default("http://localhost:3000/uploads"),
     // Refused above this at presign time, so a 40MB photo is rejected before
     // the client wastes a minute uploading it.
+    // Where STORAGE_PROVIDER=local writes files. Container-local on purpose:
+    // this provider is for development, and its files are not shared between
+    // replicas or kept across a rebuild.
+    STORAGE_LOCAL_DIR: z.string().default("uploads"),
     MAX_UPLOAD_BYTES: z.coerce
       .number()
       .int()
