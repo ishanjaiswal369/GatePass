@@ -1,4 +1,4 @@
-import type { GeocodeResult, NearbySpot } from "@/types/api.types";
+import type { GeocodeResult, PlaceSuggestion, NearbySpot } from "@/types/api.types";
 import { request } from "./client";
 
 export const nearby = (
@@ -20,3 +20,38 @@ export const geocode = (token: string, q: string) =>
     `/geocode?q=${encodeURIComponent(q)}`,
     { token }
   );
+
+/**
+ * Type-ahead suggestions. May come back without coordinates: the better
+ * autocomplete APIs answer with a place id and a label, and charge for the
+ * coordinates separately -- see placeDetails.
+ */
+export const autocomplete = (
+  token: string,
+  q: string,
+  options: { sessionToken?: string } = {}
+) => {
+  const params = new URLSearchParams({ q });
+  if (options.sessionToken) params.set("sessionToken", options.sessionToken);
+
+  return request<{ suggestions: PlaceSuggestion[] }>(
+    `/geocode/autocomplete?${params}`,
+    { token }
+  );
+};
+
+/** Coordinates for the one suggestion the host actually picked. */
+export const placeDetails = (
+  token: string,
+  placeId: string,
+  options: { sessionToken?: string } = {}
+) => {
+  const params = new URLSearchParams();
+  if (options.sessionToken) params.set("sessionToken", options.sessionToken);
+  const query = params.toString();
+
+  return request<{ result: GeocodeResult }>(
+    `/geocode/place/${encodeURIComponent(placeId)}${query ? `?${query}` : ""}`,
+    { token }
+  );
+};

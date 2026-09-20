@@ -187,6 +187,19 @@ export interface GeocodeResult {
   longitude: number;
 }
 
+/**
+ * One type-ahead suggestion. Coordinates are optional: autocomplete APIs
+ * generally answer with an id and a label and bill for the coordinates as a
+ * separate lookup, so a suggestion without them needs placeDetails before it
+ * can become a pin.
+ */
+export interface PlaceSuggestion {
+  providerPlaceId?: string;
+  description: string;
+  latitude?: number;
+  longitude?: number;
+}
+
 export interface Vehicle {
   id: string;
   vehicleNumber: string;

@@ -2,6 +2,7 @@ import { Redirect, router } from "expo-router";
 import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { hostApi, spotListingApi, spotsApi } from "@/api";
+import type { PlaceSuggestion } from "@/types/api.types";
 import {
   Field,
   PinIcon,
@@ -40,6 +41,7 @@ export default function AddressScreen() {
     searching,
     unavailableReason,
     settle,
+    sessionToken,
   } = usePlaceSearch(token);
 
   const [addressLine, setAddressLine] = useState("");
@@ -81,6 +83,40 @@ export default function AddressScreen() {
     setLatitude(at.latitude);
     setLongitude(at.longitude);
   });
+
+  /**
+   * Turns a picked suggestion into a pin.
+   *
+   * Providers differ on whether a suggestion already carries coordinates. The
+   * ones that do are resolved for free; the ones that do not need a details
+   * call, and it goes out only for the row the host actually chose -- fetching
+   * coordinates for every suggestion would bill for the ones they ignored.
+   */
+  const { run: pick, busy: resolving, error: pickError } = useAsyncAction(
+    async (result: PlaceSuggestion) => {
+      const carriedSession = sessionToken();
+      settle(result.description);
+
+      if (result.latitude !== undefined && result.longitude !== undefined) {
+        setLatitude(result.latitude);
+        setLongitude(result.longitude);
+        setPlaceId(result.providerPlaceId);
+        return;
+      }
+
+      if (!token || !result.providerPlaceId) return;
+
+      const { result: place } = await spotsApi.placeDetails(
+        token,
+        result.providerPlaceId,
+        { sessionToken: carriedSession }
+      );
+
+      setLatitude(place.latitude);
+      setLongitude(place.longitude);
+      setPlaceId(place.providerPlaceId);
+    }
+  );
 
   const { run: save, busy, error } = useAsyncAction(async () => {
     if (!token || latitude === null || longitude === null) return;
@@ -139,7 +175,7 @@ export default function AddressScreen() {
       onContinue={save}
       canContinue={canContinue}
       busy={busy}
-      error={error}
+      error={error ?? pickError}
       footerNote={hasPin ? undefined : "Search for the area, or drop a pin, to continue."}
     >
       <Field
@@ -152,9 +188,11 @@ export default function AddressScreen() {
         hint={
           unavailableReason
             ? `${unavailableReason} Enter the address below instead.`
-            : searching
-              ? "Searching…"
-              : undefined
+            : resolving
+              ? "Getting the location…"
+              : searching
+                ? "Searching…"
+                : undefined
         }
       />
 
@@ -165,12 +203,7 @@ export default function AddressScreen() {
           {results.map((result, index) => (
             <Pressable
               key={`${result.providerPlaceId ?? result.description}`}
-              onPress={() => {
-                setLatitude(result.latitude);
-                setLongitude(result.longitude);
-                setPlaceId(result.providerPlaceId);
-                settle(result.description);
-              }}
+              onPress={() => pick(result)}
               accessibilityRole="button"
               style={({ pressed }) => [
                 s.result,

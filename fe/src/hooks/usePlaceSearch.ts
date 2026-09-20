@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, spotsApi } from "@/api";
-import type { GeocodeResult } from "@/types/api.types";
+import type { PlaceSuggestion } from "@/types/api.types";
 
 /** Below this, a query matches half the country and the call is wasted. */
 const MIN_QUERY_LENGTH = 3;
@@ -15,6 +15,14 @@ const MIN_QUERY_LENGTH = 3;
 const DEBOUNCE_MS = 300;
 
 /**
+ * Opaque to us and to the server; the provider only requires that it is
+ * stable across one search and not reused afterwards.
+ */
+function newSessionToken(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/**
  * Type-ahead place search.
  *
  * Two things this owes the caller beyond the results themselves. Responses can
@@ -26,7 +34,7 @@ const DEBOUNCE_MS = 300;
  */
 export function usePlaceSearch(token: string | null) {
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<GeocodeResult[]>([]);
+  const [results, setResults] = useState<PlaceSuggestion[]>([]);
   const [searching, setSearching] = useState(false);
   /**
    * Why search is not working, if it is not.
@@ -44,6 +52,14 @@ export function usePlaceSearch(token: string | null) {
   // schedules a search, so without this a pick would search for the thing the
   // host just picked and reopen the list underneath their finger.
   const settledAt = useRef<string | null>(null);
+  /**
+   * One token per search, from the first keystroke to the pick.
+   *
+   * This is what makes a burst of keystrokes and the details call that follows
+   * bill as a single session rather than as one request each -- the difference
+   * between a few paise and a few rupees per address a host enters.
+   */
+  const session = useRef(newSessionToken());
 
   /** Takes a pick, or a typed address, without firing another search. */
   const settle = useCallback((text: string) => {
@@ -51,7 +67,12 @@ export function usePlaceSearch(token: string | null) {
     settledAt.current = text;
     setQuery(text);
     setResults([]);
+    // The session ends with the pick; the next search is a new one.
+    session.current = newSessionToken();
   }, []);
+
+  /** The token the details call for a pick has to carry to close the session. */
+  const sessionToken = useCallback(() => session.current, []);
 
   useEffect(() => {
     if (timer.current) clearTimeout(timer.current);
@@ -80,12 +101,14 @@ export function usePlaceSearch(token: string | null) {
       inFlightFor.current = trimmed;
 
       try {
-        const { results: found } = await spotsApi.geocode(token, trimmed);
+        const { suggestions } = await spotsApi.autocomplete(token, trimmed, {
+          sessionToken: session.current,
+        });
 
         // The box moved on while this was in the air.
         if (inFlightFor.current !== trimmed) return;
 
-        setResults(found);
+        setResults(suggestions);
         setUnavailableReason(null);
       } catch (err) {
         if (inFlightFor.current !== trimmed) return;
@@ -110,5 +133,13 @@ export function usePlaceSearch(token: string | null) {
     };
   }, [query, token]);
 
-  return { query, setQuery, results, searching, unavailableReason, settle };
+  return {
+    query,
+    setQuery,
+    results,
+    searching,
+    unavailableReason,
+    settle,
+    sessionToken,
+  };
 }

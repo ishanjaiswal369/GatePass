@@ -1,9 +1,38 @@
 import { IntegrationError } from "../errors.js";
 import { http, withRetry } from "../http.js";
-import type { GeocodeProvider, GeocodeResult } from "./provider.js";
+import type {
+  GeocodeProvider,
+  GeocodeResult,
+  PlaceSuggestion,
+} from "./provider.js";
 
 const CAPABILITY = "geocode";
 const GEOCODE_ENDPOINT = "https://maps.googleapis.com/maps/api/geocode/json";
+
+/**
+ * Places API (New). The legacy Place Autocomplete was closed to new customers
+ * on 1 March 2025, so a project created today can only use this one -- and it
+ * is a separate API to enable in the Cloud console ("Places API (New)"), on
+ * top of the Geocoding API that search() uses.
+ */
+const AUTOCOMPLETE_ENDPOINT =
+  "https://places.googleapis.com/v1/places:autocomplete";
+const PLACE_ENDPOINT = "https://places.googleapis.com/v1/places";
+
+interface AutocompleteResponse {
+  suggestions?: {
+    placePrediction?: {
+      placeId?: string;
+      text?: { text?: string };
+    };
+  }[];
+}
+
+interface PlaceDetailsResponse {
+  id?: string;
+  formattedAddress?: string;
+  location?: { latitude?: number; longitude?: number };
+}
 
 interface GoogleGeocodeResponse {
   status?: string;
@@ -84,6 +113,127 @@ export class GoogleGeocodeProvider implements GeocodeProvider {
       }
     });
   }
+
+  autocomplete(
+    query: string,
+    near?: { latitude: number; longitude: number },
+    sessionToken?: string
+  ): Promise<PlaceSuggestion[]> {
+    return autocompleteImpl(this.apiKey, query, near, sessionToken);
+  }
+
+  placeDetails(
+    placeId: string,
+    sessionToken?: string
+  ): Promise<GeocodeResult | null> {
+    return placeDetailsImpl(this.apiKey, placeId, sessionToken);
+  }
+}
+
+/**
+ * Type-ahead suggestions.
+ *
+ * Returns no coordinates on purpose: this endpoint does not carry them, and
+ * fetching them for every suggestion would mean a Place Details call per row
+ * the user never picked. placeDetails() gets them once, for the one they did.
+ *
+ * The session token is what makes a burst of keystrokes plus the final
+ * details call bill as one session rather than as N separate requests, so it
+ * is threaded through rather than left to the caller to remember.
+ */
+async function autocompleteImpl(
+  apiKey: string,
+  query: string,
+  near?: { latitude: number; longitude: number },
+  sessionToken?: string
+): Promise<PlaceSuggestion[]> {
+  return withRetry(async () => {
+    try {
+      const response = await http.post<AutocompleteResponse>(
+        AUTOCOMPLETE_ENDPOINT,
+        {
+          input: query,
+          regionCode: "IN",
+          ...(sessionToken ? { sessionToken } : {}),
+          ...(near
+            ? {
+                locationBias: {
+                  circle: {
+                    center: {
+                      latitude: near.latitude,
+                      longitude: near.longitude,
+                    },
+                    radius: 50000,
+                  },
+                },
+              }
+            : {}),
+        },
+        { headers: { "X-Goog-Api-Key": apiKey } }
+      );
+
+      return (response.data.suggestions ?? []).flatMap((suggestion) => {
+        const prediction = suggestion.placePrediction;
+        const description = prediction?.text?.text;
+
+        // A row with no label is not tappable and a row with no id cannot be
+        // resolved to a pin, so neither is worth showing.
+        if (!description || !prediction?.placeId) {
+          return [];
+        }
+
+        return [{ providerPlaceId: prediction.placeId, description }];
+      });
+    } catch (error) {
+      throw IntegrationError.from(
+        { capability: CAPABILITY, provider: "google", operation: "autocomplete" },
+        error
+      );
+    }
+  });
+}
+
+/** Coordinates for one picked suggestion. */
+async function placeDetailsImpl(
+  apiKey: string,
+  placeId: string,
+  sessionToken?: string
+): Promise<GeocodeResult | null> {
+  return withRetry(async () => {
+    try {
+      const response = await http.get<PlaceDetailsResponse>(
+        `${PLACE_ENDPOINT}/${encodeURIComponent(placeId)}`,
+        {
+          headers: {
+            "X-Goog-Api-Key": apiKey,
+            // Billing is per field group, so asking for everything costs more
+            // than asking for the two things a pin needs.
+            "X-Goog-FieldMask": "id,formattedAddress,location",
+          },
+          params: sessionToken ? { sessionToken } : undefined,
+        }
+      );
+
+      const lat = response.data.location?.latitude;
+      const lng = response.data.location?.longitude;
+
+      if (typeof lat !== "number" || typeof lng !== "number") {
+        return null;
+      }
+
+      return {
+        providerPlaceId: response.data.id ?? placeId,
+        description: response.data.formattedAddress ?? "",
+        latitude: lat,
+        longitude: lng,
+      };
+    } catch (error) {
+      throw IntegrationError.from(
+        { capability: CAPABILITY, provider: "google", operation: "placeDetails" },
+        error
+      );
+    }
+  });
 }
 
 /** Biases results towards roughly 50km around the driver. */

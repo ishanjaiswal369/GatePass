@@ -162,6 +162,18 @@ export function registerApi(app: App): void {
     driver,
     request(geocodeRequests.search, geocodeController.search)
   );
+  // Type-ahead. Separate from /geocode because it answers with suggestions
+  // that may carry no coordinates, which /geocode always does.
+  app.get(
+    "/geocode/autocomplete",
+    driver,
+    request(geocodeRequests.autocomplete, geocodeController.autocomplete)
+  );
+  app.get(
+    "/geocode/place/:placeId",
+    driver,
+    request(geocodeRequests.place, geocodeController.place)
+  );
 
   // Driver bookings. `/bookings/active` is declared before `/bookings/:id` so
   // "active" is never parsed as an id.
