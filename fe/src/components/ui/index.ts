@@ -40,6 +40,7 @@ export { PhoneFrame } from "./PhoneFrame";
 export { RestoringScreen } from "./RestoringScreen";
 export { ScreenHeader } from "./ScreenHeader";
 export { SegmentedControl, type Segment } from "./SegmentedControl";
+export { MapPinPicker } from "./MapPinPicker";
 export { OptionCard } from "./OptionCard";
 export { SettingsRow } from "./SettingsRow";
 export { WizardShell } from "./WizardShell";

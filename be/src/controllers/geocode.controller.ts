@@ -1,9 +1,12 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { getGeocodeProvider } from "../integrations/geocode/index.js";
-import { notFound } from "../lib/errors.js";
+import { http } from "../integrations/http.js";
+import { IntegrationError } from "../integrations/errors.js";
+import { notFound, serviceUnavailable } from "../lib/errors.js";
 import type {
   GeocodePlaceInput,
   GeocodeSearchInput,
+  StaticMapInput,
 } from "../requests/geocode.request.js";
 
 export const geocodeController = {
@@ -77,5 +80,52 @@ export const geocodeController = {
     }
 
     return reply.send({ result, provider: provider.name });
+  },
+
+  /**
+   * A flat map image, fetched here rather than by the app.
+   *
+   * The upstream URL carries the API key, so handing it to the client would
+   * hand over the key -- the same reason place search is proxied. The bytes
+   * are small and cacheable, which is what makes the extra hop affordable.
+   */
+  staticMap: async (
+    input: StaticMapInput,
+    _request: FastifyRequest,
+    reply: FastifyReply
+  ) => {
+    const provider = getGeocodeProvider();
+
+    if (!provider.staticMapUrl) {
+      throw serviceUnavailable("This provider has no map images");
+    }
+
+    const { latitude, longitude, zoom, width, height, scale } = input.query;
+    const url = provider.staticMapUrl({
+      latitude,
+      longitude,
+      zoom,
+      width,
+      height,
+      scale,
+    });
+
+    try {
+      const upstream = await http.get<ArrayBuffer>(url, {
+        responseType: "arraybuffer",
+      });
+
+      return reply
+        .type(String(upstream.headers["content-type"] ?? "image/png"))
+        // The same square is requested again on every re-render and every
+        // revisit; without this each one is another billed image.
+        .header("Cache-Control", "private, max-age=86400")
+        .send(Buffer.from(upstream.data));
+    } catch (error) {
+      throw IntegrationError.from(
+        { capability: "geocode", provider: provider.name, operation: "staticMap" },
+        error
+      );
+    }
   },
 };

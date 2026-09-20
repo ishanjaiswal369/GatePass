@@ -4,7 +4,9 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { hostApi, spotListingApi, spotsApi } from "@/api";
 import type { PlaceSuggestion } from "@/types/api.types";
 import {
+  Card,
   Field,
+  MapPinPicker,
   PinIcon,
   RestoringScreen,
   WizardShell,
@@ -20,15 +22,12 @@ import { colors, radius, space, type } from "@/theme";
 /**
  * Step 2. Where the space is.
  *
- * Search fills the coordinates; the nudge controls then move the pin without
- * touching the typed address. Those are two different truths -- the address a
- * driver reads and the point their maps app routes to -- and a gate that is
- * 40m down a lane from the building's registered address is the normal case,
- * not the exception.
+ * Search fills the coordinates; the map then moves the pin without touching
+ * the typed address. Those are two different truths -- the address a driver
+ * reads and the point their maps app routes to -- and a gate that is 40m down
+ * a lane from the building's registered address is the normal case, not the
+ * exception.
  */
-
-/** One tap of a nudge control, in degrees. Roughly 11m at this latitude. */
-const NUDGE = 0.0001;
 
 export default function AddressScreen() {
   const { spot, loading, isRestoring, token } = useSpotDraft();
@@ -159,12 +158,6 @@ export default function AddressScreen() {
     hasPin && addressLine.trim() && city.trim() && stateName.trim() && /^\d{6}$/.test(pincode.trim())
   );
 
-  const nudge = (dLat: number, dLng: number) => {
-    if (latitude === null || longitude === null) return;
-    setLatitude(Number((latitude + dLat).toFixed(6)));
-    setLongitude(Number((longitude + dLng).toFixed(6)));
-  };
-
   return (
     <WizardShell
       title="Address"
@@ -220,74 +213,56 @@ export default function AddressScreen() {
         </View>
       ) : null}
 
-      <Field label="Address" value={addressLine} onChangeText={setAddressLine} maxLength={200} />
-      <Field label="City" value={city} onChangeText={setCity} maxLength={100} />
-      <Field label="State" value={stateName} onChangeText={setStateName} maxLength={100} />
-      <Field
-        label="PIN code"
-        value={pincode}
-        onChangeText={setPincode}
-        keyboardType="number-pad"
-        maxLength={6}
-      />
-
-      {/* Standing in for a draggable map pin. The fine-tune step matters more
-          than the map does: the difference between a building's address and
-          the gate a driver should actually pull into is usually a few metres,
-          and this is what closes it. */}
-      <View style={s.pinCard}>
-        <Text style={s.pinTitle}>Exact spot</Text>
-        <Text style={s.pinValue}>
-          {hasPin ? `${latitude!.toFixed(5)}, ${longitude!.toFixed(5)}` : "Not set yet"}
-        </Text>
-        <Text style={s.pinHint}>
-          Nudge the pin to the gate or entrance drivers should head for.
-        </Text>
-
-        <Pressable
-          onPress={useMyLocation}
-          disabled={locating}
-          accessibilityRole="button"
-          style={({ pressed }) => [s.locate, pressed && s.locatePressed]}
-        >
-          <PinIcon color={colors.ink} size={15} />
-          <Text style={s.locateLabel}>
-            {locating ? "Finding you…" : "Use my current location"}
+      {hasPin ? (
+        <MapPinPicker
+          latitude={latitude!}
+          longitude={longitude!}
+          token={token}
+          onChange={(next) => {
+            setLatitude(next.latitude);
+            setLongitude(next.longitude);
+          }}
+        />
+      ) : (
+        <View style={s.pinCard}>
+          <Text style={s.pinTitle}>Exact spot</Text>
+          <Text style={s.pinHint}>
+            Pick your area above, or use your current location, and a map will
+            open here to place the pin.
           </Text>
-        </Pressable>
 
-        <View style={s.pad}>
-          <NudgeButton label="↑" onPress={() => nudge(NUDGE, 0)} disabled={!hasPin} />
-          <View style={s.padRow}>
-            <NudgeButton label="←" onPress={() => nudge(0, -NUDGE)} disabled={!hasPin} />
-            <NudgeButton label="→" onPress={() => nudge(0, NUDGE)} disabled={!hasPin} />
-          </View>
-          <NudgeButton label="↓" onPress={() => nudge(-NUDGE, 0)} disabled={!hasPin} />
+          <Pressable
+            onPress={useMyLocation}
+            disabled={locating}
+            accessibilityRole="button"
+            style={({ pressed }) => [s.locate, pressed && s.locatePressed]}
+          >
+            <PinIcon color={colors.ink} size={15} />
+            <Text style={s.locateLabel}>
+              {locating ? "Finding you…" : "Use my current location"}
+            </Text>
+          </Pressable>
         </View>
-      </View>
-    </WizardShell>
-  );
-}
+      )}
 
-function NudgeButton({
-  label,
-  onPress,
-  disabled,
-}: {
-  label: string;
-  onPress: () => void;
-  disabled: boolean;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled}
-      accessibilityRole="button"
-      accessibilityLabel={`Move pin ${label}`}
-      style={({ pressed }) => [s.nudge, disabled && s.nudgeOff, pressed && s.nudgePressed]}
-    >
-      <Text style={s.nudgeLabel}>{label}</Text>
-    </Pressable>
+      {/* Grouped rather than loose, so this screen reads like the rest of the
+          app: every other one puts related fields inside a bordered card with
+          a small uppercase heading. */}
+      <Card heading="Address details">
+        <View style={s.fields}>
+          <Field label="Address" value={addressLine} onChangeText={setAddressLine} maxLength={200} />
+          <Field label="City" value={city} onChangeText={setCity} maxLength={100} />
+          <Field label="State" value={stateName} onChangeText={setStateName} maxLength={100} />
+          <Field
+            label="PIN code"
+            value={pincode}
+            onChangeText={setPincode}
+            keyboardType="number-pad"
+            maxLength={6}
+          />
+        </View>
+      </Card>
+    </WizardShell>
   );
 }
 
@@ -310,6 +285,7 @@ const s = StyleSheet.create({
   },
   resultDivided: { borderTopWidth: 1, borderTopColor: colors.border },
   resultPressed: { backgroundColor: colors.canvas },
+  fields: { gap: space.lg, paddingTop: space.sm },
   resultText: { flex: 1, fontSize: 14, color: colors.ink },
   pinCard: {
     backgroundColor: colors.surface,
@@ -336,19 +312,4 @@ const s = StyleSheet.create({
   },
   locatePressed: { backgroundColor: colors.border },
   locateLabel: { fontSize: 13, fontWeight: "600", color: colors.ink },
-  pad: { alignItems: "center", gap: space.sm },
-  padRow: { flexDirection: "row", gap: 56 },
-  nudge: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.canvas,
-  },
-  nudgeOff: { opacity: 0.4 },
-  nudgePressed: { backgroundColor: colors.border },
-  nudgeLabel: { fontSize: 18, color: colors.ink },
 });

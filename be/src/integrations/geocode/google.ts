@@ -4,6 +4,7 @@ import type {
   GeocodeProvider,
   GeocodeResult,
   PlaceSuggestion,
+  StaticMapOptions,
 } from "./provider.js";
 
 const CAPABILITY = "geocode";
@@ -18,6 +19,8 @@ const GEOCODE_ENDPOINT = "https://maps.googleapis.com/maps/api/geocode/json";
 const AUTOCOMPLETE_ENDPOINT =
   "https://places.googleapis.com/v1/places:autocomplete";
 const PLACE_ENDPOINT = "https://places.googleapis.com/v1/places";
+/** Maps Static API -- a third API to enable, separate from Places and Geocoding. */
+const STATIC_MAP_ENDPOINT = "https://maps.googleapis.com/maps/api/staticmap";
 
 interface AutocompleteResponse {
   suggestions?: {
@@ -127,6 +130,21 @@ export class GoogleGeocodeProvider implements GeocodeProvider {
     sessionToken?: string
   ): Promise<GeocodeResult | null> {
     return placeDetailsImpl(this.apiKey, placeId, sessionToken);
+  }
+
+  staticMapUrl(options: StaticMapOptions): string {
+    const params = new URLSearchParams({
+      center: `${options.latitude},${options.longitude}`,
+      zoom: String(options.zoom),
+      size: `${options.width}x${options.height}`,
+      scale: String(options.scale),
+      // Satellite would show the roof rather than the road, which is the wrong
+      // thing to aim a pin at; the entrance is the point of this step.
+      maptype: "roadmap",
+      key: this.apiKey,
+    });
+
+    return `${STATIC_MAP_ENDPOINT}?${params}`;
   }
 }
 

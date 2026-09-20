@@ -30,11 +30,25 @@ const placeQuery = z.object({
   sessionToken: z.string().trim().min(1).max(100).optional(),
 });
 
+const staticMapQuery = z.object({
+  latitude: z.coerce.number().min(-90).max(90),
+  longitude: z.coerce.number().min(-180).max(180),
+  // 21 is Google's deepest; below 15 a driveway is not distinguishable, which
+  // is the only thing this image is for.
+  zoom: z.coerce.number().int().min(15).max(21).default(18),
+  // Bounded because the caller picks them and each pixel is billed upstream.
+  width: z.coerce.number().int().min(100).max(640).default(400),
+  height: z.coerce.number().int().min(100).max(640).default(260),
+  scale: z.coerce.number().int().refine((v) => v === 1 || v === 2).default(2),
+});
+
 export const geocodeRequests = {
   search: { query: geocodeQuery } satisfies RequestSchemas,
   autocomplete: { query: geocodeQuery } satisfies RequestSchemas,
   place: { params: placeParams, query: placeQuery } satisfies RequestSchemas,
+  staticMap: { query: staticMapQuery } satisfies RequestSchemas,
 };
 
 export type GeocodeSearchInput = RequestInput<typeof geocodeRequests.search>;
 export type GeocodePlaceInput = RequestInput<typeof geocodeRequests.place>;
+export type StaticMapInput = RequestInput<typeof geocodeRequests.staticMap>;

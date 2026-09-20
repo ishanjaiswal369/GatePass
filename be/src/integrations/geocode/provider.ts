@@ -46,4 +46,23 @@ export interface GeocodeProvider {
     placeId: string,
     sessionToken?: string
   ): Promise<GeocodeResult | null>;
+
+  /**
+   * Upstream URL for a flat map image centred on a point.
+   *
+   * Returned rather than fetched so the caller decides how it reaches the
+   * client. Ours proxies it: the URL carries the API key, and a URL the app
+   * could request directly is a key the app has to hold.
+   */
+  staticMapUrl?(options: StaticMapOptions): string;
+}
+
+export interface StaticMapOptions {
+  latitude: number;
+  longitude: number;
+  zoom: number;
+  width: number;
+  height: number;
+  /** 2 on a retina screen; the coordinate maths stays in logical pixels. */
+  scale: 1 | 2;
 }

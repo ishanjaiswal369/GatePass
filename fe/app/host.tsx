@@ -1,7 +1,7 @@
 import { Redirect, router } from "expo-router";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
-import { ApiError, hostApi } from "@/api";
+import { ApiError, hostApi, spotListingApi } from "@/api";
 import {
   BottomNav,
   Button,
@@ -15,10 +15,75 @@ import {
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { useSession } from "@/providers/SessionProvider";
-import { colors, space } from "@/theme";
-import type { HostAvailabilityRow, HostProfile } from "@/types/api.types";
+import { colors, radius, space } from "@/theme";
+import type {
+  HostAvailabilityRow,
+  HostProfile,
+  SpotListing,
+} from "@/types/api.types";
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/**
+ * Where the listing stands, and what moves it forward.
+ *
+ * Deliberately says what is outstanding rather than only naming a state: a
+ * host reading "PENDING_REVIEW" learns nothing they can act on.
+ */
+function ListingStatusCard({ spot }: { spot: SpotListing | null }) {
+  const { heading, body, tone } = describe(spot);
+
+  return (
+    <View style={[s.status, tone === "good" && s.statusGood, tone === "warn" && s.statusWarn]}>
+      <Text style={s.statusHeading}>{heading}</Text>
+      <Text style={s.statusBody}>{body}</Text>
+    </View>
+  );
+}
+
+function describe(spot: SpotListing | null): {
+  heading: string;
+  body: string;
+  tone: "neutral" | "good" | "warn";
+} {
+  if (!spot || spot.status === "DRAFT") {
+    return {
+      heading: "Listing not finished",
+      body: "Your spot is saved as a draft. Finish the remaining steps to send it for review.",
+      tone: "neutral",
+    };
+  }
+
+  if (spot.status === "PENDING_REVIEW") {
+    return {
+      heading: "With us for review",
+      body: "We are checking your ownership proof. It goes live once that clears and your payout account is active.",
+      tone: "neutral",
+    };
+  }
+
+  if (spot.status === "REJECTED") {
+    return {
+      heading: "Not approved",
+      body: spot.rejectionReason ?? "Something was missing. Edit your listing and submit it again.",
+      tone: "warn",
+    };
+  }
+
+  if (spot.status === "SUSPENDED") {
+    return {
+      heading: "Paused",
+      body: spot.rejectionReason ?? "Your spot is offline. Contact support to put it back.",
+      tone: "warn",
+    };
+  }
+
+  return {
+    heading: "Live",
+    body: "Drivers nearby can find and book your spot.",
+    tone: "good",
+  };
+}
 
 function Need({ text }: { text: string }) {
   return (
@@ -54,6 +119,7 @@ export default function HostScreen() {
   const insets = useScreenInsets();
   const [profile, setProfile] = useState<HostProfile | null>(null);
   const [availability, setAvailability] = useState<HostAvailabilityRow[]>([]);
+  const [spot, setSpot] = useState<SpotListing | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -72,8 +138,13 @@ export default function HostScreen() {
         setProfile(found);
 
         if (found) {
-          const { availability: windows } = await hostApi.listAvailability(token);
-          if (!cancelled) setAvailability(windows);
+          const [{ availability: windows }, { spots }] = await Promise.all([
+            hostApi.listAvailability(token),
+            spotListingApi.list(token),
+          ]);
+          if (cancelled) return;
+          setAvailability(windows);
+          setSpot(spots[0] ?? null);
         }
       })
       .catch((err) =>
@@ -141,22 +212,44 @@ export default function HostScreen() {
                 </Text>
               </View>
 
+              {/* What a host opens this screen to find out. Listing status,
+                  not profile verification: the profile has said ACTIVE since
+                  onboarding, while the listing is the thing that is or is not
+                  earning. */}
+              <ListingStatusCard spot={spot} />
+
+              <Button
+                label={
+                  !spot || spot.status === "DRAFT" || spot.status === "REJECTED"
+                    ? "Continue your listing"
+                    : "View your listing"
+                }
+                size="lg"
+                onPress={() => router.push("/host/spot")}
+              />
+
               <Card heading="Spot">
                 <DataRow label="City" value={profile.city} />
                 <DataRow label="Pincode" value={profile.pincode} />
-                <DataRow label="Status" value={profile.verificationStatus} />
+                {spot?.pricing?.length ? (
+                  <DataRow
+                    label="Rates"
+                    value={spot.pricing
+                      .map(
+                        (rate) =>
+                          `${rate.vehicleType === "CAR" ? "Car" : "Bike"} ₹${Number(rate.pricePerHour)}`
+                      )
+                      .join("  ·  ")}
+                  />
+                ) : null}
+                <DataRow label="Photos" value={`${spot?.photos?.length ?? 0}`} />
               </Card>
-
-              <Button
-                label="Manage your listing"
-                variant="ghost"
-                onPress={() => router.push("/host/spot")}
-              />
 
               <Card heading={`Availability (${availability.length})`}>
                 {availability.length === 0 ? (
                   <Text style={s.empty}>
-                    No windows yet. Your spot stays hidden until you add one.
+                    No windows yet. Add one in the listing wizard — a spot with
+                    no hours cannot be booked even once it is approved.
                   </Text>
                 ) : (
                   availability.map((window) => (
@@ -242,6 +335,18 @@ const s = StyleSheet.create({
   windowDay: { fontSize: 15, fontWeight: "600", color: colors.ink },
   windowPrice: { fontSize: 12, color: colors.inkFaint },
   fine: { fontSize: 12, color: colors.inkFaint, lineHeight: 18 },
+  status: {
+    gap: 5,
+    padding: space.lg,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.canvas,
+  },
+  statusGood: { borderColor: colors.success, backgroundColor: "#f0fdf4" },
+  statusWarn: { borderColor: colors.devBorder, backgroundColor: colors.devSurface },
+  statusHeading: { fontSize: 16, fontWeight: "700", color: colors.ink },
+  statusBody: { fontSize: 13, lineHeight: 19, color: colors.inkMuted },
   needs: { gap: space.md, paddingTop: space.xs },
   need: { flexDirection: "row", gap: space.md, alignItems: "flex-start" },
   needDot: {

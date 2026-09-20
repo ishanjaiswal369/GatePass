@@ -174,6 +174,12 @@ export function registerApi(app: App): void {
     driver,
     request(geocodeRequests.place, geocodeController.place)
   );
+  // Proxied rather than linked: the upstream URL carries the API key.
+  app.get(
+    "/geocode/static-map",
+    driver,
+    request(geocodeRequests.staticMap, geocodeController.staticMap)
+  );
 
   // Driver bookings. `/bookings/active` is declared before `/bookings/:id` so
   // "active" is never parsed as an id.
