@@ -18,6 +18,15 @@ export function useStaticMap(
 ) {
   const [uri, setUri] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
+  /**
+   * Bumped whenever a request finishes, whether or not it produced an image.
+   *
+   * Callers that line something up with the picture arriving need to hear
+   * about the requests that produced nothing too -- a caller watching `uri`
+   * alone never hears about a failure, and goes on waiting for a picture that
+   * is not coming.
+   */
+  const [attempt, setAttempt] = useState(0);
 
   const { zoom, width, height, mapType } = options;
   const latitude = centre?.latitude;
@@ -60,12 +69,14 @@ export function useStaticMap(
         if (cancelled) return;
         setUri(dataUri);
         setFailed(false);
+        setAttempt((count) => count + 1);
       } catch {
         if (cancelled) return;
         // The pin still works without a picture behind it -- coordinates are
         // what the step actually collects -- so this is reported, not thrown.
         setFailed(true);
         setUri(null);
+        setAttempt((count) => count + 1);
       }
     })();
 
@@ -74,5 +85,5 @@ export function useStaticMap(
     };
   }, [token, latitude, longitude, zoom, width, height, mapType]);
 
-  return { uri, failed };
+  return { uri, failed, attempt };
 }

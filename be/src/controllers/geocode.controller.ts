@@ -5,6 +5,7 @@ import { IntegrationError } from "../integrations/errors.js";
 import { notFound, serviceUnavailable } from "../lib/errors.js";
 import type {
   GeocodePlaceInput,
+  GeocodeReverseInput,
   GeocodeSearchInput,
   StaticMapInput,
 } from "../requests/geocode.request.js";
@@ -77,6 +78,36 @@ export const geocodeController = {
 
     if (!result) {
       throw notFound("Place not found");
+    }
+
+    return reply.send({ result, provider: provider.name });
+  },
+
+  /**
+   * The address at a point.
+   *
+   * The other direction from search. A pin is what the listing routes a driver
+   * to, but it is not what a driver can read, and a host should not have to
+   * type out an address they have already shown us on a map.
+   */
+  reverse: async (
+    input: GeocodeReverseInput,
+    _request: FastifyRequest,
+    reply: FastifyReply
+  ) => {
+    const provider = getGeocodeProvider();
+
+    if (!provider.reverseGeocode) {
+      throw serviceUnavailable("This provider cannot name a point");
+    }
+
+    const { latitude, longitude } = input.query;
+    const result = await provider.reverseGeocode(latitude, longitude);
+
+    if (!result) {
+      // Genuinely possible -- open sea, or a point Google has nothing for --
+      // and not an error: the pin is still valid, it just has no name.
+      throw notFound("No address at this point");
     }
 
     return reply.send({ result, provider: provider.name });

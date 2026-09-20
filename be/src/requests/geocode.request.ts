@@ -30,6 +30,12 @@ const placeQuery = z.object({
   sessionToken: z.string().trim().min(1).max(100).optional(),
 });
 
+/** A point to name. No session token: this is not part of a search session. */
+const reverseQuery = z.object({
+  latitude: z.coerce.number().min(-90).max(90),
+  longitude: z.coerce.number().min(-180).max(180),
+});
+
 const staticMapQuery = z.object({
   latitude: z.coerce.number().min(-90).max(90),
   longitude: z.coerce.number().min(-180).max(180),
@@ -47,9 +53,11 @@ export const geocodeRequests = {
   search: { query: geocodeQuery } satisfies RequestSchemas,
   autocomplete: { query: geocodeQuery } satisfies RequestSchemas,
   place: { params: placeParams, query: placeQuery } satisfies RequestSchemas,
+  reverse: { query: reverseQuery } satisfies RequestSchemas,
   staticMap: { query: staticMapQuery } satisfies RequestSchemas,
 };
 
 export type GeocodeSearchInput = RequestInput<typeof geocodeRequests.search>;
 export type GeocodePlaceInput = RequestInput<typeof geocodeRequests.place>;
+export type GeocodeReverseInput = RequestInput<typeof geocodeRequests.reverse>;
 export type StaticMapInput = RequestInput<typeof geocodeRequests.staticMap>;

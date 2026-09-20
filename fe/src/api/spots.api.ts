@@ -40,6 +40,24 @@ export const autocomplete = (
   );
 };
 
+/**
+ * The address at a point.
+ *
+ * The other direction from geocode(): the map gives coordinates, and this is
+ * what turns them into something a host can read and a driver can follow.
+ * Answers 404 when the provider has nothing there, which is a valid pin with
+ * no name rather than a failure.
+ */
+export const reverseGeocode = (
+  token: string,
+  latitude: number,
+  longitude: number
+) =>
+  request<{ result: GeocodeResult }>(
+    `/geocode/reverse?latitude=${latitude}&longitude=${longitude}`,
+    { token }
+  );
+
 /** Coordinates for the one suggestion the host actually picked. */
 export const placeDetails = (
   token: string,

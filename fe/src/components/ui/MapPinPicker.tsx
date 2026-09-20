@@ -80,7 +80,7 @@ export function MapPinPicker({
   /** Centre of the image being fetched or shown. */
   const [centre, setCentre] = useState({ latitude, longitude });
 
-  const { uri, failed } = useStaticMap(token, centre, {
+  const { uri, failed, attempt } = useStaticMap(token, centre, {
     zoom,
     width: IMAGE_WIDTH,
     height: IMAGE_HEIGHT,
@@ -99,18 +99,24 @@ export function MapPinPicker({
   const slid = useRef({ x: 0, y: 0 });
   const grabbedAt = useRef({ x: 0, y: 0 });
 
-  const emitted = useRef<{ latitude: number; longitude: number } | null>(null);
-  /** The image URI whose centre the slide has already been settled against. */
-  const settledUri = useRef<string | null>(null);
   /**
-   * Whether the slide on screen has already been turned into a point.
+   * How much of the slide has already been folded into `centre`.
    *
-   * Release and terminate can both fire for one gesture, and the slide is not
-   * cleared until the next image arrives -- so without this the second call
-   * applies the same offset again, to the centre the first one just moved to,
-   * and the pin lands twice as far as the host dragged it.
+   * The two numbers move at different moments and that is the whole point.
+   * `slid` is what the map is showing, and it cannot be cleared on release --
+   * the image on screen is still the old one, and zeroing it there would make
+   * the map jump back before the new picture replaced it. `centre` moves on
+   * release, though, so everything up to `applied` has already been paid for.
+   * Settling the difference rather than the total is what keeps a second drag
+   * from re-applying the first: without it a drag after a map image failed to
+   * load moved the pin twice as far as the host dragged it, then three times,
+   * and so on.
    */
-  const settled = useRef(false);
+  const applied = useRef({ x: 0, y: 0 });
+
+  const emitted = useRef<{ latitude: number; longitude: number } | null>(null);
+  /** The fetch whose outcome the slide has already been reset for. */
+  const reset = useRef(0);
 
   const live = useRef({ centre, zoom });
   live.current = { centre, zoom };
@@ -132,25 +138,31 @@ export function MapPinPicker({
 
     setCentre({ latitude, longitude });
     slid.current = { x: 0, y: 0 };
+    applied.current = { x: 0, y: 0 };
     pan.setValue({ x: 0, y: 0 });
   }, [latitude, longitude, pan]);
 
   /**
-   * Snap the slide back to zero once the image for the new centre has arrived.
+   * Snap the slide back to zero once the fetch for the new centre is done.
    *
    * Done on arrival rather than on release because the new image is centred
    * where the old one was dragged to: swapping it in and zeroing the offset in
    * the same moment leaves the view exactly where the finger left it. Zeroing
    * earlier would show the old image jump back before the new one replaced it.
+   *
+   * On the attempt rather than on the URI, so a fetch that came back with
+   * nothing still clears the slide. Watching the URI alone meant that with map
+   * images failing -- an API key without the Static Maps API on it, say -- the
+   * offset was never cleared and each drag replayed every drag before it.
    */
   useEffect(() => {
-    if (!uri || settledUri.current === uri) return;
+    if (attempt === 0 || reset.current === attempt) return;
 
-    settledUri.current = uri;
-    settled.current = false;
+    reset.current = attempt;
     slid.current = { x: 0, y: 0 };
+    applied.current = { x: 0, y: 0 };
     pan.setValue({ x: 0, y: 0 });
-  }, [uri, pan]);
+  }, [attempt, pan]);
 
   /**
    * Turns where the map was left into the point under the pin.
@@ -160,14 +172,20 @@ export function MapPinPicker({
    */
   const settle = () => {
     const { centre: from, zoom: atZoom } = live.current;
-    const { x, y } = slid.current;
 
-    if (settled.current || (x === 0 && y === 0)) return;
-    settled.current = true;
+    // Only the part of the slide that has not been turned into a centre yet.
+    // Release and terminate both fire for one gesture, and a second drag can
+    // start before the image for the first has landed; in either case this is
+    // zero the second time round, which is exactly the right answer.
+    const dx = slid.current.x - applied.current.x;
+    const dy = slid.current.y - applied.current.y;
+
+    if (dx === 0 && dy === 0) return;
+    applied.current = { ...slid.current };
 
     // The map moved right, so the point under the pin moved left: the centre
     // shifts against the drag, not with it.
-    const point = offsetByPixels(from, { dx: -x, dy: -y }, atZoom);
+    const point = offsetByPixels(from, { dx: -dx, dy: -dy }, atZoom);
 
     report(point);
     setCentre(point);
@@ -190,7 +208,6 @@ export function MapPinPicker({
         // away from the finger.
         onPanResponderGrant: () => {
           grabbedAt.current = { ...slid.current };
-          settled.current = false;
         },
 
         onPanResponderMove: (_event, gesture) => {

@@ -180,11 +180,27 @@ export interface HostAvailabilityRow {
   isActive: boolean;
 }
 
+/**
+ * A postal address split into the fields the listing stores.
+ *
+ * Every part is optional: the provider fills in what it knows about the point,
+ * and a pin on a service lane may have no street to name. A part that came
+ * back empty leaves the matching field alone rather than clearing it.
+ */
+export interface AddressParts {
+  addressLine?: string;
+  city?: string;
+  state?: string;
+  pincode?: string;
+}
+
 export interface GeocodeResult {
   providerPlaceId?: string;
   description: string;
   latitude: number;
   longitude: number;
+  /** Present on lookups that answer with components; absent on suggestions. */
+  address?: AddressParts;
 }
 
 /**
@@ -202,6 +218,8 @@ export interface PlaceSuggestion {
   description: string;
   latitude?: number;
   longitude?: number;
+  /** Only when the suggestion is really a search result -- see GeocodeResult. */
+  address?: AddressParts;
 }
 
 export interface Vehicle {

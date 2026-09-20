@@ -1,6 +1,7 @@
 import { IntegrationError } from "../errors.js";
 import { http, withRetry } from "../http.js";
 import type {
+  AddressParts,
   GeocodeProvider,
   GeocodeResult,
   PlaceSuggestion,
@@ -37,14 +38,23 @@ interface PlaceDetailsResponse {
   location?: { latitude?: number; longitude?: number };
 }
 
+interface GoogleAddressComponent {
+  long_name?: string;
+  short_name?: string;
+  types?: string[];
+}
+
+interface GoogleGeocodeResult {
+  place_id?: string;
+  formatted_address?: string;
+  address_components?: GoogleAddressComponent[];
+  geometry?: { location?: { lat?: number; lng?: number } };
+}
+
 interface GoogleGeocodeResponse {
   status?: string;
   error_message?: string;
-  results?: {
-    place_id?: string;
-    formatted_address?: string;
-    geometry?: { location?: { lat?: number; lng?: number } };
-  }[];
+  results?: GoogleGeocodeResult[];
 }
 
 /**
@@ -62,59 +72,48 @@ export class GoogleGeocodeProvider implements GeocodeProvider {
     query: string,
     near?: { latitude: number; longitude: number }
   ): Promise<GeocodeResult[]> {
-    return withRetry(async () => {
-      try {
-        const response = await http.get<GoogleGeocodeResponse>(
-          GEOCODE_ENDPOINT,
-          {
-            params: {
-              address: query,
-              key: this.apiKey,
-              region: "in",
-              ...(near
-                ? { bounds: boundsAround(near.latitude, near.longitude) }
-                : {}),
-            },
-          }
-        );
-
-        const { status, results, error_message: errorMessage } = response.data;
-
-        // Google answers HTTP 200 with a status string, so a quota or key
-        // failure looks like success to axios and has to be checked here.
-        if (status && status !== "OK" && status !== "ZERO_RESULTS") {
-          throw new IntegrationError(errorMessage ?? status, {
-            capability: CAPABILITY,
-            provider: "google",
-            operation: "geocode",
-            retryable: status === "OVER_QUERY_LIMIT",
-          });
-        }
-
-        return (results ?? []).flatMap((result) => {
-          const lat = result.geometry?.location?.lat;
-          const lng = result.geometry?.location?.lng;
-
-          if (typeof lat !== "number" || typeof lng !== "number") {
-            return [];
-          }
-
-          return [
-            {
-              providerPlaceId: result.place_id,
-              description: result.formatted_address ?? query,
-              latitude: lat,
-              longitude: lng,
-            },
-          ];
-        });
-      } catch (error) {
-        throw IntegrationError.from(
-          { capability: CAPABILITY, provider: "google", operation: "geocode" },
-          error
-        );
-      }
+    const results = await geocodeImpl(this.apiKey, {
+      address: query,
+      region: "in",
+      ...(near ? { bounds: boundsAround(near.latitude, near.longitude) } : {}),
     });
+
+    // A match Google gave no formatted address for would otherwise be a blank
+    // row in the suggestion list. What was typed is a better label than
+    // nothing, and it is still a real result with real coordinates.
+    return results.map((result) =>
+      result.description ? result : { ...result, description: query }
+    );
+  }
+
+  /**
+   * The address at a point.
+   *
+   * The plain Geocoding API rather than a Places lookup: it is the API this
+   * provider already needs enabled, it answers with address_components in the
+   * same response, and its price does not depend on which fields are asked
+   * for -- so the parts a listing stores come back for the cost of the call
+   * that was needed anyway.
+   */
+  async reverseGeocode(
+    latitude: number,
+    longitude: number
+  ): Promise<GeocodeResult | null> {
+    // Google describes one point at every scale it knows, from the building up
+    // to the country, most specific first. No result_type filter: it can rule
+    // out every row -- open ground has no street address -- and a coarse
+    // answer still beats showing a driver a pair of numbers.
+    const results = await geocodeImpl(this.apiKey, {
+      latlng: `${latitude},${longitude}`,
+    });
+
+    const best = results[0];
+    if (!best) return null;
+
+    // The pin is what the host placed; the lookup only names it. Returning
+    // Google's snapped coordinates instead would quietly move the pin off the
+    // gate and onto the middle of the road it matched.
+    return { ...best, latitude, longitude };
   }
 
   autocomplete(
@@ -253,6 +252,129 @@ async function placeDetailsImpl(
       );
     }
   });
+}
+
+/**
+ * One call to the Geocoding API, forward or reverse.
+ *
+ * Both directions hit the same endpoint with the same failure modes -- the one
+ * that matters is that Google answers HTTP 200 with a status string, so a
+ * rejected key looks like success to axios unless it is checked here.
+ */
+async function geocodeImpl(
+  apiKey: string,
+  params: Record<string, string>
+): Promise<GeocodeResult[]> {
+  return withRetry(async () => {
+    try {
+      const response = await http.get<GoogleGeocodeResponse>(GEOCODE_ENDPOINT, {
+        params: { ...params, key: apiKey },
+      });
+
+      const { status, results, error_message: errorMessage } = response.data;
+
+      if (status && status !== "OK" && status !== "ZERO_RESULTS") {
+        throw new IntegrationError(errorMessage ?? status, {
+          capability: CAPABILITY,
+          provider: "google",
+          operation: "geocode",
+          retryable: status === "OVER_QUERY_LIMIT",
+        });
+      }
+
+      return (results ?? []).flatMap((result) => {
+        const lat = result.geometry?.location?.lat;
+        const lng = result.geometry?.location?.lng;
+
+        if (typeof lat !== "number" || typeof lng !== "number") {
+          return [];
+        }
+
+        return [
+          {
+            providerPlaceId: result.place_id,
+            description: result.formatted_address ?? "",
+            latitude: lat,
+            longitude: lng,
+            address: toAddressParts(
+              result.address_components,
+              result.formatted_address
+            ),
+          },
+        ];
+      });
+    } catch (error) {
+      throw IntegrationError.from(
+        { capability: CAPABILITY, provider: "google", operation: "geocode" },
+        error
+      );
+    }
+  });
+}
+
+/**
+ * Google's address components, in the shape a listing stores.
+ *
+ * The three tail fields come straight off the component types. The street line
+ * does not: there is no single component for it, and hand-joining premise,
+ * route and the sublocality levels gets the order wrong as often as right.
+ * Google already wrote the address in the right order in formatted_address, so
+ * that is what is used, with the parts broken out below removed from the end
+ * of it -- the city, state, PIN and country would otherwise appear twice, once
+ * in the street line and once in their own field.
+ */
+function toAddressParts(
+  components: GoogleAddressComponent[] | undefined,
+  formattedAddress: string | undefined
+): AddressParts | undefined {
+  if (!components?.length) return undefined;
+
+  const pick = (type: string): string | undefined =>
+    components.find((component) => component.types?.includes(type))?.long_name;
+
+  // locality is the city nearly everywhere in India. The two fallbacks are for
+  // addresses outside a municipality, where Google names the tehsil or the
+  // district instead and there is no locality at all.
+  const city =
+    pick("locality") ??
+    pick("administrative_area_level_3") ??
+    pick("administrative_area_level_2");
+  const state = pick("administrative_area_level_1");
+  const pincode = pick("postal_code");
+  const country = pick("country");
+
+  const norm = (value: string) => value.trim().toLowerCase();
+  const tail = new Set(
+    [city, state, pincode, country]
+      .filter((value): value is string => Boolean(value))
+      .map(norm)
+  );
+
+  const drop = (segment: string): boolean => {
+    const value = norm(segment);
+
+    if (!value) return true;
+    if (tail.has(value)) return true;
+    // Google writes the state and the PIN as one segment: "Uttar Pradesh 208001".
+    if (state && pincode && value === norm(`${state} ${pincode}`)) return true;
+
+    return false;
+  };
+
+  const addressLine = (formattedAddress ?? "")
+    .split(",")
+    .map((segment) => segment.trim())
+    .filter((segment) => !drop(segment))
+    .join(", ");
+
+  return {
+    // Empty rather than undefined would blank a field the host filled in by
+    // hand, and an address that is only a city genuinely has no street line.
+    addressLine: addressLine || undefined,
+    city,
+    state,
+    pincode,
+  };
 }
 
 /** Biases results towards roughly 50km around the driver. */

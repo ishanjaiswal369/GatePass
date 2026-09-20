@@ -1,3 +1,18 @@
+/**
+ * A postal address broken into the fields a listing stores.
+ *
+ * Every part is optional because a provider answers with whatever it knows
+ * about the point, and a pin dropped on a service lane may genuinely have no
+ * street to name. A field the provider could not fill is left alone rather
+ * than blanked, so a missing part never wipes something the host typed.
+ */
+export interface AddressParts {
+  addressLine?: string;
+  city?: string;
+  state?: string;
+  pincode?: string;
+}
+
 /** A place the driver can pick when they type an area by hand. */
 export interface GeocodeResult {
   /** Provider's own id, so a later detail lookup can reuse it. */
@@ -5,6 +20,12 @@ export interface GeocodeResult {
   description: string;
   latitude: number;
   longitude: number;
+  /**
+   * The same address split up, when the provider returned it that way. Only
+   * the endpoints that answer with components can fill this -- a type-ahead
+   * suggestion carries a label and nothing else.
+   */
+  address?: AddressParts;
 }
 
 /**
@@ -20,6 +41,12 @@ export interface PlaceSuggestion {
   description: string;
   latitude?: number;
   longitude?: number;
+  /**
+   * Filled only by providers whose suggestions are really search results --
+   * the fallback path in the controller, where autocomplete does not exist.
+   * A real type-ahead endpoint returns a label and an id, nothing more.
+   */
+  address?: AddressParts;
 }
 
 export interface GeocodeProvider {
@@ -40,6 +67,17 @@ export interface GeocodeProvider {
     near?: { latitude: number; longitude: number },
     sessionToken?: string
   ): Promise<PlaceSuggestion[]>;
+
+  /**
+   * The address at a point.
+   *
+   * The other direction from search(): a pin dropped on a map is a pair of
+   * numbers, and the listing has to show a driver something they can read.
+   */
+  reverseGeocode?(
+    latitude: number,
+    longitude: number
+  ): Promise<GeocodeResult | null>;
 
   /** Coordinates for a suggestion the user picked. */
   placeDetails?(

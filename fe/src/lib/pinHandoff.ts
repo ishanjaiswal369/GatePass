@@ -1,6 +1,17 @@
+import type { AddressParts } from "@/types/api.types";
+
 export interface PinnedPoint {
   latitude: number;
   longitude: number;
+  /**
+   * The address the map screen found at that point, when it found one.
+   *
+   * Carried with the pin rather than looked up again by the form: the map
+   * screen already showed it to the host and they pressed save on it, so
+   * re-resolving would both cost a second lookup and risk filling the fields
+   * with something other than what they agreed to.
+   */
+  address?: AddressParts;
 }
 
 /**

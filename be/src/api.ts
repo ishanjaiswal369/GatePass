@@ -174,6 +174,13 @@ export function registerApi(app: App): void {
     driver,
     request(geocodeRequests.place, geocodeController.place)
   );
+  // The other direction: what is at this point. Used by the pin screen, which
+  // has coordinates and owes the host a readable address.
+  app.get(
+    "/geocode/reverse",
+    driver,
+    request(geocodeRequests.reverse, geocodeController.reverse)
+  );
   // Proxied rather than linked: the upstream URL carries the API key.
   app.get(
     "/geocode/static-map",

@@ -1,11 +1,12 @@
 import { Redirect, router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
-import { Button, MapPinPicker, PhoneFrame } from "@/components/ui";
+import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { Button, MapPinPicker, PhoneFrame, PinIcon } from "@/components/ui";
+import { useReverseGeocode } from "@/hooks/useReverseGeocode";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { deliverPin } from "@/lib/pinHandoff";
 import { useSession } from "@/providers/SessionProvider";
-import { colors, space, type } from "@/theme";
+import { colors, radius, space, type } from "@/theme";
 
 /**
  * The map, with the whole screen to itself.
@@ -17,6 +18,11 @@ import { colors, space, type } from "@/theme";
  *
  * Nothing is saved here. The point is handed to the address step, which is
  * what writes it -- so backing out of this screen changes nothing.
+ *
+ * The address under the map is what the pin currently sits on, looked up as it
+ * settles. It is shown before saving rather than after so the host can see
+ * they have landed on the right place, and it travels back with the pin so the
+ * form fills itself in with the address they just agreed to.
  */
 export default function PinScreen() {
   const { token, isRestoring } = useSession();
@@ -27,6 +33,8 @@ export default function PinScreen() {
     latitude: Number(params.lat ?? 0),
     longitude: Number(params.lng ?? 0),
   });
+
+  const { address, description, loading } = useReverseGeocode(token, point);
 
   if (isRestoring) return null;
   if (!token) return <Redirect href="/" />;
@@ -55,14 +63,42 @@ export default function PinScreen() {
         />
 
         <View style={s.footer}>
-          <Text style={s.coords}>
-            {point.latitude.toFixed(5)}, {point.longitude.toFixed(5)}
-          </Text>
+          <View style={s.found}>
+            <PinIcon color={colors.accent} size={16} />
+
+            <View style={s.foundText}>
+              <Text style={s.foundLabel}>This pin is at</Text>
+
+              {description ? (
+                <Text style={s.foundAddress} numberOfLines={2}>
+                  {description}
+                </Text>
+              ) : loading ? (
+                <View style={s.looking}>
+                  <ActivityIndicator size="small" color={colors.inkMuted} />
+                  <Text style={s.foundPending}>Looking up the address…</Text>
+                </View>
+              ) : (
+                /* A pin with no address is still a usable pin -- it is what
+                   drivers are routed to -- so this is stated rather than
+                   treated as something to fix. */
+                <Text style={s.foundPending}>
+                  No address here. The pin still works; type the address on the
+                  next screen.
+                </Text>
+              )}
+
+              <Text style={s.coords}>
+                {point.latitude.toFixed(5)}, {point.longitude.toFixed(5)}
+              </Text>
+            </View>
+          </View>
+
           <Button
             label="Save this location"
             size="lg"
             onPress={() => {
-              deliverPin(point);
+              deliverPin({ ...point, address: address ?? undefined });
               router.back();
             }}
           />
@@ -91,5 +127,20 @@ const s = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.border,
   },
-  coords: { ...type.caption, color: colors.inkFaint, textAlign: "center" },
+  found: {
+    flexDirection: "row",
+    gap: space.sm,
+    padding: space.md,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.canvas,
+    marginBottom: 4,
+  },
+  foundText: { flex: 1, gap: 2 },
+  foundLabel: { ...type.label, color: colors.inkFaint },
+  foundAddress: { fontSize: 14, lineHeight: 19, color: colors.ink, fontWeight: "600" },
+  foundPending: { fontSize: 13, lineHeight: 18, color: colors.inkMuted },
+  looking: { flexDirection: "row", alignItems: "center", gap: space.sm },
+  coords: { ...type.caption, color: colors.inkFaint },
 });

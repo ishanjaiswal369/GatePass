@@ -2,7 +2,7 @@ import { Redirect, router, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { hostApi, spotListingApi, spotsApi } from "@/api";
-import type { PlaceSuggestion } from "@/types/api.types";
+import type { AddressParts, PlaceSuggestion } from "@/types/api.types";
 import {
   Button,
   Card,
@@ -85,12 +85,53 @@ export default function AddressScreen() {
   });
 
   /**
-   * Turns a picked suggestion into a pin.
+   * Writes whatever a lookup managed to work out into the fields.
+   *
+   * Only the parts that came back are written. A provider that knows the city
+   * but not the street must not blank a street the host typed, and an empty
+   * string from an address with no street line is not an answer -- it is the
+   * absence of one.
+   */
+  const applyAddress = useCallback((parts: AddressParts) => {
+    if (parts.addressLine) setAddressLine(parts.addressLine);
+    if (parts.city) setCity(parts.city);
+    if (parts.state) setStateName(parts.state);
+    if (parts.pincode) setPincode(parts.pincode);
+  }, []);
+
+  /**
+   * Fills the fields from the address at a point.
+   *
+   * Advisory on purpose: the pin is what a driver is routed to and it is
+   * already set by the time this runs, so a lookup that fails leaves the host
+   * typing the address themselves rather than leaves them stuck.
+   */
+  const fillFromPoint = useCallback(
+    async (lat: number, lng: number) => {
+      if (!token) return;
+
+      try {
+        const { result } = await spotsApi.reverseGeocode(token, lat, lng);
+        if (result.address) applyAddress(result.address);
+      } catch (error) {
+        console.warn("could not name the picked point", error);
+      }
+    },
+    [token, applyAddress]
+  );
+
+  /**
+   * Turns a picked suggestion into a pin, and into an address.
    *
    * Providers differ on whether a suggestion already carries coordinates. The
    * ones that do are resolved for free; the ones that do not need a details
    * call, and it goes out only for the row the host actually chose -- fetching
    * coordinates for every suggestion would bill for the ones they ignored.
+   *
+   * The details call answers with one formatted line rather than the parts a
+   * listing stores, so the fields are filled from the point instead. That also
+   * keeps one rule for how the fields get written: they describe wherever the
+   * pin currently is, whether it got there from the search box or the map.
    */
   const { run: pick, busy: resolving, error: pickError } = useAsyncAction(
     async (result: PlaceSuggestion) => {
@@ -101,6 +142,12 @@ export default function AddressScreen() {
         setLatitude(result.latitude);
         setLongitude(result.longitude);
         setPlaceId(result.providerPlaceId);
+
+        // A suggestion that came from a plain search already carries the
+        // components; only a real type-ahead needs the second lookup.
+        if (result.address) applyAddress(result.address);
+        else await fillFromPoint(result.latitude, result.longitude);
+
         return;
       }
 
@@ -115,18 +162,27 @@ export default function AddressScreen() {
       setLatitude(place.latitude);
       setLongitude(place.longitude);
       setPlaceId(place.providerPlaceId);
+
+      if (place.address) applyAddress(place.address);
+      else await fillFromPoint(place.latitude, place.longitude);
     }
   );
 
   // The map screen leaves its result here rather than navigating back with
-  // params, which would remount this form and lose what has been typed.
+  // params, which would remount this form and lose what has been typed. The
+  // address comes back with it: the host saw it on the map screen and pressed
+  // save on it, so it is what they meant, and looking it up again here would
+  // pay for the same answer twice.
   useFocusEffect(
     useCallback(() => {
       const handed = takePin();
       if (!handed) return;
+
       setLatitude(handed.latitude);
       setLongitude(handed.longitude);
-    }, [])
+
+      if (handed.address) applyAddress(handed.address);
+    }, [applyAddress])
   );
 
   const { run: save, busy, error } = useAsyncAction(async () => {
