@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
   Image,
   PanResponder,
   Pressable,
@@ -11,80 +12,116 @@ import {
 import { useStaticMap } from "@/hooks/useStaticMap";
 import { metresPerPixel, offsetByPixels } from "@/lib/mercator";
 import { colors, radius, space, type } from "@/theme";
+import type { MapType } from "@/types/api.types";
 
-const MAP_WIDTH = 400;
-const MAP_HEIGHT = 240;
+/**
+ * The image is fetched larger than the frame, and the extra is what the map
+ * slides on. Without the margin a drag would pull blank edges into view before
+ * the next image arrived. 640 is the most the Static Maps API will return.
+ */
+const IMAGE_WIDTH = 640;
+const IMAGE_HEIGHT = 640;
+
 const MIN_ZOOM = 16;
 const MAX_ZOOM = 21;
 
-/**
- * How far the pin may drift from the centre before the map recentres under it.
- *
- * Recentring costs an image, so it is not done on every drag; but a pin parked
- * against the edge has nowhere left to go, which is worse.
- */
-const RECENTRE_AT = 0.38;
+const MAP_TYPES: { value: MapType; label: string }[] = [
+  { value: "roadmap", label: "Map" },
+  { value: "hybrid", label: "Satellite" },
+];
 
 /**
- * Pick an exact point by dragging a pin over a map image.
+ * Pick an exact point by sliding a map under a fixed pin.
  *
- * A flat image with a draggable pin rather than a real map view, because the
- * app runs on web and on a phone from one codebase and the map libraries that
- * do pan and zoom natively do not: react-native-maps has no web support, and
- * Google's JavaScript map has no native one. The job here is small enough not
- * to need them -- a host is moving a pin from their building's address to
- * their gate, tens of metres away, not exploring.
+ * The pin does not move; the map does. That is the arrangement every maps app
+ * uses for this, and it is the honest one: the thing being chosen is the
+ * centre of the view, so it should sit in the middle and stay there rather
+ * than wander towards an edge.
  *
- * The maths lives in lib/mercator. Only the drag, the recentring and the
- * zoom buttons are here.
+ * A flat image rather than a real map view, because the app runs on web and on
+ * a phone from one codebase and the map libraries that pan and zoom natively
+ * do not: react-native-maps has no web support, Google's JavaScript map has no
+ * native one. 3D is out for the same reason, and would make this harder
+ * anyway -- on a tilted view a screen pixel no longer maps to one point on the
+ * ground, and buildings hide the ground you are aiming at.
+ *
+ * The maths lives in lib/mercator.
  */
 export function MapPinPicker({
   latitude,
   longitude,
   onChange,
   token,
+  height,
+  footer,
 }: {
   latitude: number;
   longitude: number;
   onChange: (next: { latitude: number; longitude: number }) => void;
   token: string | null;
+  /**
+   * Frame height. Omit it to fill whatever the parent gives, which is what a
+   * full screen wants -- a number computed from the window is guesswork, and
+   * when it guesses high the frame is squeezed by flex while its absolutely
+   * positioned controls stay where the number put them, off the bottom edge.
+   */
+  height?: number;
+  /** false on a full screen, where the surrounding screen carries the copy. */
+  footer?: boolean;
 }) {
+  /** What the frame actually measured, which is the only size worth trusting. */
+  const [frame, setFrame] = useState({ width: 0, height: 0 });
+
+  const marginX = Math.max((IMAGE_WIDTH - frame.width) / 2, 0);
+  const marginY = Math.max((IMAGE_HEIGHT - frame.height) / 2, 0);
   const [zoom, setZoom] = useState(18);
-  // What the image is centred on. Follows the pin, but only when the pin gets
-  // close enough to an edge to need it.
+  const [mapType, setMapType] = useState<MapType>("roadmap");
+
+  /** Centre of the image being fetched or shown. */
   const [centre, setCentre] = useState({ latitude, longitude });
-  // Pin position as an offset in logical pixels from the centre of the image.
-  const [offset, setOffset] = useState({ dx: 0, dy: 0 });
 
   const { uri, failed } = useStaticMap(token, centre, {
     zoom,
-    width: MAP_WIDTH,
-    height: MAP_HEIGHT,
+    width: IMAGE_WIDTH,
+    height: IMAGE_HEIGHT,
+    mapType,
   });
 
-  // Everything the responder needs without re-creating it on each render,
-  // which would drop a drag half way through.
-  const live = useRef({ centre, offset, zoom });
-  live.current = { centre, offset, zoom };
+  /**
+   * How far the map has been slid from the centre it was fetched for.
+   *
+   * An Animated value rather than state: this changes on every pointer move,
+   * and running React through a render on each one is what makes a drag feel
+   * heavy. Animated writes straight to the view.
+   */
+  const pan = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
+  /** The same numbers, readable synchronously by the responder. */
+  const slid = useRef({ x: 0, y: 0 });
+  const grabbedAt = useRef({ x: 0, y: 0 });
 
-  // The last point this component reported upwards.
-  //
-  // Needed because onChange flows back down as new props, and without it the
-  // effect below could not tell a fresh pick from the search box apart from
-  // the echo of the drag that just happened -- so every drag recentred the
-  // map and fetched another image, which is another billed request and a pin
-  // that jumps back to the middle mid-adjustment.
   const emitted = useRef<{ latitude: number; longitude: number } | null>(null);
-  /** Pin offset at the moment the current drag started. */
-  const grabbedAt = useRef({ dx: 0, dy: 0 });
+  /** The image URI whose centre the slide has already been settled against. */
+  const settledUri = useRef<string | null>(null);
+  /**
+   * Whether the slide on screen has already been turned into a point.
+   *
+   * Release and terminate can both fire for one gesture, and the slide is not
+   * cleared until the next image arrives -- so without this the second call
+   * applies the same offset again, to the centre the first one just moved to,
+   * and the pin lands twice as far as the host dragged it.
+   */
+  const settled = useRef(false);
+
+  const live = useRef({ centre, zoom });
+  live.current = { centre, zoom };
 
   const report = (point: { latitude: number; longitude: number }) => {
     emitted.current = point;
     onChange(point);
   };
 
-  // A pick from the search box replaces the point outright, so the image
-  // recentres and the pin returns to the middle.
+  // A pick from the search box replaces the point outright. Its own echo is
+  // ignored, or the map would jump back to centre after every slide.
   useEffect(() => {
     const echo =
       emitted.current !== null &&
@@ -94,115 +131,161 @@ export function MapPinPicker({
     if (echo) return;
 
     setCentre({ latitude, longitude });
-    setOffset({ dx: 0, dy: 0 });
-  }, [latitude, longitude]);
+    slid.current = { x: 0, y: 0 };
+    pan.setValue({ x: 0, y: 0 });
+  }, [latitude, longitude, pan]);
+
+  /**
+   * Snap the slide back to zero once the image for the new centre has arrived.
+   *
+   * Done on arrival rather than on release because the new image is centred
+   * where the old one was dragged to: swapping it in and zeroing the offset in
+   * the same moment leaves the view exactly where the finger left it. Zeroing
+   * earlier would show the old image jump back before the new one replaced it.
+   */
+  useEffect(() => {
+    if (!uri || settledUri.current === uri) return;
+
+    settledUri.current = uri;
+    settled.current = false;
+    slid.current = { x: 0, y: 0 };
+    pan.setValue({ x: 0, y: 0 });
+  }, [uri, pan]);
+
+  /**
+   * Turns where the map was left into the point under the pin.
+   *
+   * Runs on release and on terminate: a gesture that is taken away mid-drag
+   * still moved the map, and the host still means what they see.
+   */
+  const settle = () => {
+    const { centre: from, zoom: atZoom } = live.current;
+    const { x, y } = slid.current;
+
+    if (settled.current || (x === 0 && y === 0)) return;
+    settled.current = true;
+
+    // The map moved right, so the point under the pin moved left: the centre
+    // shifts against the drag, not with it.
+    const point = offsetByPixels(from, { dx: -x, dy: -y }, atZoom);
+
+    report(point);
+    setCentre(point);
+  };
 
   const responder = useMemo(
     () =>
       PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: () => true,
+        // A touch alone is not a drag. Claiming the gesture on touch-down
+        // swallows taps meant for the zoom and map-type buttons sitting over
+        // the frame -- and each swallowed tap ended as a release that applied
+        // the last slide a second time.
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: (_event, gesture) =>
+          Math.abs(gesture.dx) > 2 || Math.abs(gesture.dy) > 2,
 
-        // Where the pin was when this gesture began.
-        //
-        // gesture.dx is measured from the start of the gesture, not since the
-        // last event, so it has to be added to a fixed base. Adding it to the
-        // current offset instead compounds it on every move -- the pin then
-        // runs away from the finger and a short drag reads as a long one.
+        // gesture.dx is measured from the start of the gesture, so it is added
+        // to where the map was when the finger went down, never to where it is
+        // now -- that would compound on every event and the map would race
+        // away from the finger.
         onPanResponderGrant: () => {
-          grabbedAt.current = live.current.offset;
+          grabbedAt.current = { ...slid.current };
+          settled.current = false;
         },
 
         onPanResponderMove: (_event, gesture) => {
-          const base = grabbedAt.current;
-          setOffset({
-            dx: clamp(base.dx + gesture.dx, MAP_WIDTH / 2),
-            dy: clamp(base.dy + gesture.dy, MAP_HEIGHT / 2),
-          });
+          const x = clamp(grabbedAt.current.x + gesture.dx, marginX);
+          const y = clamp(grabbedAt.current.y + gesture.dy, marginY);
+
+          slid.current = { x, y };
+          pan.setValue({ x, y });
         },
 
-        onPanResponderRelease: (_event, gesture) => {
-          const { centre: from, zoom: atZoom } = live.current;
-          const base = grabbedAt.current;
-          const next = {
-            dx: clamp(base.dx + gesture.dx, MAP_WIDTH / 2),
-            dy: clamp(base.dy + gesture.dy, MAP_HEIGHT / 2),
-          };
+        // Nothing else may take the gesture mid-drag. Without this the
+        // scroll view above can claim it, and the drag ends in a terminate
+        // that never settles the new centre -- the map slides and then
+        // silently forgets where it was put.
+        onPanResponderTerminationRequest: () => false,
 
-          setOffset(next);
-
-          const point = offsetByPixels(from, next, atZoom);
-          report(point);
-
-          // Far enough out that the next drag would hit the edge: put the pin
-          // back in the middle and fetch the square around it.
-          const drifted =
-            Math.abs(next.dx) > MAP_WIDTH * RECENTRE_AT ||
-            Math.abs(next.dy) > MAP_HEIGHT * RECENTRE_AT;
-
-          if (drifted) {
-            setCentre(point);
-            setOffset({ dx: 0, dy: 0 });
-          }
-        },
+        onPanResponderRelease: settle,
+        onPanResponderTerminate: settle,
       }),
-    [onChange]
+    [onChange, pan, marginX, marginY]
   );
 
   const changeZoom = (by: number) => {
     const next = Math.min(Math.max(zoom + by, MIN_ZOOM), MAX_ZOOM);
     if (next === zoom) return;
-
-    // Zooming about the pin, not the old centre, so the thing being aimed at
-    // stays under the finger.
-    const point = offsetByPixels(centre, offset, zoom);
-    setCentre(point);
-    setOffset({ dx: 0, dy: 0 });
     setZoom(next);
-    report(point);
   };
 
-  const across = Math.round(MAP_WIDTH * metresPerPixel(centre.latitude, zoom));
+  const across = Math.round(
+    (frame.width || IMAGE_WIDTH) * metresPerPixel(centre.latitude, zoom)
+  );
 
   return (
-    <View style={s.wrap}>
-      <View style={s.frame} {...responder.panHandlers}>
-        {uri ? (
-          <Image source={{ uri }} style={s.image} resizeMode="cover" />
-        ) : (
-          <View style={[s.image, s.placeholder]}>
-            {failed ? (
-              <Text style={s.placeholderText}>
-                Map preview unavailable — the pin below still works.
-              </Text>
-            ) : (
-              <ActivityIndicator color={colors.inkMuted} />
-            )}
-          </View>
-        )}
-
-        {/* The pin, and a dot at its point so it is obvious which pixel is
-            being chosen rather than roughly where the graphic sits. */}
-        <View
+    <View style={[s.wrap, footer === false && s.wrapBare]}>
+      <View
+        style={[s.frame, height === undefined ? s.frameFill : { height }]}
+        onLayout={(event) => {
+          const { width: w, height: h } = event.nativeEvent.layout;
+          // Only when it actually changes, or this re-renders on every frame
+          // of a drag.
+          setFrame((current) =>
+            Math.abs(current.width - w) < 1 && Math.abs(current.height - h) < 1
+              ? current
+              : { width: w, height: h }
+          );
+        }}
+        {...responder.panHandlers}
+      >
+        <Animated.View
           style={[
-            s.pin,
-            {
-              transform: [
-                { translateX: offset.dx },
-                { translateY: offset.dy - 14 },
-              ],
-            },
+            s.sheet,
+            { left: -marginX, top: -marginY },
+            { transform: [{ translateX: pan.x }, { translateY: pan.y }] },
           ]}
         >
+          {uri ? (
+            <Image source={{ uri }} style={s.image} resizeMode="cover" />
+          ) : (
+            <View style={[s.image, s.placeholder]}>
+              {failed ? (
+                <Text style={s.placeholderText}>
+                  Map preview unavailable — the pin still works.
+                </Text>
+              ) : (
+                <ActivityIndicator color={colors.inkMuted} />
+              )}
+            </View>
+          )}
+        </Animated.View>
+
+        {/* Fixed in the middle. What the pin covers is what gets saved, so it
+            never moves -- the map does. */}
+        <View style={s.pin}>
           <View style={s.pinHead} />
           <View style={s.pinStem} />
         </View>
-        <View
-          style={[
-            s.target,
-            { transform: [{ translateX: offset.dx }, { translateY: offset.dy }] },
-          ]}
-        />
+        <View style={s.target} />
+
+        <View style={s.types}>
+          {MAP_TYPES.map((option) => (
+            <Pressable
+              key={option.value}
+              onPress={() => setMapType(option.value)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: mapType === option.value }}
+              style={[s.typeButton, mapType === option.value && s.typeOn]}
+            >
+              <Text
+                style={[s.typeLabel, mapType === option.value && s.typeLabelOn]}
+              >
+                {option.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
 
         <View style={s.zoomer}>
           <Pressable
@@ -226,21 +309,24 @@ export function MapPinPicker({
         </View>
       </View>
 
-      <View style={s.footer}>
-        <Text style={s.hint}>
-          Drag the pin onto the gate or entrance drivers should head for.
-        </Text>
-        <Text style={s.scale}>
-          About {across}m across · {latitude.toFixed(5)}, {longitude.toFixed(5)}
-        </Text>
-      </View>
+      {footer === false ? null : (
+        <View style={s.footer}>
+          <Text style={s.hint}>
+            Slide the map so the pin sits on the gate or entrance drivers should
+            head for.
+          </Text>
+          <Text style={s.scale}>
+            About {across}m across · {latitude.toFixed(5)}, {longitude.toFixed(5)}
+          </Text>
+        </View>
+      )}
     </View>
   );
 }
 
-/** Keeps the pin inside the picture it is being dragged over. */
+/** Keeps the slide within the margin the oversized image gives us. */
 function clamp(value: number, limit: number): number {
-  return Math.max(Math.min(value, limit - 16), -(limit - 16));
+  return Math.max(Math.min(value, limit), -limit);
 }
 
 const s = StyleSheet.create({
@@ -251,23 +337,38 @@ const s = StyleSheet.create({
     overflow: "hidden",
     backgroundColor: colors.surface,
   },
+  wrapBare: { borderWidth: 0, borderRadius: 0, flex: 1 },
+  frameFill: { flex: 1 },
   frame: {
-    height: MAP_HEIGHT,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: colors.canvas,
+    overflow: "hidden",
   },
-  image: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
-  placeholder: { alignItems: "center", justifyContent: "center", padding: space.lg },
+  // Centred on the frame and larger than it, so there is map to slide onto.
+  sheet: {
+    position: "absolute",
+    width: IMAGE_WIDTH,
+    height: IMAGE_HEIGHT,
+  },
+  image: { width: "100%", height: "100%" },
+  placeholder: {
+    alignItems: "center",
+    justifyContent: "center",
+    padding: space.lg,
+    backgroundColor: colors.canvas,
+  },
   placeholderText: {
     ...type.caption,
     color: colors.inkMuted,
     textAlign: "center",
   },
-  // pointerEvents lives in style, not as a prop: the prop is deprecated and
-  // warns on every render. The pin must not take the touch -- the frame\'s
-  // responder is what tracks the drag.
-  pin: { position: "absolute", alignItems: "center", pointerEvents: "none" },
+  pin: {
+    position: "absolute",
+    alignItems: "center",
+    pointerEvents: "none",
+    transform: [{ translateY: -14 }],
+  },
   pinHead: {
     width: 22,
     height: 22,
@@ -292,6 +393,20 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.onInk,
   },
+  types: { position: "absolute", left: 10, bottom: 10, flexDirection: "row", gap: 6 },
+  typeButton: {
+    paddingHorizontal: 12,
+    height: 30,
+    borderRadius: 8,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  typeOn: { backgroundColor: colors.ink, borderColor: colors.ink },
+  typeLabel: { fontSize: 12, fontWeight: "600", color: colors.ink },
+  typeLabelOn: { color: colors.onInk },
   zoomer: { position: "absolute", right: 10, bottom: 10, gap: 6 },
   zoomButton: {
     width: 34,

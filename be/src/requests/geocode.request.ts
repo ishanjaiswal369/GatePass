@@ -40,6 +40,7 @@ const staticMapQuery = z.object({
   width: z.coerce.number().int().min(100).max(640).default(400),
   height: z.coerce.number().int().min(100).max(640).default(260),
   scale: z.coerce.number().int().refine((v) => v === 1 || v === 2).default(2),
+  mapType: z.enum(["roadmap", "satellite", "hybrid"]).default("roadmap"),
 });
 
 export const geocodeRequests = {

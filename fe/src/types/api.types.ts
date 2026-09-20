@@ -193,6 +193,10 @@ export interface GeocodeResult {
  * separate lookup, so a suggestion without them needs placeDetails before it
  * can become a pin.
  */
+/** What the map image shows. Satellite here means hybrid: imagery plus the
+ * road labels, so a host can still tell which road their gate faces. */
+export type MapType = "roadmap" | "satellite" | "hybrid";
+
 export interface PlaceSuggestion {
   providerPlaceId?: string;
   description: string;

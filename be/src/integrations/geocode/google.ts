@@ -138,9 +138,10 @@ export class GoogleGeocodeProvider implements GeocodeProvider {
       zoom: String(options.zoom),
       size: `${options.width}x${options.height}`,
       scale: String(options.scale),
-      // Satellite would show the roof rather than the road, which is the wrong
-      // thing to aim a pin at; the entrance is the point of this step.
-      maptype: "roadmap",
+      // Roads by default: an entrance is easier to aim at against a street
+      // than against a roof. Hosts who recognise their own place from above
+      // can switch, which is what the caller passes this for.
+      maptype: options.mapType ?? "roadmap",
       key: this.apiKey,
     });
 

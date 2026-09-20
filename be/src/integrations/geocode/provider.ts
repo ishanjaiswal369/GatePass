@@ -65,4 +65,6 @@ export interface StaticMapOptions {
   height: number;
   /** 2 on a retina screen; the coordinate maths stays in logical pixels. */
   scale: 1 | 2;
+  /** Roads, imagery, or imagery with road labels over it. */
+  mapType?: "roadmap" | "satellite" | "hybrid";
 }

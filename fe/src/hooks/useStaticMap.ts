@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { API_URL } from "@/api";
+import type { MapType } from "@/types/api.types";
 
 /**
  * A map image for a point, fetched with the session token.
@@ -13,12 +14,12 @@ import { API_URL } from "@/api";
 export function useStaticMap(
   token: string | null,
   centre: { latitude: number; longitude: number } | null,
-  options: { zoom: number; width: number; height: number }
+  options: { zoom: number; width: number; height: number; mapType?: MapType }
 ) {
   const [uri, setUri] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
 
-  const { zoom, width, height } = options;
+  const { zoom, width, height, mapType } = options;
   const latitude = centre?.latitude;
   const longitude = centre?.longitude;
 
@@ -37,6 +38,7 @@ export function useStaticMap(
       width: String(width),
       height: String(height),
       scale: "2",
+      ...(mapType ? { mapType } : {}),
     });
 
     (async () => {
@@ -70,7 +72,7 @@ export function useStaticMap(
     return () => {
       cancelled = true;
     };
-  }, [token, latitude, longitude, zoom, width, height]);
+  }, [token, latitude, longitude, zoom, width, height, mapType]);
 
   return { uri, failed };
 }

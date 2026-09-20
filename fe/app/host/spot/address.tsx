@@ -1,12 +1,12 @@
-import { Redirect, router } from "expo-router";
-import { useEffect, useState } from "react";
+import { Redirect, router, useFocusEffect } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { hostApi, spotListingApi, spotsApi } from "@/api";
 import type { PlaceSuggestion } from "@/types/api.types";
 import {
+  Button,
   Card,
   Field,
-  MapPinPicker,
   PinIcon,
   RestoringScreen,
   WizardShell,
@@ -15,6 +15,7 @@ import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useDriverLocation } from "@/hooks/useDriverLocation";
 import { usePlaceSearch } from "@/hooks/usePlaceSearch";
 import { useSpotDraft } from "@/hooks/useSpotDraft";
+import { takePin } from "@/lib/pinHandoff";
 import { useSession } from "@/providers/SessionProvider";
 import { TOTAL_STEPS, nextStepPath, stepNumber } from "@/constants/wizard";
 import { colors, radius, space, type } from "@/theme";
@@ -117,6 +118,17 @@ export default function AddressScreen() {
     }
   );
 
+  // The map screen leaves its result here rather than navigating back with
+  // params, which would remount this form and lose what has been typed.
+  useFocusEffect(
+    useCallback(() => {
+      const handed = takePin();
+      if (!handed) return;
+      setLatitude(handed.latitude);
+      setLongitude(handed.longitude);
+    }, [])
+  );
+
   const { run: save, busy, error } = useAsyncAction(async () => {
     if (!token || latitude === null || longitude === null) return;
 
@@ -213,37 +225,50 @@ export default function AddressScreen() {
         </View>
       ) : null}
 
-      {hasPin ? (
-        <MapPinPicker
-          latitude={latitude!}
-          longitude={longitude!}
-          token={token}
-          onChange={(next) => {
-            setLatitude(next.latitude);
-            setLongitude(next.longitude);
-          }}
-        />
-      ) : (
-        <View style={s.pinCard}>
-          <Text style={s.pinTitle}>Exact spot</Text>
-          <Text style={s.pinHint}>
-            Pick your area above, or use your current location, and a map will
-            open here to place the pin.
-          </Text>
+      <View style={s.pinCard}>
+        <Text style={s.pinTitle}>Exact spot</Text>
 
-          <Pressable
-            onPress={useMyLocation}
-            disabled={locating}
-            accessibilityRole="button"
-            style={({ pressed }) => [s.locate, pressed && s.locatePressed]}
-          >
-            <PinIcon color={colors.ink} size={15} />
-            <Text style={s.locateLabel}>
-              {locating ? "Finding you…" : "Use my current location"}
+        {hasPin ? (
+          <>
+            <Text style={s.pinValue}>
+              {latitude!.toFixed(5)}, {longitude!.toFixed(5)}
             </Text>
-          </Pressable>
-        </View>
-      )}
+            <Text style={s.pinHint}>
+              The point drivers are sent to. Open the map to move it onto your
+              gate or entrance.
+            </Text>
+            <Button
+              label="Adjust on map"
+              variant="ghost"
+              onPress={() =>
+                router.push({
+                  pathname: "/host/spot/pin",
+                  params: { lat: String(latitude), lng: String(longitude) },
+                })
+              }
+            />
+          </>
+        ) : (
+          <>
+            <Text style={s.pinHint}>
+              Pick your area above, or use your current location, and then place
+              the pin on a map.
+            </Text>
+
+            <Pressable
+              onPress={useMyLocation}
+              disabled={locating}
+              accessibilityRole="button"
+              style={({ pressed }) => [s.locate, pressed && s.locatePressed]}
+            >
+              <PinIcon color={colors.ink} size={15} />
+              <Text style={s.locateLabel}>
+                {locating ? "Finding you…" : "Use my current location"}
+              </Text>
+            </Pressable>
+          </>
+        )}
+      </View>
 
       {/* Grouped rather than loose, so this screen reads like the rest of the
           app: every other one puts related fields inside a bordered card with

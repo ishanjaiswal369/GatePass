@@ -100,7 +100,8 @@ export const geocodeController = {
       throw serviceUnavailable("This provider has no map images");
     }
 
-    const { latitude, longitude, zoom, width, height, scale } = input.query;
+    const { latitude, longitude, zoom, width, height, scale, mapType } =
+      input.query;
     const url = provider.staticMapUrl({
       latitude,
       longitude,
@@ -108,6 +109,7 @@ export const geocodeController = {
       width,
       height,
       scale,
+      mapType,
     });
 
     try {
