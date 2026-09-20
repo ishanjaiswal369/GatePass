@@ -10,11 +10,11 @@ import {
 } from "@/components/ui";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useDriverLocation } from "@/hooks/useDriverLocation";
+import { usePlaceSearch } from "@/hooks/usePlaceSearch";
 import { useSpotDraft } from "@/hooks/useSpotDraft";
 import { useSession } from "@/providers/SessionProvider";
 import { TOTAL_STEPS, nextStepPath, stepNumber } from "@/constants/wizard";
 import { colors, radius, space, type } from "@/theme";
-import type { GeocodeResult } from "@/types/api.types";
 
 /**
  * Step 2. Where the space is.
@@ -33,6 +33,14 @@ export default function AddressScreen() {
   const { spot, loading, isRestoring, token } = useSpotDraft();
   const { requestLocation } = useDriverLocation();
   const { user, setUser } = useSession();
+  const {
+    query,
+    setQuery,
+    results,
+    searching,
+    unavailable: searchUnavailable,
+    settle,
+  } = usePlaceSearch(token);
 
   const [addressLine, setAddressLine] = useState("");
   const [city, setCity] = useState("");
@@ -41,9 +49,6 @@ export default function AddressScreen() {
   const [latitude, setLatitude] = useState<number | null>(null);
   const [longitude, setLongitude] = useState<number | null>(null);
   const [placeId, setPlaceId] = useState<string | undefined>();
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<GeocodeResult[]>([]);
-  const [searchUnavailable, setSearchUnavailable] = useState(false);
 
   useEffect(() => {
     if (!spot) return;
@@ -75,21 +80,6 @@ export default function AddressScreen() {
     if (!at) return;
     setLatitude(at.latitude);
     setLongitude(at.longitude);
-  });
-
-  const { run: search, busy: searching } = useAsyncAction(async () => {
-    if (!token || query.trim().length < 3) return;
-
-    try {
-      const { results: found } = await spotsApi.geocode(token, query.trim());
-      setResults(found);
-      setSearchUnavailable(false);
-    } catch {
-      // GEOCODE_PROVIDER=none answers 503. That is a deployment choice, not a
-      // failure the host caused, so the manual fields carry on working.
-      setSearchUnavailable(true);
-      setResults([]);
-    }
   });
 
   const { run: save, busy, error } = useAsyncAction(async () => {
@@ -156,29 +146,46 @@ export default function AddressScreen() {
         label="Search for the area"
         value={query}
         onChangeText={setQuery}
-        onSubmitEditing={search}
-        returnKeyType="search"
         placeholder="Kothrud, Pune"
+        autoCorrect={false}
         icon={<PinIcon color={colors.inkFaint} size={18} />}
-        hint={searchUnavailable ? "Search is off right now — enter the address below." : undefined}
+        hint={
+          searchUnavailable
+            ? "Search is off right now — enter the address below."
+            : searching
+              ? "Searching…"
+              : undefined
+        }
       />
 
-      {results.map((result) => (
-        <Pressable
-          key={`${result.providerPlaceId ?? result.description}`}
-          onPress={() => {
-            setLatitude(result.latitude);
-            setLongitude(result.longitude);
-            setPlaceId(result.providerPlaceId);
-            setQuery(result.description);
-            setResults([]);
-          }}
-          style={s.result}
-        >
-          <PinIcon color={colors.inkMuted} size={16} />
-          <Text style={s.resultText}>{result.description}</Text>
-        </Pressable>
-      ))}
+      {/* Suggestions sit directly under the box, as one bordered group, so a
+          list of three does not read as three unrelated cards. */}
+      {results.length > 0 ? (
+        <View style={s.results}>
+          {results.map((result, index) => (
+            <Pressable
+              key={`${result.providerPlaceId ?? result.description}`}
+              onPress={() => {
+                setLatitude(result.latitude);
+                setLongitude(result.longitude);
+                setPlaceId(result.providerPlaceId);
+                settle(result.description);
+              }}
+              accessibilityRole="button"
+              style={({ pressed }) => [
+                s.result,
+                index > 0 && s.resultDivided,
+                pressed && s.resultPressed,
+              ]}
+            >
+              <PinIcon color={colors.inkMuted} size={16} />
+              <Text style={s.resultText} numberOfLines={2}>
+                {result.description}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
 
       <Field label="Address" value={addressLine} onChangeText={setAddressLine} maxLength={200} />
       <Field label="City" value={city} onChangeText={setCity} maxLength={100} />
@@ -252,17 +259,24 @@ function NudgeButton({
 }
 
 const s = StyleSheet.create({
+  results: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surface,
+    overflow: "hidden",
+    marginTop: -space.sm,
+  },
   result: {
     flexDirection: "row",
     alignItems: "center",
     gap: space.md,
     paddingVertical: space.md,
     paddingHorizontal: space.lg,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.sm,
+    minHeight: 48,
   },
+  resultDivided: { borderTopWidth: 1, borderTopColor: colors.border },
+  resultPressed: { backgroundColor: colors.canvas },
   resultText: { flex: 1, fontSize: 14, color: colors.ink },
   pinCard: {
     backgroundColor: colors.surface,
