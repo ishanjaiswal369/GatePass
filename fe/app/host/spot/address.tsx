@@ -38,7 +38,7 @@ export default function AddressScreen() {
     setQuery,
     results,
     searching,
-    unavailable: searchUnavailable,
+    unavailableReason,
     settle,
   } = usePlaceSearch(token);
 
@@ -150,8 +150,8 @@ export default function AddressScreen() {
         autoCorrect={false}
         icon={<PinIcon color={colors.inkFaint} size={18} />}
         hint={
-          searchUnavailable
-            ? "Search is off right now — enter the address below."
+          unavailableReason
+            ? `${unavailableReason} Enter the address below instead.`
             : searching
               ? "Searching…"
               : undefined

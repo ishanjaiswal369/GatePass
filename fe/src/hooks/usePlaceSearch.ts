@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { spotsApi } from "@/api";
+import { ApiError, spotsApi } from "@/api";
 import type { GeocodeResult } from "@/types/api.types";
 
 /** Below this, a query matches half the country and the call is wasted. */
@@ -28,7 +28,14 @@ export function usePlaceSearch(token: string | null) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<GeocodeResult[]>([]);
   const [searching, setSearching] = useState(false);
-  const [unavailable, setUnavailable] = useState(false);
+  /**
+   * Why search is not working, if it is not.
+   *
+   * Not a boolean: "nobody configured a provider" and "the provider rejected
+   * us" look identical to a host but are opposite problems to whoever is
+   * running the server, and a single "search is off" hides which one it is.
+   */
+  const [unavailableReason, setUnavailableReason] = useState<string | null>(null);
 
   // What the box held when the in-flight request left.
   const inFlightFor = useRef("");
@@ -79,10 +86,19 @@ export function usePlaceSearch(token: string | null) {
         if (inFlightFor.current !== trimmed) return;
 
         setResults(found);
-        setUnavailable(false);
-      } catch {
+        setUnavailableReason(null);
+      } catch (err) {
         if (inFlightFor.current !== trimmed) return;
-        setUnavailable(true);
+
+        // Logged as well as shown: the message a host sees has to be short,
+        // and the one that explains a misconfiguration does not fit in a hint.
+        console.warn("place search failed", err);
+
+        setUnavailableReason(
+          err instanceof ApiError && err.status === 503
+            ? "Address search is not set up on the server yet."
+            : "Address search is not responding right now."
+        );
         setResults([]);
       } finally {
         if (inFlightFor.current === trimmed) setSearching(false);
@@ -94,5 +110,5 @@ export function usePlaceSearch(token: string | null) {
     };
   }, [query, token]);
 
-  return { query, setQuery, results, searching, unavailable, settle };
+  return { query, setQuery, results, searching, unavailableReason, settle };
 }
