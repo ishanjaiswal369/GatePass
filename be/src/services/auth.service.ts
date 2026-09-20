@@ -8,6 +8,7 @@ import { getEmailProvider } from "../integrations/email/index.js";
 import {
   GoogleIdentityError,
   GoogleNotConfiguredError,
+  GoogleUnreachableError,
   verifyGoogleIdToken,
 } from "../integrations/google/verify.js";
 import {
@@ -279,6 +280,12 @@ export async function signInWithGoogle(input: GoogleSignInInput) {
   } catch (error) {
     if (error instanceof GoogleNotConfiguredError) {
       throw serviceUnavailable("Google sign-in is not available");
+    }
+    if (error instanceof GoogleUnreachableError) {
+      // 503, not 401: the token may be fine and retrying may well work.
+      throw serviceUnavailable(
+        "Google sign-in is not responding. Try again, or use an email code."
+      );
     }
     if (error instanceof GoogleIdentityError) {
       throw unauthorized(error.message);
