@@ -184,7 +184,6 @@ export function MapPinPicker({
         {/* The pin, and a dot at its point so it is obvious which pixel is
             being chosen rather than roughly where the graphic sits. */}
         <View
-          pointerEvents="none"
           style={[
             s.pin,
             {
@@ -199,7 +198,6 @@ export function MapPinPicker({
           <View style={s.pinStem} />
         </View>
         <View
-          pointerEvents="none"
           style={[
             s.target,
             { transform: [{ translateX: offset.dx }, { translateY: offset.dy }] },
@@ -266,7 +264,10 @@ const s = StyleSheet.create({
     color: colors.inkMuted,
     textAlign: "center",
   },
-  pin: { position: "absolute", alignItems: "center" },
+  // pointerEvents lives in style, not as a prop: the prop is deprecated and
+  // warns on every render. The pin must not take the touch -- the frame\'s
+  // responder is what tracks the drag.
+  pin: { position: "absolute", alignItems: "center", pointerEvents: "none" },
   pinHead: {
     width: 22,
     height: 22,
@@ -283,6 +284,7 @@ const s = StyleSheet.create({
   },
   target: {
     position: "absolute",
+    pointerEvents: "none",
     width: 6,
     height: 6,
     borderRadius: 3,
