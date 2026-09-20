@@ -13,13 +13,24 @@ import type { SpotListing } from "@/types/api.types";
  * API might already disagree with.
  */
 export function useSpotDraft() {
-  const { token, isRestoring } = useSession();
+  const { token, user, isRestoring } = useSession();
+  // Known before any request: /host/spots is behind requireHost, so asking as
+  // a non-host is a 403 by design rather than a failure worth making.
+  const isHost = user?.hasHostProfile;
   const [spot, setSpot] = useState<SpotListing | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!token) return;
+
+    // A user who has not onboarded has no spot to load, and the address step
+    // is where they get one. Calling anyway would be a guaranteed 403.
+    if (isHost === false) {
+      setSpot(null);
+      setLoading(false);
+      return;
+    }
 
     setLoading(true);
     setError(null);
@@ -45,7 +56,7 @@ export function useSpotDraft() {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, isHost]);
 
   useEffect(() => {
     if (isRestoring) return;

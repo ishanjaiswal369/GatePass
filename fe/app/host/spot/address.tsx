@@ -11,6 +11,7 @@ import {
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useDriverLocation } from "@/hooks/useDriverLocation";
 import { useSpotDraft } from "@/hooks/useSpotDraft";
+import { useSession } from "@/providers/SessionProvider";
 import { TOTAL_STEPS, nextStepPath, stepNumber } from "@/constants/wizard";
 import { colors, radius, space, type } from "@/theme";
 import type { GeocodeResult } from "@/types/api.types";
@@ -31,6 +32,7 @@ const NUDGE = 0.0001;
 export default function AddressScreen() {
   const { spot, loading, isRestoring, token } = useSpotDraft();
   const { requestLocation } = useDriverLocation();
+  const { user, setUser } = useSession();
 
   const [addressLine, setAddressLine] = useState("");
   const [city, setCity] = useState("");
@@ -113,6 +115,11 @@ export default function AddressScreen() {
       // collected -- onboarding used to ask for it separately, which had a
       // host typing it twice into two rows that could then disagree.
       await hostApi.createProfile(token, address);
+
+      // The session's hasHostProfile decides whether later steps bother
+      // asking for the spot at all, so it has to move with the profile --
+      // otherwise every step after this one believes there is nothing to load.
+      if (user) setUser({ ...user, hasHostProfile: true });
     }
 
     router.push(nextStepPath("address"));
