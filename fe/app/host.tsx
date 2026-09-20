@@ -120,6 +120,11 @@ export default function HostScreen() {
     }
 
     if (user) setUser({ ...user, hasHostProfile: true });
+
+    // Straight into the wizard. Onboarding only opens the draft, so dropping
+    // the host on the dashboard here leaves them looking at an empty spot with
+    // no sign that eight more steps stand between them and a live listing.
+    router.push("/host/spot");
   });
 
   const { run: toggleWindow } = useAsyncAction(
@@ -215,8 +220,8 @@ export default function HostScreen() {
               <View style={s.heading}>
                 <Text style={s.title}>Rent out your spot</Text>
                 <Text style={s.sub}>
-                  Tell us where it is. You set the hours and the price after
-                  this.
+                  Start with where it is. Photos, hours, price and payout come
+                  next.
                 </Text>
               </View>
 
@@ -253,7 +258,8 @@ export default function HostScreen() {
               />
 
               <Text style={s.fine}>
-                Your spot goes live as soon as you add an availability window.
+                This saves a draft. You will finish the listing next, then we
+                check your ownership proof before it goes live.
               </Text>
             </>
           )}
