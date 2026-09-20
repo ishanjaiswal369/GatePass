@@ -179,6 +179,12 @@ export default function HostScreen() {
                 <DataRow label="Status" value={profile.verificationStatus} />
               </Card>
 
+              <Button
+                label="Manage your listing"
+                variant="ghost"
+                onPress={() => router.push("/host/spot")}
+              />
+
               <Card heading={`Availability (${availability.length})`}>
                 {availability.length === 0 ? (
                   <Text style={s.empty}>
@@ -192,9 +198,6 @@ export default function HostScreen() {
                           {DAY_NAMES[window.dayOfWeek]}{" "}
                           {formatMinute(window.startMinute)}–
                           {formatMinute(window.endMinute)}
-                        </Text>
-                        <Text style={s.windowPrice}>
-                          ₹{Math.round(Number(window.pricePerHour))}/hour
                         </Text>
                       </View>
                       <Switch

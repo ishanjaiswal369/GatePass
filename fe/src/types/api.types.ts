@@ -177,7 +177,6 @@ export interface HostAvailabilityRow {
   dayOfWeek: number;
   startMinute: number;
   endMinute: number;
-  pricePerHour: string;
   isActive: boolean;
 }
 
@@ -203,4 +202,79 @@ export interface UserAddress {
   state: string;
   city: string;
   addressLine: string;
+}
+
+export type { VehicleType } from "@/constants/enums";
+
+/** Where a host's spot listing stands. */
+export type SpotListingStatus =
+  | "DRAFT"
+  | "PENDING_REVIEW"
+  | "REJECTED"
+  | "PUBLISHED"
+  | "ONGOING"
+  | "COMPLETED"
+  | "CANCELLED"
+  | "SUSPENDED";
+
+export type SpaceType = "DRIVEWAY" | "GARAGE" | "CAR_PARK";
+
+/** Mirrors the gateway. Only ACTIVATED can receive money. */
+export type PayoutKycStatus =
+  | "NOT_STARTED"
+  | "PENDING"
+  | "UNDER_REVIEW"
+  | "ACTIVATED"
+  | "REJECTED";
+
+export interface SpotPhoto {
+  id: string;
+  url: string;
+  position: number;
+}
+
+export interface SpotPricingRow {
+  id: string;
+  vehicleType: VehicleType;
+  pricePerHour: string;
+}
+
+export interface SpotListing {
+  id: string;
+  name: string;
+  venueName: string;
+  spaceType: SpaceType | null;
+  status: SpotListingStatus;
+  latitude: string | null;
+  longitude: string | null;
+  googlePlaceId: string | null;
+  accessInstructions: string | null;
+  ownershipDocUrl: string | null;
+  warrantyAcceptedAt: string | null;
+  submittedAt: string | null;
+  reviewedAt: string | null;
+  rejectionReason: string | null;
+  createdAt: string;
+  photos: SpotPhoto[];
+  pricing: SpotPricingRow[];
+  /** Only present on the single-spot read, not in the list. */
+  availability?: HostAvailabilityRow[];
+}
+
+/** What the review step needs: whether Submit will be accepted, and why not. */
+export interface SpotReadiness {
+  ready: boolean;
+  missing: string[];
+}
+
+export interface PresignedUpload {
+  uploadUrl: string;
+  fileUrl: string;
+  headers: Record<string, string>;
+  expiresInSeconds: number;
+}
+
+export interface PayoutAccount {
+  payoutAccountId: string | null;
+  payoutKycStatus: PayoutKycStatus;
 }
