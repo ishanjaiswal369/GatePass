@@ -3,48 +3,53 @@ import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from "react-nat
 import {
   Button,
   Card,
-  DataRow,
   ErrorNotice,
   PhoneFrame,
   RestoringScreen,
   ScreenHeader,
 } from "@/components/ui";
-import { useSpotDraft } from "@/hooks/useSpotDraft";
 import { FIRST_STEP_PATH } from "@/constants/wizard";
-import { colors, radius, space, type } from "@/theme";
+import { useSpotDraft } from "@/hooks/useSpotDraft";
+import { colors, space, type } from "@/theme";
 
 /**
- * The entry point to "Rent out your space".
+ * Where the listing stands once it has left the host's hands.
  *
- * Three different screens in one, by status: an invitation before anything
- * exists, a resume card mid-draft, and a state card once it is submitted.
- * Splitting them into separate routes would mean deciding which to send a
- * host to before knowing what they have.
+ * This screen deliberately holds no introduction and no checklist. The Host
+ * tab owns that, and having it here too meant a host met the same "Rent out
+ * your space" page twice on the way in, with no way to tell the two apart.
+ *
+ * So anything still editable redirects straight into the wizard, and what is
+ * left is the one thing the wizard cannot show: what happened after Submit.
  */
-export default function SpotHomeScreen() {
+export default function SpotStatusScreen() {
   const { spot, loading, error, isRestoring, token } = useSpotDraft();
 
-  if (isRestoring) return <RestoringScreen />;
+  if (isRestoring || loading) return <RestoringScreen />;
   if (!token) return <Redirect href="/" />;
+
+  // No spot yet, or one the host can still change: there is nothing to report,
+  // so go to the step that continues it.
+  if (!error && (!spot || spot.status === "DRAFT" || spot.status === "REJECTED")) {
+    return <Redirect href={FIRST_STEP_PATH} />;
+  }
 
   return (
     <PhoneFrame>
       <View style={s.screen}>
         <ScreenHeader
-          title="Rent out your space"
-          sub="Earn from a driveway, garage or parking bay you already have."
+          title="Your listing"
+          sub={spot?.name}
           onBack={() => router.back()}
         />
 
         <ScrollView contentContainerStyle={s.body}>
           {error ? <ErrorNotice message={error} /> : null}
 
-          {loading ? (
+          {!spot ? (
             <ActivityIndicator color={colors.ink} style={s.loader} />
-          ) : !spot || spot.status === "DRAFT" ? (
-            <StartOrResume hasDraft={Boolean(spot)} />
           ) : (
-            <SubmittedState
+            <StatusCard
               status={spot.status}
               rejectionReason={spot.rejectionReason}
             />
@@ -55,81 +60,43 @@ export default function SpotHomeScreen() {
   );
 }
 
-function StartOrResume({ hasDraft }: { hasDraft: boolean }) {
-  return (
-    <>
-      <Card heading="What you will need">
-        <View style={s.list}>
-          <Bullet text="Photos of the space" />
-          <Bullet text="The address, and a pin you can drag to the exact spot" />
-          <Bullet text="Proof you may rent it out — an electricity bill or property tax receipt" />
-          <Bullet text="Your PAN and bank details, so you can be paid" />
-        </View>
-      </Card>
-
-      <Text style={s.note}>
-        A listing goes live after we check your ownership proof and your payout
-        account is active. Both usually finish within a couple of days.
-      </Text>
-
-      <Button
-        label={hasDraft ? "Continue where you left off" : "Get started"}
-        size="lg"
-        onPress={() => router.push(FIRST_STEP_PATH)}
-      />
-    </>
-  );
-}
-
-function SubmittedState({
+function StatusCard({
   status,
   rejectionReason,
 }: {
   status: string;
   rejectionReason: string | null;
 }) {
-  const copy = {
-    PENDING_REVIEW: {
-      title: "With us for review",
-      body: "We are checking your ownership proof. You will get an email when it is done.",
-    },
-    PUBLISHED: {
-      title: "Your spot is live",
-      body: "Drivers nearby can find and book it now.",
-    },
-    REJECTED: {
-      title: "We could not approve this",
-      body: rejectionReason ?? "Something was missing. Edit your spot and submit again.",
-    },
-    SUSPENDED: {
-      title: "Your spot is paused",
-      body: rejectionReason ?? "Contact support to put it back online.",
-    },
-  }[status] ?? { title: status, body: "" };
+  const copy =
+    {
+      PENDING_REVIEW: {
+        title: "With us for review",
+        body: "We are checking your ownership proof. Your spot goes live once that clears and your payout account is active — you will get an email either way.",
+      },
+      PUBLISHED: {
+        title: "Your spot is live",
+        body: "Drivers nearby can find and book it now.",
+      },
+      SUSPENDED: {
+        title: "Your spot is paused",
+        body: rejectionReason ?? "Contact support to put it back online.",
+      },
+    }[status] ?? { title: status, body: "" };
 
   return (
     <>
       <Card heading={copy.title}>
-        <Text style={s.stateBody}>{copy.body}</Text>
+        <Text style={s.cardBody}>{copy.body}</Text>
       </Card>
 
-      {status === "REJECTED" ? (
+      {status === "PUBLISHED" ? (
         <Button
-          label="Edit and resubmit"
-          size="lg"
-          onPress={() => router.push(FIRST_STEP_PATH)}
+          label="Back to your spot"
+          variant="ghost"
+          onPress={() => router.replace("/host")}
         />
       ) : null}
     </>
-  );
-}
-
-function Bullet({ text }: { text: string }) {
-  return (
-    <View style={s.bullet}>
-      <View style={s.dot} />
-      <Text style={s.bulletText}>{text}</Text>
-    </View>
   );
 }
 
@@ -137,16 +104,5 @@ const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.canvas },
   body: { padding: 20, gap: space.lg },
   loader: { marginTop: space.xxl },
-  stateBody: { fontSize: 14, lineHeight: 20, color: colors.inkMuted },
-  list: { gap: space.md },
-  bullet: { flexDirection: "row", gap: space.md, alignItems: "flex-start" },
-  dot: {
-    width: 5,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: colors.accent,
-    marginTop: 7,
-  },
-  bulletText: { flex: 1, fontSize: 14, lineHeight: 20, color: colors.inkMuted },
-  note: { ...type.caption, color: colors.inkFaint, lineHeight: 18 },
+  cardBody: { fontSize: 14, lineHeight: 21, color: colors.inkMuted },
 });
