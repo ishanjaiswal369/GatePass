@@ -17,6 +17,16 @@ model HostProfile {
   // yet. Kept as a column so turning verification on later is a data change,
   // not a schema change.
   verificationStatus String   @default("ACTIVE")
+
+  /// The host's account with whoever pays them -- a Cashfree vendor id today.
+  /// Named for the job rather than the vendor so a gateway change is an
+  /// integration-layer mapping, not a migration.
+  payoutAccountId    String?  @unique
+  /// Mirrored from the gateway. A host with ACTIVATED here can receive money;
+  /// anything else means a payout would bounce, which is why a listing cannot
+  /// go live on our own verificationStatus alone.
+  payoutKycStatus    String   @default("NOT_STARTED")
+
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
@@ -29,7 +39,16 @@ model HostProfile {
 /// When a host's spot can be booked, as weekly recurring windows. This cannot
 /// live in ParkingCapacity: that models a fixed count of slots for one fixed
 /// date, while a host's spot is the same single space offered again every
-/// week. Pricing here is hourly and the amount is pricePerHour x duration.
+/// week.
+///
+/// Price does NOT live here -- see SpotPricing. Two windows on one spot
+/// quoting different rates was a bug waiting for the first driver who booked
+/// across the boundary between them.
+///
+/// Overlapping windows on the same spot and weekday are refused by the
+/// database, not by application code: see the EXCLUDE constraint in migration
+/// 0022. Two concurrent "add window" requests cannot both pass a read-then-
+/// write check, which is exactly the race a host creates by double-tapping.
 model HostAvailability {
   id            String   @id @default(uuid())
   hostProfileId String
@@ -39,7 +58,6 @@ model HostAvailability {
   // because these are times of day, not instants.
   startMinute   Int
   endMinute     Int
-  pricePerHour  Decimal
   // Host's kill switch. Off means the window stays configured but the spot
   // stops appearing in search, which is what a host wants when their own car
   // is parked there.

@@ -1,4 +1,5 @@
 import { addressController } from "./controllers/address.controller.js";
+import { adminSpotController } from "./controllers/admin-spot.controller.js";
 import { authController } from "./controllers/auth.controller.js";
 import { bookingController } from "./controllers/booking.controller.js";
 import { capacityController } from "./controllers/capacity.controller.js";
@@ -6,10 +7,12 @@ import { eventController } from "./controllers/event.controller.js";
 import { geocodeController } from "./controllers/geocode.controller.js";
 import { healthController } from "./controllers/health.controller.js";
 import { hostController } from "./controllers/host.controller.js";
+import { hostPayoutController } from "./controllers/host-payout.controller.js";
 import { listingController } from "./controllers/listing.controller.js";
 import { paymentController } from "./controllers/payment.controller.js";
 import { settlementController } from "./controllers/settlement.controller.js";
 import { spotController } from "./controllers/spot.controller.js";
+import { spotListingController } from "./controllers/spot-listing.controller.js";
 import { vehicleController } from "./controllers/vehicle.controller.js";
 import type { App } from "./lib/app.js";
 import { request } from "./lib/request.js";
@@ -18,16 +21,19 @@ import { requireAdmin } from "./middleware/require-admin.js";
 import { requireHost } from "./middleware/require-host.js";
 import { requireOrganizerStaff } from "./middleware/require-organizer-staff.js";
 import { addressRequests } from "./requests/address.request.js";
+import { adminSpotRequests } from "./requests/admin-spot.request.js";
 import { authRequests } from "./requests/auth.request.js";
 import { bookingRequests } from "./requests/booking.request.js";
 import { capacityRequests } from "./requests/capacity.request.js";
 import { eventRequests } from "./requests/event.request.js";
 import { geocodeRequests } from "./requests/geocode.request.js";
 import { hostRequests } from "./requests/host.request.js";
+import { hostPayoutRequests } from "./requests/host-payout.request.js";
 import { listingRequests } from "./requests/listing.request.js";
 import { paymentRequests } from "./requests/payment.request.js";
 import { settlementRequests } from "./requests/settlement.request.js";
 import { spotRequests } from "./requests/spot.request.js";
+import { spotListingRequests } from "./requests/spot-listing.request.js";
 import { vehicleRequests } from "./requests/vehicle.request.js";
 
 /**
@@ -209,6 +215,84 @@ export function registerApi(app: App): void {
   );
   app.get("/host/settlements", host, settlementController.listForHost);
 
+  // Host spot wizard. Every step writes to the same DRAFT listing, so a host
+  // who drops out halfway keeps what they already entered.
+  app.get("/host/spots", host, spotListingController.list);
+  app.post(
+    "/host/spots",
+    host,
+    request(spotListingRequests.create, spotListingController.create)
+  );
+  app.get(
+    "/host/spots/:id",
+    host,
+    request(spotListingRequests.getById, spotListingController.getById)
+  );
+  app.patch(
+    "/host/spots/:id/address",
+    host,
+    request(spotListingRequests.saveAddress, spotListingController.saveAddress)
+  );
+  app.post(
+    "/host/spots/:id/photo-upload-url",
+    host,
+    request(spotListingRequests.presignPhoto, spotListingController.presignPhoto)
+  );
+  app.patch(
+    "/host/spots/:id/photos",
+    host,
+    request(spotListingRequests.savePhotos, spotListingController.savePhotos)
+  );
+  app.post(
+    "/host/spots/:id/document-upload-url",
+    host,
+    request(spotListingRequests.presignDoc, spotListingController.presignOwnershipDoc)
+  );
+  app.patch(
+    "/host/spots/:id/ownership-document",
+    host,
+    request(
+      spotListingRequests.saveOwnershipDoc,
+      spotListingController.saveOwnershipDoc
+    )
+  );
+  app.patch(
+    "/host/spots/:id/terms",
+    host,
+    request(spotListingRequests.saveTerms, spotListingController.saveTerms)
+  );
+  app.put(
+    "/host/spots/:id/availability",
+    host,
+    request(
+      spotListingRequests.saveAvailability,
+      spotListingController.saveAvailability
+    )
+  );
+  app.patch(
+    "/host/spots/:id/pricing",
+    host,
+    request(spotListingRequests.savePricing, spotListingController.savePricing)
+  );
+  app.get(
+    "/host/spots/:id/readiness",
+    host,
+    request(spotListingRequests.submit, spotListingController.readiness)
+  );
+  app.post(
+    "/host/spots/:id/submit",
+    host,
+    request(spotListingRequests.submit, spotListingController.submit)
+  );
+
+  // Host payout account -- the second gate on going live.
+  app.get("/host/payout-account", host, hostPayoutController.getStatus);
+  app.post(
+    "/host/payout-account",
+    host,
+    request(hostPayoutRequests.submit, hostPayoutController.submit)
+  );
+
   // Organizer
   app.get("/listings", organizer, listingController.list);
   app.post(
@@ -227,6 +311,40 @@ export function registerApi(app: App): void {
     request(capacityRequests.create, capacityController.create)
   );
   app.get("/settlements", organizer, settlementController.list);
+
+  // Admin: host spot review. Approving clears the ownership document only --
+  // publication also waits on the host's payout account, so approve() reports
+  // which gate is still outstanding rather than pretending the spot is live.
+  app.get(
+    "/admin/spots",
+    admin,
+    request(adminSpotRequests.list, adminSpotController.list)
+  );
+  app.get(
+    "/admin/spots/:id",
+    admin,
+    request(adminSpotRequests.getById, adminSpotController.getById)
+  );
+  app.post(
+    "/admin/spots/:id/approve",
+    admin,
+    request(adminSpotRequests.approve, adminSpotController.approve)
+  );
+  app.post(
+    "/admin/spots/:id/reject",
+    admin,
+    request(adminSpotRequests.reject, adminSpotController.reject)
+  );
+  app.post(
+    "/admin/spots/:id/suspend",
+    admin,
+    request(adminSpotRequests.suspend, adminSpotController.suspend)
+  );
+  app.post(
+    "/admin/host-payout-status",
+    admin,
+    request(adminSpotRequests.setPayoutStatus, adminSpotController.setPayoutStatus)
+  );
 
   // Admin. Settlements are written by the payout engine, which does not exist
   // yet; until it does, only an admin can create one by hand.

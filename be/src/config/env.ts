@@ -74,6 +74,22 @@ const EnvSchema = z
     OLA_MAPS_API_KEY: emptyToUndefined,
     GOOGLE_MAPS_API_KEY: emptyToUndefined,
 
+    // Where spot photos and ownership documents live. "local" hands out fake
+    // presigned URLs so the upload flow is drivable before a bucket exists;
+    // it stores nothing. See integrations/storage.
+    STORAGE_PROVIDER: z.enum(["local", "s3"]).default("local"),
+    STORAGE_PUBLIC_BASE_URL: z
+      .string()
+      .url()
+      .default("http://localhost:3000/uploads"),
+    // Refused above this at presign time, so a 40MB photo is rejected before
+    // the client wastes a minute uploading it.
+    MAX_UPLOAD_BYTES: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(8 * 1024 * 1024),
+
     INTEGRATION_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
     INTEGRATION_MAX_RETRIES: z.coerce.number().int().min(0).default(2),
 
@@ -93,6 +109,18 @@ const EnvSchema = z
         code: z.ZodIssueCode.custom,
         path: ["OLA_MAPS_API_KEY"],
         message: "required when GEOCODE_PROVIDER=ola",
+      });
+    }
+
+    if (value.STORAGE_PROVIDER === "s3") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["STORAGE_PROVIDER"],
+        // Better to refuse at boot than to hand out local URLs while the
+        // operator believes photos are going to a bucket.
+        message:
+          "s3 is not implemented yet -- use local, or add the provider in " +
+          "src/integrations/storage",
       });
     }
 

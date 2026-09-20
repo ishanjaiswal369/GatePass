@@ -11,6 +11,37 @@ model Listing {
   longitude     Decimal?
   eventDate     DateTime?
   status        String        @default("DRAFT")
+
+  // ---- Host spot fields. Null on event listings. ----
+
+  /// DRIVEWAY / GARAGE / CAR_PARK. No ON_STREET: a host cannot warrant
+  /// exclusive use of public kerbside.
+  spaceType     String?
+  /// Kept from the address autocomplete so a re-geocode can be matched back
+  /// to the same place instead of drifting to a new pin.
+  googlePlaceId String?
+  /// How the driver actually gets in: gate code, guard's name, which bell.
+  /// Free text on purpose -- a yes/no "is there a gate" tells a driver
+  /// standing outside at 9pm nothing useful.
+  accessInstructions String?
+  /// Electricity bill or property tax receipt proving the host controls the
+  /// space. Checked by a human before the listing is allowed to go live.
+  ownershipDocUrl String?
+  /// When the host ticked the RWA-permission / liability warranty box. A
+  /// timestamp rather than a boolean: consent is evidence, and evidence needs
+  /// to say when.
+  warrantyAcceptedAt DateTime?
+  submittedAt   DateTime?
+  /// When an admin accepted the ownership document. Separate from status on
+  /// purpose: doc approval and payout-account activation are two independent
+  /// gates, either can land first, and the listing publishes when both are in.
+  /// Folding this into status would lose whichever arrived first.
+  docApprovedAt DateTime?
+  reviewedAt    DateTime?
+  reviewedBy    String?
+  /// Shown to the host so a rejection is actionable rather than a dead end.
+  rejectionReason String?
+
   createdBy     String?
   updatedBy     String?
   createdAt     DateTime      @default(now())
@@ -20,7 +51,10 @@ model Listing {
   hostProfile   HostProfile?  @relation("ListingHost", fields: [hostProfileId], references: [id])
   creator       User?         @relation("ListingCreatedBy", fields: [createdBy], references: [id])
   updater       User?         @relation("ListingUpdatedBy", fields: [updatedBy], references: [id])
+  reviewer      User?         @relation("ListingReviewedBy", fields: [reviewedBy], references: [id])
   capacities    ParkingCapacity[]
+  photos        SpotPhoto[]
+  pricing       SpotPricing[]
 }
 
 model ParkingCapacity {
@@ -40,4 +74,43 @@ model ParkingCapacity {
   bookings      Booking[]
 
   @@unique([listingId, vehicleType])
+}
+
+/// What a host charges, per vehicle type, for one spot.
+///
+/// Same shape as ParkingCapacity's (listing, vehicleType) -> price, and for
+/// the same reason: a bike and a car are not worth the same. Split out of
+/// HostAvailability deliberately -- price hanging off each weekly window meant
+/// the same spot could quote two different rates depending on which window a
+/// driver's booking happened to land in.
+model SpotPricing {
+  id            String   @id @default(uuid())
+  listingId     String
+  vehicleType   String
+  pricePerHour  Decimal
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  listing       Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@unique([listingId, vehicleType])
+}
+
+/// Photos of a host's spot, in the order the host arranged them.
+///
+/// A table rather than a String[] column: each photo carries its own position
+/// and upload time, and deleting one should not mean rewriting an array.
+model SpotPhoto {
+  id         String   @id @default(uuid())
+  listingId  String
+  /// Object-store URL. The API hands out a presigned PUT and only ever stores
+  /// the resulting URL -- image bytes never pass through this server.
+  url        String
+  /// 0-based display order. The first photo is the listing's cover.
+  position   Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  listing    Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId, position])
 }

@@ -26,7 +26,6 @@ const availabilityBody = z
     dayOfWeek: z.number().int().min(0).max(6),
     startMinute: z.number().int().min(0).max(MINUTES_IN_DAY),
     endMinute: z.number().int().min(0).max(MINUTES_IN_DAY),
-    pricePerHour: z.number().positive(),
     isActive: z.boolean().optional(),
   })
   .refine((value) => value.startMinute < value.endMinute, {

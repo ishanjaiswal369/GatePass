@@ -20,6 +20,8 @@ export interface NearbyFilters {
   at?: Date;
   /** How long for, in minutes. Used to require the window covers the stay. */
   durationMinutes?: number;
+  /** Only spots priced for this vehicle. Absent means any, at its best rate. */
+  vehicleType?: string;
   limit?: number;
 }
 
@@ -84,6 +86,10 @@ export async function nearby(filters: NearbyFilters): Promise<NearbySpot[]> {
     (KM_PER_LAT_DEGREE *
       Math.max(Math.cos((filters.latitude * Math.PI) / 180), 0.01));
 
+  const vehicleTypeFilter = filters.vehicleType
+    ? Prisma.sql`AND sp."vehicleType" = ${filters.vehicleType}`
+    : Prisma.empty;
+
   const distance = Prisma.sql`
     6371 * acos(LEAST(1, GREATEST(-1,
       sin(radians(${filters.latitude}::float8)) * sin(radians(l."latitude"::float8))
@@ -101,7 +107,7 @@ export async function nearby(filters: NearbyFilters): Promise<NearbySpot[]> {
       l."latitude"::float8 AS "latitude",
       l."longitude"::float8 AS "longitude",
       ${distance} AS "distanceKm",
-      MIN(ha."pricePerHour")::float8 AS "pricePerHour",
+      MIN(sp."pricePerHour")::float8 AS "pricePerHour",
       MAX(ha."endMinute")::int AS "availableUntilMinute"
     FROM "Listing" l
     JOIN "HostProfile" hp ON hp."id" = l."hostProfileId"
@@ -113,9 +119,19 @@ export async function nearby(filters: NearbyFilters): Promise<NearbySpot[]> {
      AND ha."dayOfWeek" = ${dayOfWeek}
      AND ha."startMinute" <= ${minute}
      AND ha."endMinute" >= ${endMinute}
+    -- Also a filter, not just a lookup: a spot with no rate for the vehicle
+    -- the driver is in cannot be booked, so it should not be shown.
+    JOIN "SpotPricing" sp
+      ON sp."listingId" = l."id"
+     ${vehicleTypeFilter}
     WHERE l."listingType" = 'INDEPENDENT_SPOT'
       AND l."status" = 'PUBLISHED'
       AND hp."verificationStatus" = 'ACTIVE'
+      -- Checked here as well as at publication time. A host whose payout
+      -- account is later suspended must stop taking bookings immediately;
+      -- relying on the status column alone would keep selling a spot whose
+      -- host can no longer be paid.
+      AND hp."payoutKycStatus" = 'ACTIVATED'
       AND l."latitude" BETWEEN ${filters.latitude - latDelta} AND ${filters.latitude + latDelta}
       AND l."longitude" BETWEEN ${filters.longitude - lngDelta} AND ${filters.longitude + lngDelta}
     GROUP BY l."id", hp."city"

@@ -13,11 +13,16 @@ export interface CreateHostProfileInput {
   bankAccountId?: string;
 }
 
+/**
+ * Price is absent on purpose: it moved to SpotPricing, which holds one rate
+ * per vehicle type for the whole spot. It used to sit on each window, which
+ * meant one spot could quote two rates depending on which window a booking
+ * landed in.
+ */
 export interface AvailabilityInput {
   dayOfWeek: number;
   startMinute: number;
   endMinute: number;
-  pricePerHour: number;
   isActive?: boolean;
 }
 
@@ -59,9 +64,9 @@ export async function exists(userId: string): Promise<boolean> {
  * host's spot in the same transaction, because a profile without a listing is
  * invisible to search and a listing without a profile cannot exist.
  *
- * The spot is PUBLISHED immediately -- submit means active, per the product
- * decision -- but it still only surfaces once the host adds an availability
- * window, which is the host's own on/off switch.
+ * The spot starts as a DRAFT. Onboarding is the first step of the listing
+ * wizard, not the whole of it: the spot becomes bookable only after the host
+ * finishes the remaining steps and both review gates clear.
  */
 export async function createProfile(
   userId: string,
@@ -89,7 +94,12 @@ export async function createProfile(
         venueName: `${input.addressLine}, ${input.city}`,
         latitude: input.latitude,
         longitude: input.longitude,
-        status: "PUBLISHED",
+        // DRAFT, not PUBLISHED. Onboarding opens the spot; it does not make it
+        // bookable. Going live needs the wizard's remaining steps, an admin
+        // accepting the ownership document, and an active payout account --
+        // publishing here would route drivers and their money to a space
+        // nobody has checked and a host nobody can pay.
+        status: "DRAFT",
         createdBy: userId,
         updatedBy: userId,
       },
