@@ -86,43 +86,6 @@ function describe(spot: SpotListing): {
   };
 }
 
-/**
- * A short, always-visible label for a spot's status, on the same row as its
- * name -- the fuller ListingStatusCard below explains what it means and what
- * moves it forward, but a host scanning several spots needs the word itself
- * without opening each card.
- */
-function SpotStatusBadge({ status }: { status: SpotListing["status"] }) {
-  const { label, color, background } = badgeStyle(status);
-
-  return (
-    <View style={[s.badge, { backgroundColor: background }]}>
-      <Text style={[s.badgeText, { color }]}>{label}</Text>
-    </View>
-  );
-}
-
-function badgeStyle(status: SpotListing["status"]): {
-  label: string;
-  color: string;
-  background: string;
-} {
-  switch (status) {
-    case "DRAFT":
-      return { label: "Draft", color: colors.inkMuted, background: colors.canvas };
-    case "PENDING_REVIEW":
-      return { label: "In review", color: colors.inkMuted, background: colors.canvas };
-    case "REJECTED":
-      return { label: "Declined", color: colors.danger, background: colors.dangerSurface };
-    case "SUSPENDED":
-      return { label: "Paused", color: colors.devInk, background: colors.devSurface };
-    case "CANCELLED":
-      return { label: "Deleted", color: colors.inkFaint, background: colors.canvas };
-    default:
-      return { label: "Active", color: colors.success, background: "#f0fdf4" };
-  }
-}
-
 function Need({ text }: { text: string }) {
   return (
     <View style={s.need}>
@@ -293,11 +256,7 @@ export default function HostScreen() {
                   );
 
                   return (
-                    <Card
-                      key={spot.id}
-                      heading={spot.name}
-                      badge={<SpotStatusBadge status={spot.status} />}
-                    >
+                    <Card key={spot.id} heading={spot.name}>
                       <ListingStatusCard spot={spot} />
 
                       <Button
@@ -425,12 +384,6 @@ const s = StyleSheet.create({
     borderBottomColor: colors.border,
   },
   windowDay: { fontSize: 15, fontWeight: "600", color: colors.ink },
-  badge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-  },
-  badgeText: { fontSize: 11, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.4 },
   fine: { fontSize: 12, color: colors.inkFaint, lineHeight: 18 },
   status: {
     gap: 5,
