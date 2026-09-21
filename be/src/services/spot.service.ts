@@ -97,7 +97,7 @@ export async function nearby(filters: NearbyFilters): Promise<NearbySpot[]> {
       l."id",
       l."name",
       l."venueName",
-      hp."city",
+      l."city",
       l."latitude"::float8 AS "latitude",
       l."longitude"::float8 AS "longitude",
       ${distance} AS "distanceKm",
@@ -105,20 +105,23 @@ export async function nearby(filters: NearbyFilters): Promise<NearbySpot[]> {
       MAX(ha."endMinute")::int AS "availableUntilMinute"
     FROM "Listing" l
     JOIN "HostProfile" hp ON hp."id" = l."hostProfileId"
-    -- The join itself is the availability filter: a host with no active window
-    -- covering the requested time simply produces no rows.
+    -- The join itself is the availability filter: a listing with no active
+    -- window covering the requested time simply produces no rows. Scoped to
+    -- the listing, not the host -- a host with several spots prices and
+    -- schedules each one separately.
     JOIN "HostAvailability" ha
-      ON ha."hostProfileId" = hp."id"
+      ON ha."listingId" = l."id"
      AND ha."isActive" = true
      AND ha."dayOfWeek" = ${dayOfWeek}
      AND ha."startMinute" <= ${minute}
      AND ha."endMinute" >= ${endMinute}
     WHERE l."listingType" = 'INDEPENDENT_SPOT'
       AND l."status" = 'PUBLISHED'
+      AND l."verificationStatus" = 'ACTIVE'
       AND hp."verificationStatus" = 'ACTIVE'
       AND l."latitude" BETWEEN ${filters.latitude - latDelta} AND ${filters.latitude + latDelta}
       AND l."longitude" BETWEEN ${filters.longitude - lngDelta} AND ${filters.longitude + lngDelta}
-    GROUP BY l."id", hp."city"
+    GROUP BY l."id"
     HAVING ${distance} <= ${filters.radiusKm}
     ORDER BY "distanceKm" ASC
     LIMIT ${limit}

@@ -7,10 +7,21 @@ model Listing {
   listingType   String        @default("EVENT")
   name          String
   venueName     String
+  // Set only for INDEPENDENT_SPOT listings. A host can list more than one
+  // spot, each at its own address, so this cannot live on HostProfile (one
+  // row per host, not per spot) the way it did when a host had only one.
+  addressLine   String?
+  city          String?
+  pincode       String?
   latitude      Decimal?
   longitude     Decimal?
   eventDate     DateTime?
   status        String        @default("DRAFT")
+  // A host spot's own moderation state -- PENDING/IN_REVIEW/ACTIVE/DECLINED,
+  // see SpotStatus. Independent of `status` above: that is publish lifecycle,
+  // this is "should this spot be trusted enough to show". Meaningless for an
+  // EVENT listing, which has no reviewer of this kind.
+  verificationStatus String  @default("ACTIVE")
   createdBy     String?
   updatedBy     String?
   createdAt     DateTime      @default(now())
@@ -21,6 +32,7 @@ model Listing {
   creator       User?         @relation("ListingCreatedBy", fields: [createdBy], references: [id])
   updater       User?         @relation("ListingUpdatedBy", fields: [updatedBy], references: [id])
   capacities    ParkingCapacity[]
+  availability  HostAvailability[]
 }
 
 model ParkingCapacity {

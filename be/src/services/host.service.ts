@@ -13,6 +13,14 @@ export interface CreateHostProfileInput {
   bankAccountId?: string;
 }
 
+export interface CreateListingInput {
+  addressLine: string;
+  city: string;
+  pincode: string;
+  latitude: number;
+  longitude: number;
+}
+
 export interface AvailabilityInput {
   dayOfWeek: number;
   startMinute: number;
@@ -33,6 +41,20 @@ const hostProfileView = {
   verificationStatus: true,
   createdAt: true,
 } satisfies Prisma.HostProfileSelect;
+
+/** A host's own view of one of their spots. */
+const hostListingView = {
+  id: true,
+  name: true,
+  addressLine: true,
+  city: true,
+  pincode: true,
+  latitude: true,
+  longitude: true,
+  status: true,
+  verificationStatus: true,
+  createdAt: true,
+} satisfies Prisma.ListingSelect;
 
 export async function getByUserId(userId: string) {
   return prisma.hostProfile.findUnique({
@@ -55,9 +77,10 @@ export async function exists(userId: string): Promise<boolean> {
 }
 
 /**
- * Onboarding. Creates the profile and the one listing that represents the
- * host's spot in the same transaction, because a profile without a listing is
- * invisible to search and a listing without a profile cannot exist.
+ * Onboarding. Creates the profile and its first listing in the same
+ * transaction, because a profile without a listing is invisible to search and
+ * a listing without a profile cannot exist. Further spots go through
+ * `createListing` once the profile exists.
  *
  * The spot is PUBLISHED immediately -- submit means active, per the product
  * decision -- but it still only surfaces once the host adds an availability
@@ -87,6 +110,9 @@ export async function createProfile(
         listingType: "INDEPENDENT_SPOT",
         name: `Parking at ${input.addressLine}`,
         venueName: `${input.addressLine}, ${input.city}`,
+        addressLine: input.addressLine,
+        city: input.city,
+        pincode: input.pincode,
         latitude: input.latitude,
         longitude: input.longitude,
         status: "PUBLISHED",
@@ -102,19 +128,117 @@ export async function createProfile(
   });
 }
 
-export async function listAvailability(hostProfileId: string) {
+/** Every spot this host has listed, including ones they have since deleted. */
+export async function listListings(hostProfileId: string) {
+  return prisma.listing.findMany({
+    where: { hostProfileId, listingType: "INDEPENDENT_SPOT" },
+    select: hostListingView,
+    orderBy: { createdAt: "asc" },
+  });
+}
+
+/**
+ * Adds another spot for an already-onboarded host. Separate from
+ * `createProfile` because a host is one profile with (now) many spots, and
+ * onboarding already proved the profile half of this.
+ */
+export async function createListing(
+  hostProfileId: string,
+  userId: string,
+  input: CreateListingInput
+) {
+  return prisma.listing.create({
+    data: {
+      hostProfileId,
+      listingType: "INDEPENDENT_SPOT",
+      name: `Parking at ${input.addressLine}`,
+      venueName: `${input.addressLine}, ${input.city}`,
+      addressLine: input.addressLine,
+      city: input.city,
+      pincode: input.pincode,
+      latitude: input.latitude,
+      longitude: input.longitude,
+      status: "PUBLISHED",
+      createdBy: userId,
+      updatedBy: userId,
+    },
+    select: hostListingView,
+  });
+}
+
+/**
+ * Removing a spot is a cancel, not a row deletion, matching how account
+ * deletion already takes a host's listings out of search: the listing and its
+ * booking history (once bookings against host spots exist) have to survive,
+ * only its visibility does not. Its availability windows are switched off
+ * alongside it -- a re-published listing with no active windows would just be
+ * an empty listing, but a cancelled one showing windows as still on on the
+ * next screen would look like the delete silently failed.
+ */
+export async function deleteListing(
+  id: string,
+  hostProfileId: string,
+  userId: string
+) {
+  await prisma.$transaction(async (tx) => {
+    const updated = await tx.listing.updateMany({
+      where: { id, hostProfileId, listingType: "INDEPENDENT_SPOT" },
+      data: { status: "CANCELLED", updatedBy: userId },
+    });
+
+    if (updated.count === 0) {
+      throw notFound("Listing not found");
+    }
+
+    await tx.hostAvailability.updateMany({
+      where: { listingId: id },
+      data: { isActive: false },
+    });
+  });
+}
+
+async function assertOwnsListing(listingId: string, hostProfileId: string) {
+  const listing = await prisma.listing.findFirst({
+    where: { id: listingId, hostProfileId, listingType: "INDEPENDENT_SPOT" },
+    select: { id: true, status: true },
+  });
+
+  if (!listing) {
+    throw notFound("Listing not found");
+  }
+
+  if (listing.status === "CANCELLED") {
+    throw conflict("This listing has been deleted");
+  }
+}
+
+/**
+ * A host's windows, across all their spots or narrowed to one. Ownership is
+ * proven through the listing relation rather than a stored hostProfileId --
+ * see the schema note on HostAvailability -- so one host can never read or
+ * touch another host's windows by id.
+ */
+export async function listAvailability(
+  hostProfileId: string,
+  listingId?: string
+) {
   return prisma.hostAvailability.findMany({
-    where: { hostProfileId },
+    where: listingId
+      ? { listingId, listing: { hostProfileId } }
+      : { listing: { hostProfileId } },
     orderBy: [{ dayOfWeek: "asc" }, { startMinute: "asc" }],
   });
 }
 
 export async function addAvailability(
   hostProfileId: string,
+  listingId: string,
   input: AvailabilityInput
 ) {
+  await assertOwnsListing(listingId, hostProfileId);
+
   return prisma.hostAvailability.create({
-    data: { hostProfileId, ...input },
+    data: { listingId, ...input },
   });
 }
 
@@ -123,10 +247,10 @@ export async function updateAvailability(
   hostProfileId: string,
   input: Partial<AvailabilityInput>
 ) {
-  // hostProfileId is part of the filter so one host cannot toggle another
-  // host's window by id.
+  // The listing relation is part of the filter so one host cannot toggle
+  // another host's window by id.
   const updated = await prisma.hostAvailability.updateMany({
-    where: { id, hostProfileId },
+    where: { id, listing: { hostProfileId } },
     data: input,
   });
 
@@ -139,7 +263,7 @@ export async function updateAvailability(
 
 export async function removeAvailability(id: string, hostProfileId: string) {
   const deleted = await prisma.hostAvailability.deleteMany({
-    where: { id, hostProfileId },
+    where: { id, listing: { hostProfileId } },
   });
 
   if (deleted.count === 0) {

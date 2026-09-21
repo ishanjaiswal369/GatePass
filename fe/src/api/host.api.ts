@@ -1,4 +1,4 @@
-import type { HostAvailabilityRow, HostProfile } from "@/types/api.types";
+import type { HostAvailabilityRow, HostListing, HostProfile } from "@/types/api.types";
 import { request } from "./client";
 
 /** `profile: null` means "not a host yet", which is the common case. */
@@ -24,14 +24,39 @@ export const createProfile = (
     token,
   });
 
-export const listAvailability = (token: string) =>
-  request<{ availability: HostAvailabilityRow[] }>("/host/availability", {
+export const listListings = (token: string) =>
+  request<{ listings: HostListing[] }>("/host/listings", { token });
+
+export const createListing = (
+  token: string,
+  input: {
+    addressLine: string;
+    city: string;
+    pincode: string;
+    latitude: number;
+    longitude: number;
+  }
+) =>
+  request<HostListing>("/host/listings", {
+    method: "POST",
+    body: input,
     token,
   });
+
+export const deleteListing = (token: string, id: string) =>
+  request<null>(`/host/listings/${id}`, { method: "DELETE", token });
+
+/** Omit `listingId` for every window across all of a host's spots. */
+export const listAvailability = (token: string, listingId?: string) =>
+  request<{ availability: HostAvailabilityRow[] }>(
+    `/host/availability${listingId ? `?listingId=${listingId}` : ""}`,
+    { token }
+  );
 
 export const addAvailability = (
   token: string,
   input: {
+    listingId: string;
     dayOfWeek: number;
     startMinute: number;
     endMinute: number;

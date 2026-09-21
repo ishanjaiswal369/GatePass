@@ -65,3 +65,9 @@ export const LISTING_STATUSES = [
   "CANCELLED",
 ] as const;
 export type ListingStatus = (typeof LISTING_STATUSES)[number];
+
+// A host spot's own moderation state -- independent of ListingStatus (publish
+// lifecycle) and of VerificationStatus (the host's own KYC, one row per
+// host). A host can list more than one spot; each is reviewed on its own.
+export const SPOT_STATUSES = ["PENDING", "IN_REVIEW", "ACTIVE", "DECLINED"] as const;
+export type SpotStatus = (typeof SPOT_STATUSES)[number];

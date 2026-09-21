@@ -1,5 +1,5 @@
 import { Redirect, router } from "expo-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import { ApiError, hostApi } from "@/api";
 import {
@@ -12,13 +12,15 @@ import {
   PhoneFrame,
   type NavKey,
   RestoringScreen,
+  TrashIcon,
 } from "@/components/ui";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useDriverLocation } from "@/hooks/useDriverLocation";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, space } from "@/theme";
-import type { HostAvailabilityRow, HostProfile } from "@/types/api.types";
+import type { HostAvailabilityRow, HostListing, HostProfile } from "@/types/api.types";
+import type { SpotStatus } from "@/constants/enums";
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -30,6 +32,14 @@ function formatMinute(minute: number) {
   return `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
 }
 
+/** How each moderation state reads on the dashboard. Neutral until a reviewer moves it. */
+const SPOT_STATUS_COPY: Record<SpotStatus, { label: string; color: string }> = {
+  PENDING: { label: "Pending review", color: colors.inkMuted },
+  IN_REVIEW: { label: "In review", color: colors.inkMuted },
+  ACTIVE: { label: "Active", color: colors.success },
+  DECLINED: { label: "Declined", color: colors.danger },
+};
+
 /**
  * One nav item, two destinations: onboarding when no HostProfile exists, the
  * dashboard when it does. The fork is decided by the API, not by a role claim
@@ -38,6 +48,11 @@ function formatMinute(minute: number) {
  * Which one to show comes from `user.hasHostProfile`, which every sign-in and
  * /auth/me carries. So a non-host lands on onboarding with no request at all,
  * and a host sees the dashboard frame at once while its details load.
+ *
+ * A host can list more than one spot. `listings` and `availability` are
+ * fetched once the profile is known; availability is fetched across every
+ * spot in one call and grouped client-side by `listingId`, because a host
+ * with a handful of spots does not need one round trip per card.
  */
 export default function HostScreen() {
   const { token, user, setUser, isRestoring } = useSession();
@@ -46,9 +61,11 @@ export default function HostScreen() {
   const isHost = user?.hasHostProfile;
   const insets = useScreenInsets();
   const [profile, setProfile] = useState<HostProfile | null>(null);
+  const [listings, setListings] = useState<HostListing[]>([]);
   const [availability, setAvailability] = useState<HostAvailabilityRow[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [addingSpot, setAddingSpot] = useState(false);
 
   const [addressLine, setAddressLine] = useState("");
   const [city, setCity] = useState("");
@@ -56,6 +73,18 @@ export default function HostScreen() {
   const [pincode, setPincode] = useState("");
 
   const { coords, requestLocation } = useDriverLocation();
+
+  const loadDashboard = useCallback(async () => {
+    if (!token) return;
+
+    const [{ listings: rows }, { availability: windows }] = await Promise.all([
+      hostApi.listListings(token),
+      hostApi.listAvailability(token),
+    ]);
+
+    setListings(rows);
+    setAvailability(windows);
+  }, [token]);
 
   useEffect(() => {
     // Not a host: onboarding needs nothing from the server.
@@ -69,10 +98,7 @@ export default function HostScreen() {
         if (cancelled) return;
         setProfile(found);
 
-        if (found) {
-          const { availability: windows } = await hostApi.listAvailability(token);
-          if (!cancelled) setAvailability(windows);
-        }
+        if (found) await loadDashboard();
       })
       .catch((err) =>
         setLoadError(err instanceof ApiError ? err.message : "Could not load host")
@@ -84,7 +110,7 @@ export default function HostScreen() {
     return () => {
       cancelled = true;
     };
-  }, [token, isHost]);
+  }, [token, isHost, loadDashboard]);
 
   const { run: submit, busy, error } = useAsyncAction(async () => {
     if (!token) return;
@@ -112,6 +138,7 @@ export default function HostScreen() {
       });
 
       setProfile(created);
+      await loadDashboard();
     } catch (err) {
       // 409: this account became a host elsewhere (another device) after this
       // session was loaded, so its flag is stale. Flipping it below loads the
@@ -120,6 +147,54 @@ export default function HostScreen() {
     }
 
     if (user) setUser({ ...user, hasHostProfile: true });
+  });
+
+  const {
+    run: addSpot,
+    busy: addingBusy,
+    error: addError,
+  } = useAsyncAction(async () => {
+    if (!token) return;
+
+    // A second spot is rarely where the first one was, so location is asked
+    // for fresh rather than reusing whatever the onboarding form resolved.
+    const at = await requestLocation();
+
+    if (!at) {
+      throw new ApiError(
+        "Location is needed to place your spot on the map.",
+        400
+      );
+    }
+
+    await hostApi.createListing(token, {
+      addressLine: addressLine.trim(),
+      city: city.trim(),
+      pincode: pincode.trim(),
+      latitude: at.latitude,
+      longitude: at.longitude,
+    });
+
+    setAddressLine("");
+    setCity("");
+    setPincode("");
+    setAddingSpot(false);
+    await loadDashboard();
+  });
+
+  // useAsyncAction's `busy` is one shared flag; this screen has several
+  // delete buttons, so which row is mid-request is tracked separately.
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const { run: deleteSpot } = useAsyncAction(async (id: string) => {
+    if (!token) return;
+    setDeletingId(id);
+    try {
+      await hostApi.deleteListing(token, id);
+      setListings((rows) => rows.filter((row) => row.id !== id));
+      setAvailability((rows) => rows.filter((row) => row.listingId !== id));
+    } finally {
+      setDeletingId(null);
+    }
   });
 
   const { run: toggleWindow } = useAsyncAction(
@@ -146,6 +221,8 @@ export default function HostScreen() {
     return <Redirect href="/" />;
   }
 
+  const activeListings = listings.filter((listing) => listing.status !== "CANCELLED");
+
   return (
     <PhoneFrame>
       <View style={s.screen}>
@@ -159,7 +236,7 @@ export default function HostScreen() {
               {/* Known host: the dashboard frame shows now, details follow. */}
               {isHost ? (
                 <View style={s.heading}>
-                  <Text style={s.title}>Your spot</Text>
+                  <Text style={s.title}>Your spots</Text>
                 </View>
               ) : null}
               <ActivityIndicator color={colors.ink} style={s.loading} />
@@ -167,45 +244,114 @@ export default function HostScreen() {
           ) : profile ? (
             <>
               <View style={s.heading}>
-                <Text style={s.title}>Your spot</Text>
+                <Text style={s.title}>Your spots</Text>
                 <Text style={s.sub}>
-                  {profile.addressLine}, {profile.city}
+                  {activeListings.length} listed
                 </Text>
               </View>
 
-              <Card heading="Spot">
+              <Card heading="Host details">
                 <DataRow label="City" value={profile.city} />
                 <DataRow label="Pincode" value={profile.pincode} />
-                <DataRow label="Status" value={profile.verificationStatus} />
+                <DataRow label="Verification" value={profile.verificationStatus} />
               </Card>
 
-              <Card heading={`Availability (${availability.length})`}>
-                {availability.length === 0 ? (
-                  <Text style={s.empty}>
-                    No windows yet. Your spot stays hidden until you add one.
-                  </Text>
-                ) : (
-                  availability.map((window) => (
-                    <View key={window.id} style={s.window}>
-                      <View style={s.windowCopy}>
-                        <Text style={s.windowDay}>
-                          {DAY_NAMES[window.dayOfWeek]}{" "}
-                          {formatMinute(window.startMinute)}–
-                          {formatMinute(window.endMinute)}
-                        </Text>
-                        <Text style={s.windowPrice}>
-                          ₹{Math.round(Number(window.pricePerHour))}/hour
+              {activeListings.length === 0 ? (
+                <Text style={s.empty}>
+                  No spots yet. Add one below to start taking bookings.
+                </Text>
+              ) : (
+                activeListings.map((listing) => {
+                  const windows = availability.filter(
+                    (window) => window.listingId === listing.id
+                  );
+                  const statusCopy = SPOT_STATUS_COPY[listing.verificationStatus];
+
+                  return (
+                    <Card key={listing.id} heading={listing.city}>
+                      <DataRow label="Address" value={listing.addressLine} />
+                      <DataRow label="Pincode" value={listing.pincode} />
+                      <View style={s.statusRow}>
+                        <Text style={s.statusLabel}>Status</Text>
+                        <Text style={[s.statusValue, { color: statusCopy.color }]}>
+                          {statusCopy.label}
                         </Text>
                       </View>
-                      <Switch
-                        value={window.isActive}
-                        onValueChange={(next) => toggleWindow(window.id, next)}
-                        accessibilityLabel={`Availability on ${DAY_NAMES[window.dayOfWeek]}`}
+
+                      {windows.length === 0 ? (
+                        <Text style={s.empty}>
+                          No windows yet. This spot stays hidden until you add
+                          one.
+                        </Text>
+                      ) : (
+                        windows.map((window) => (
+                          <View key={window.id} style={s.window}>
+                            <View style={s.windowCopy}>
+                              <Text style={s.windowDay}>
+                                {DAY_NAMES[window.dayOfWeek]}{" "}
+                                {formatMinute(window.startMinute)}–
+                                {formatMinute(window.endMinute)}
+                              </Text>
+                              <Text style={s.windowPrice}>
+                                ₹{Math.round(Number(window.pricePerHour))}/hour
+                              </Text>
+                            </View>
+                            <Switch
+                              value={window.isActive}
+                              onValueChange={(next) => toggleWindow(window.id, next)}
+                              accessibilityLabel={`Availability on ${DAY_NAMES[window.dayOfWeek]}`}
+                            />
+                          </View>
+                        ))
+                      )}
+
+                      <Button
+                        label="Delete this spot"
+                        variant="danger"
+                        busy={deletingId === listing.id}
+                        onPress={() => deleteSpot(listing.id)}
+                        leadingIcon={<TrashIcon color={colors.danger} />}
                       />
-                    </View>
-                  ))
-                )}
-              </Card>
+                    </Card>
+                  );
+                })
+              )}
+
+              {addingSpot ? (
+                <Card heading="Add a spot">
+                  {addError ? <ErrorNotice message={addError} /> : null}
+
+                  <Field
+                    label="Address"
+                    value={addressLine}
+                    onChangeText={setAddressLine}
+                    placeholder="12 Carter Road"
+                  />
+                  <Field label="City" value={city} onChangeText={setCity} placeholder="Mumbai" />
+                  <Field
+                    label="Pincode"
+                    value={pincode}
+                    onChangeText={setPincode}
+                    placeholder="400050"
+                    keyboardType="number-pad"
+                    maxLength={6}
+                  />
+
+                  <Button
+                    label="Add spot"
+                    busy={addingBusy}
+                    onPress={addSpot}
+                    disabled={!addressLine.trim() || !city.trim() || pincode.length !== 6}
+                  />
+                  <Button
+                    label="Cancel"
+                    variant="ghost"
+                    onPress={() => setAddingSpot(false)}
+                  />
+                </Card>
+              ) : (
+                <Button label="Add another spot" onPress={() => setAddingSpot(true)} />
+              )}
             </>
           ) : (
             <>
@@ -251,6 +397,7 @@ export default function HostScreen() {
 
               <Text style={s.fine}>
                 Your spot goes live as soon as you add an availability window.
+                You can list more spots later.
               </Text>
             </>
           )}
@@ -270,6 +417,16 @@ const s = StyleSheet.create({
   sub: { fontSize: 15, color: colors.inkMuted, lineHeight: 22 },
   loading: { paddingVertical: space.xl },
   empty: { fontSize: 14, color: colors.inkMuted, lineHeight: 21 },
+  statusRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: space.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  statusLabel: { fontSize: 15, color: colors.inkMuted },
+  statusValue: { fontSize: 15, fontWeight: "700" },
   window: {
     flexDirection: "row",
     alignItems: "center",

@@ -20,9 +20,8 @@ model HostProfile {
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
-  user               User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  availability       HostAvailability[]
-  listings           Listing[]         @relation("ListingHost")
+  user               User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listings           Listing[]     @relation("ListingHost")
   settlements        Settlement[]
 }
 
@@ -30,9 +29,13 @@ model HostProfile {
 /// live in ParkingCapacity: that models a fixed count of slots for one fixed
 /// date, while a host's spot is the same single space offered again every
 /// week. Pricing here is hourly and the amount is pricePerHour x duration.
+///
+/// Scoped to a Listing, not a HostProfile: a host can list more than one
+/// spot, each at its own address with its own hours and price, so the
+/// windows have to live with the spot they describe rather than the host.
 model HostAvailability {
   id            String   @id @default(uuid())
-  hostProfileId String
+  listingId     String
   // 0 = Sunday .. 6 = Saturday, matching JS getDay().
   dayOfWeek     Int
   // Minutes from midnight, local venue time. Integers rather than DateTime
@@ -47,8 +50,8 @@ model HostAvailability {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  hostProfile   HostProfile @relation(fields: [hostProfileId], references: [id], onDelete: Cascade)
+  listing       Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
 
-  @@index([hostProfileId])
+  @@index([listingId])
   @@index([dayOfWeek, isActive])
 }

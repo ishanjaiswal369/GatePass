@@ -1,6 +1,6 @@
 # GatePass — Implementation Notes
 
-Last updated: 2026-09-19
+Last updated: 2026-09-21
 
 A paid marketplace for parking at public ticketed events in India. Organizers
 list parking capacity at a venue; drivers reserve and pay in advance; the
@@ -468,11 +468,25 @@ driven end to end in a browser (sign in → Events → Nearby → pass).
     login the app did not know and `host.tsx` fetched `/host/profile` just to
     find out. The field existed for exactly this but nothing read it.
   - A known non-host now gets onboarding with **no request at all**; a known
-    host sees the "Your spot" frame immediately while its details load.
+    host sees the "Your spots" frame immediately while its details load.
   - It is derived from whether a `HostProfile` row exists, not a role: a
     user can be a driver and a host at once. It becomes true when the Host
     onboarding form is submitted, which creates the profile and the
     published spot in one transaction, and never goes back to false.
+  - **A host can list more than one spot.** Onboarding still creates exactly
+    one `HostProfile` and one `Listing`, but `host.tsx` now shows every spot
+    the profile owns as its own card -- address, its own availability
+    windows, its own moderation status -- with "Add another spot"
+    (`POST /host/listings`) below the list and a delete action
+    (`DELETE /host/listings/:id`) on each card. Delete is a soft cancel, the
+    same pattern account deletion already used: `Listing.status` moves to
+    `CANCELLED` and the spot's own availability windows are switched off,
+    rather than removing the row -- consistent with every other delete in
+    this app (see soft account deletion, section 3) and cheap to undo later
+    if that is ever wanted. `HostAvailability` had to move from
+    `hostProfileId` to `listingId` for this to be correct: two spots at two
+    addresses cannot share one set of hours and one price. See migration
+    `0022_host_multi_listing`.
   - A stale flag (the user became a host on another device) makes onboarding
     return 409; the app treats that as "already a host", flips the flag and
     loads the dashboard rather than showing an error.
@@ -570,9 +584,9 @@ it needs `expo-secure-store` on native and is a separate decision.
 | `Vehicle` | saved number plate + type per user, one `isDefault`; unique on `(userId, vehicleNumber)` |
 | `UserAddress` | the driver's own address, 1:1 with `User`; `country` fixed to India |
 | `UserSession` | per-device session, `deviceId`, `fcmToken` (reserved), `lastActiveAt`, `expiresAt` |
-| `Listing` | an organizer's event **or** a host's spot; exactly one of `organizerId`/`hostProfileId` is set (DB `CHECK`) |
-| `HostProfile` | 1:1 optional on `User`. Its existence *is* the answer to "is this user a host" -- never `role` |
-| `HostAvailability` | weekly windows for a host spot: `dayOfWeek`, minute range, `pricePerHour`, `isActive` toggle |
+| `Listing` | an organizer's event **or** a host's spot; exactly one of `organizerId`/`hostProfileId` is set (DB `CHECK`). A host spot carries its own `addressLine`/`city`/`pincode` (one host can list several, each at its own address) and its own `verificationStatus` (`PENDING`/`IN_REVIEW`/`ACTIVE`/`DECLINED`, moderation -- separate from `status`, which is publish lifecycle) |
+| `HostProfile` | 1:1 optional on `User`. Its existence *is* the answer to "is this user a host" -- never `role`. One profile can own several `Listing` spots |
+| `HostAvailability` | weekly windows for **one** host spot (`listingId`, not `hostProfileId` -- a host with several spots prices and schedules each one separately): `dayOfWeek`, minute range, `pricePerHour`, `isActive` toggle |
 | `Organizer` / `OrganizerMember` | the business entity and its staff logins; listings and settlements hang off the entity |
 | `ParkingCapacity` | per `(listing, vehicleType)`: `totalCapacity`, `bookedCount`, `price` |
 | `Booking` | `quantity`, `amount` snapshot, `status`, `idempotencyKey` unique, `qrToken` unique |
@@ -648,8 +662,16 @@ Hand-written SQL, one per concern, so each change is reviewable in isolation.
 | `0019_user_password` | `User.passwordHash`, `passwordSetAt`, both nullable | yes |
 | `0020_user_vehicle_and_address` | `Vehicle`, `UserAddress` | yes |
 | `0021_user_deleted_at` | `User.deletedAt`, for soft account deletion | yes |
+| `0022_host_multi_listing` | `HostAvailability.hostProfileId` → `listingId`; `Listing.addressLine`/`city`/`pincode` for a host spot's own location | no |
+| `0023_listing_verification_status` | `Listing.verificationStatus`, a host spot's own moderation state | no |
 
-All twenty are applied to the local database.
+The first twenty-one are applied to the local database. `0022` and `0023`
+were written and schema-validated (`prisma validate`, `prisma generate`) but
+**not run against a live Postgres** -- this environment had no Docker daemon
+to start one. Run `npx prisma migrate deploy --schema prisma/schema` before
+relying on the multi-listing host endpoints; `0022`'s backfill assumes every
+existing host has exactly one `Listing`, which is true today but is the
+assumption to check first if that migration ever fails on real data.
 
 `0016` backfills one `Organizer` and one `OWNER` membership per user who owns
 a listing or settlement today. The new id is derived from the owner's user id
@@ -705,7 +727,8 @@ open group left.
 | POST | `/bookings` | JWT | Working; atomic and idempotent |
 | GET / POST | `/payments` | JWT | Stub, but scoped and server-priced |
 | GET / POST | `/host/profile` | JWT | Working; onboarding |
-| GET/POST/PATCH/DELETE | `/host/availability` | Host | Working |
+| GET/POST/DELETE | `/host/listings` `/host/listings/:id` | Host | Working; a host's own spots. DELETE soft-cancels |
+| GET/POST/PATCH/DELETE | `/host/availability` | Host | Working; GET takes an optional `?listingId=`, scoped to one spot |
 | GET | `/host/settlements` | Host | Working (engine not built) |
 | GET / POST | `/listings` | Organizer | Working; scoped to the caller's organizers |
 | GET / POST | `/capacities` | Organizer | Working; scoped |

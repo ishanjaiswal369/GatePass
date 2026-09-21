@@ -20,8 +20,23 @@ const createHostProfileBody = z.object({
   bankAccountId: z.string().trim().min(1).max(64).optional(),
 });
 
+// Shares its location fields with createHostProfileBody, minus panNumber and
+// bankAccountId: those describe the host as a payee, once, not each spot.
+const createListingBody = z.object({
+  addressLine: z.string().trim().min(1).max(200),
+  city: z.string().trim().min(1).max(100),
+  pincode: z.string().trim().regex(/^\d{6}$/, "must be a 6-digit pincode"),
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
+});
+
+const listingParams = z.object({
+  id: z.string().uuid(),
+});
+
 const availabilityBody = z
   .object({
+    listingId: z.string().uuid(),
     // 0 = Sunday .. 6 = Saturday, matching JS getDay().
     dayOfWeek: z.number().int().min(0).max(6),
     startMinute: z.number().int().min(0).max(MINUTES_IN_DAY),
@@ -36,7 +51,16 @@ const availabilityBody = z
     message: "must be after startMinute; split windows that cross midnight",
   });
 
-const updateAvailabilityBody = availabilityBody.innerType().partial();
+// listingId narrows which spot's windows come back; a partial update never
+// moves a window to a different listing, so it has no place here.
+const updateAvailabilityBody = availabilityBody
+  .innerType()
+  .omit({ listingId: true })
+  .partial();
+
+const listAvailabilityQuery = z.object({
+  listingId: z.string().uuid().optional(),
+});
 
 const availabilityParams = z.object({
   id: z.string().uuid(),
@@ -44,6 +68,9 @@ const availabilityParams = z.object({
 
 export const hostRequests = {
   createProfile: { body: createHostProfileBody } satisfies RequestSchemas,
+  createListing: { body: createListingBody } satisfies RequestSchemas,
+  deleteListing: { params: listingParams } satisfies RequestSchemas,
+  listAvailability: { query: listAvailabilityQuery } satisfies RequestSchemas,
   addAvailability: { body: availabilityBody } satisfies RequestSchemas,
   updateAvailability: {
     params: availabilityParams,
@@ -54,6 +81,15 @@ export const hostRequests = {
 
 export type CreateHostProfileInput = RequestInput<
   typeof hostRequests.createProfile
+>;
+export type CreateListingInput = RequestInput<
+  typeof hostRequests.createListing
+>;
+export type DeleteListingInput = RequestInput<
+  typeof hostRequests.deleteListing
+>;
+export type ListAvailabilityInput = RequestInput<
+  typeof hostRequests.listAvailability
 >;
 export type AddAvailabilityInput = RequestInput<
   typeof hostRequests.addAvailability

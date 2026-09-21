@@ -2,6 +2,9 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import type {
   AddAvailabilityInput,
   CreateHostProfileInput,
+  CreateListingInput,
+  DeleteListingInput,
+  ListAvailabilityInput,
   RemoveAvailabilityInput,
   UpdateAvailabilityInput,
 } from "../requests/host.request.js";
@@ -43,9 +46,49 @@ export const hostController = {
     return reply.code(201).send({ profile });
   },
 
-  listAvailability: async (request: FastifyRequest, reply: FastifyReply) => {
+  listListings: async (request: FastifyRequest, reply: FastifyReply) => {
     return reply.send({
-      availability: await hostService.listAvailability(hostProfileId(request)),
+      listings: await hostService.listListings(hostProfileId(request)),
+    });
+  },
+
+  createListing: async (
+    input: CreateListingInput,
+    request: FastifyRequest,
+    reply: FastifyReply
+  ) => {
+    const listing = await hostService.createListing(
+      hostProfileId(request),
+      request.user.userId,
+      input.body
+    );
+
+    return reply.code(201).send(listing);
+  },
+
+  deleteListing: async (
+    input: DeleteListingInput,
+    request: FastifyRequest,
+    reply: FastifyReply
+  ) => {
+    await hostService.deleteListing(
+      input.params.id,
+      hostProfileId(request),
+      request.user.userId
+    );
+    return reply.code(204).send();
+  },
+
+  listAvailability: async (
+    input: ListAvailabilityInput,
+    request: FastifyRequest,
+    reply: FastifyReply
+  ) => {
+    return reply.send({
+      availability: await hostService.listAvailability(
+        hostProfileId(request),
+        input.query.listingId
+      ),
     });
   },
 
@@ -54,9 +97,12 @@ export const hostController = {
     request: FastifyRequest,
     reply: FastifyReply
   ) => {
+    const { listingId, ...rest } = input.body;
     return reply
       .code(201)
-      .send(await hostService.addAvailability(hostProfileId(request), input.body));
+      .send(
+        await hostService.addAvailability(hostProfileId(request), listingId, rest)
+      );
   },
 
   updateAvailability: async (

@@ -55,3 +55,9 @@ export {
   DEFAULT_VERIFICATION_PURPOSE,
   type VerificationPurpose,
 } from "./verification-purpose.js";
+
+export {
+  SPOT_STATUSES,
+  DEFAULT_SPOT_STATUS,
+  type SpotStatus,
+} from "./spot-status.js";

@@ -191,7 +191,22 @@ export function registerApi(app: App): void {
     driver,
     request(hostRequests.createProfile, hostController.createProfile)
   );
-  app.get("/host/availability", host, hostController.listAvailability);
+  app.get("/host/listings", host, hostController.listListings);
+  app.post(
+    "/host/listings",
+    host,
+    request(hostRequests.createListing, hostController.createListing)
+  );
+  app.delete(
+    "/host/listings/:id",
+    host,
+    request(hostRequests.deleteListing, hostController.deleteListing)
+  );
+  app.get(
+    "/host/availability",
+    host,
+    request(hostRequests.listAvailability, hostController.listAvailability)
+  );
   app.post(
     "/host/availability",
     host,

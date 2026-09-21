@@ -8,6 +8,7 @@ import type {
   ListingStatus,
   ListingType,
   Role,
+  SpotStatus,
   VehicleType,
   VerificationStatus,
 } from "@/constants/enums";
@@ -174,11 +175,27 @@ export interface HostProfile {
 
 export interface HostAvailabilityRow {
   id: string;
+  listingId: string;
   dayOfWeek: number;
   startMinute: number;
   endMinute: number;
   pricePerHour: string;
   isActive: boolean;
+}
+
+/** One of a host's spots. A host can list more than one. */
+export interface HostListing {
+  id: string;
+  name: string;
+  addressLine: string;
+  city: string;
+  pincode: string;
+  latitude: string;
+  longitude: string;
+  status: ListingStatus;
+  /** Moderation state, separate from `status` (publish lifecycle). */
+  verificationStatus: SpotStatus;
+  createdAt: string;
 }
 
 export interface GeocodeResult {
