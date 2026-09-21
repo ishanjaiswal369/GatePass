@@ -49,7 +49,7 @@ export default function ReviewScreen() {
 
     await spotListingApi.submit(token, spot.id);
     await reload();
-    router.replace("/host/spot");
+    router.replace({ pathname: "/host/spot", params: { id: spot.id } });
   });
 
   if (isRestoring || loading) return <RestoringScreen />;

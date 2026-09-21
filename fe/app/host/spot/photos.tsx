@@ -87,7 +87,7 @@ export default function PhotosScreen() {
       step={stepNumber("photos")}
       totalSteps={TOTAL_STEPS}
       onBack={() => router.back()}
-      onContinue={() => router.push(nextStepPath("photos"))}
+      onContinue={() => router.push(nextStepPath("photos", spot.id))}
       canContinue={urls.length > 0}
       error={uploadError}
       footerNote={

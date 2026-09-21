@@ -66,7 +66,7 @@ export default function DocumentsScreen() {
     // never moves it back, so un-ticking is a client-side correction before
     // submitting, not an erasure of something already given.
     await spotListingApi.saveTerms(token, spot.id, { warrantyAccepted: true });
-    router.push(nextStepPath("documents"));
+    router.push(nextStepPath("documents", spot.id));
   });
 
   if (isRestoring || loading) return <RestoringScreen />;

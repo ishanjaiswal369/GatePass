@@ -5,6 +5,11 @@ import { request } from "./client";
 export const getProfile = (token: string) =>
   request<{ profile: HostProfile | null }>("/host/profile", { token });
 
+/**
+ * Onboarding. `spotId` is the listing created alongside the profile in the
+ * same transaction -- the caller (the wizard's address step) needs it to
+ * carry the right id into the wizard's next screen.
+ */
 export const createProfile = (
   token: string,
   input: {
@@ -18,24 +23,26 @@ export const createProfile = (
     bankAccountId?: string;
   }
 ) =>
-  request<{ profile: HostProfile }>("/host/profile", {
+  request<{ profile: HostProfile; spotId: string }>("/host/profile", {
     method: "POST",
     body: input,
     token,
   });
 
-export const listAvailability = (token: string) =>
-  request<{ availability: HostAvailabilityRow[] }>("/host/availability", {
-    token,
-  });
+/** Omit `listingId` for every window across all of a host's spots. */
+export const listAvailability = (token: string, listingId?: string) =>
+  request<{ availability: HostAvailabilityRow[] }>(
+    `/host/availability${listingId ? `?listingId=${listingId}` : ""}`,
+    { token }
+  );
 
 export const addAvailability = (
   token: string,
   input: {
+    listingId: string;
     dayOfWeek: number;
     startMinute: number;
     endMinute: number;
-    pricePerHour: number;
   }
 ) =>
   request<HostAvailabilityRow>("/host/availability", {

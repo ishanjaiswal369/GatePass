@@ -1,3 +1,4 @@
+import { useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, spotListingApi } from "@/api";
 import { useSession } from "@/providers/SessionProvider";
@@ -11,9 +12,16 @@ import type { SpotListing } from "@/types/api.types";
  * returns to on a new device, and what the review step is judged against --
  * so a screen that trusted navigation params would be showing something the
  * API might already disagree with.
+ *
+ * A host can list more than one spot, so which one is "the" spot for this
+ * screen is not a fixed fact -- it comes from the route's own `?id=` query
+ * param (see wizard.ts's nextStepPath/firstStepPath, which carry it forward
+ * from screen to screen). Reading it here, rather than in every screen, means
+ * no wizard screen has to know this hook is id-aware at all.
  */
 export function useSpotDraft() {
   const { token, user, isRestoring } = useSession();
+  const { id } = useLocalSearchParams<{ id?: string }>();
   // Known before any request: /host/spots is behind requireHost, so asking as
   // a non-host is a 403 by design rather than a failure worth making.
   const isHost = user?.hasHostProfile;
@@ -36,19 +44,27 @@ export function useSpotDraft() {
     setError(null);
 
     try {
-      const { spots } = await spotListingApi.list(token);
-      const current = spots[0] ?? null;
-
-      // The list projection omits availability; the single read carries it,
-      // and the availability step needs it.
-      setSpot(
-        current ? await spotListingApi.getById(token, current.id) : null
-      );
+      if (id) {
+        setSpot(await spotListingApi.getById(token, id));
+      } else {
+        // No id in the route: legacy entry with nothing to resume yet. Falls
+        // back to whichever spot the host touched first, which only matters
+        // before any screen has had the chance to attach a real id.
+        const { spots } = await spotListingApi.list(token);
+        const current = spots[0] ?? null;
+        setSpot(
+          current ? await spotListingApi.getById(token, current.id) : null
+        );
+      }
     } catch (err) {
       // 403 means this user is not a host yet, which is the expected state on
-      // the first step -- the profile is created by the address step. Anything
-      // else is a real failure worth showing.
-      if (err instanceof ApiError && err.status === 403) {
+      // the first step -- the profile is created by the address step. 404
+      // means a stale or foreign id in the URL. Anything else is a real
+      // failure worth showing.
+      if (
+        err instanceof ApiError &&
+        (err.status === 403 || err.status === 404)
+      ) {
         setSpot(null);
       } else {
         setError("Could not load your spot");
@@ -56,7 +72,7 @@ export function useSpotDraft() {
     } finally {
       setLoading(false);
     }
-  }, [token, isHost]);
+  }, [token, isHost, id]);
 
   useEffect(() => {
     if (isRestoring) return;

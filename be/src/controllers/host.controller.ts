@@ -2,6 +2,7 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import type {
   AddAvailabilityInput,
   CreateHostProfileInput,
+  ListAvailabilityInput,
   RemoveAvailabilityInput,
   UpdateAvailabilityInput,
 } from "../requests/host.request.js";
@@ -35,17 +36,24 @@ export const hostController = {
     request: FastifyRequest,
     reply: FastifyReply
   ) => {
-    const profile = await hostService.createProfile(
+    const { profile, spotId } = await hostService.createProfile(
       request.user.userId,
       input.body
     );
 
-    return reply.code(201).send({ profile });
+    return reply.code(201).send({ profile, spotId });
   },
 
-  listAvailability: async (request: FastifyRequest, reply: FastifyReply) => {
+  listAvailability: async (
+    input: ListAvailabilityInput,
+    request: FastifyRequest,
+    reply: FastifyReply
+  ) => {
     return reply.send({
-      availability: await hostService.listAvailability(hostProfileId(request)),
+      availability: await hostService.listAvailability(
+        hostProfileId(request),
+        input.query.listingId
+      ),
     });
   },
 
@@ -54,9 +62,12 @@ export const hostController = {
     request: FastifyRequest,
     reply: FastifyReply
   ) => {
+    const { listingId, ...rest } = input.body;
     return reply
       .code(201)
-      .send(await hostService.addAvailability(hostProfileId(request), input.body));
+      .send(
+        await hostService.addAvailability(hostProfileId(request), listingId, rest)
+      );
   },
 
   updateAvailability: async (

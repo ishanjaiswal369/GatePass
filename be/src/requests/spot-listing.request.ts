@@ -75,7 +75,11 @@ const pricingBody = z.object({
 
 export const spotListingRequests = {
   getById: { params: listingId } satisfies RequestSchemas,
-  create: { body: createSpotBody } satisfies RequestSchemas,
+  // No body: opens a blank draft, with nothing to validate yet. What kind of
+  // space it is and its name are the next step, saveType.
+  create: {} satisfies RequestSchemas,
+  delete: { params: listingId } satisfies RequestSchemas,
+  saveType: { params: listingId, body: createSpotBody } satisfies RequestSchemas,
   saveAddress: { params: listingId, body: saveAddressBody } satisfies RequestSchemas,
   presignPhoto: { params: listingId, body: presignBody } satisfies RequestSchemas,
   presignDoc: { params: listingId, body: presignBody } satisfies RequestSchemas,
@@ -94,7 +98,8 @@ export const spotListingRequests = {
 };
 
 export type GetSpotInput = RequestInput<typeof spotListingRequests.getById>;
-export type CreateSpotInput = RequestInput<typeof spotListingRequests.create>;
+export type DeleteSpotInput = RequestInput<typeof spotListingRequests.delete>;
+export type SaveTypeInput = RequestInput<typeof spotListingRequests.saveType>;
 export type SaveAddressInput = RequestInput<typeof spotListingRequests.saveAddress>;
 export type PresignInput = RequestInput<typeof spotListingRequests.presignPhoto>;
 export type SavePhotosInput = RequestInput<typeof spotListingRequests.savePhotos>;

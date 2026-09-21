@@ -31,7 +31,6 @@ model HostProfile {
   updatedAt          DateTime @updatedAt
 
   user               User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  availability       HostAvailability[]
   listings           Listing[]         @relation("ListingHost")
   settlements        Settlement[]
 }
@@ -45,13 +44,17 @@ model HostProfile {
 /// quoting different rates was a bug waiting for the first driver who booked
 /// across the boundary between them.
 ///
+/// Scoped to a Listing, not a HostProfile: a host can list more than one
+/// spot, each at its own address with its own hours, so the windows have to
+/// live with the spot they describe rather than the host that owns it.
+///
 /// Overlapping windows on the same spot and weekday are refused by the
 /// database, not by application code: see the EXCLUDE constraint in migration
-/// 0022. Two concurrent "add window" requests cannot both pass a read-then-
+/// 0023. Two concurrent "add window" requests cannot both pass a read-then-
 /// write check, which is exactly the race a host creates by double-tapping.
 model HostAvailability {
   id            String   @id @default(uuid())
-  hostProfileId String
+  listingId     String
   // 0 = Sunday .. 6 = Saturday, matching JS getDay().
   dayOfWeek     Int
   // Minutes from midnight, local venue time. Integers rather than DateTime
@@ -65,8 +68,8 @@ model HostAvailability {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  hostProfile   HostProfile @relation(fields: [hostProfileId], references: [id], onDelete: Cascade)
+  listing       Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
 
-  @@index([hostProfileId])
+  @@index([listingId])
   @@index([dayOfWeek, isActive])
 }

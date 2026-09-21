@@ -148,7 +148,7 @@ export async function deleteAccount(userId: string, code: string) {
         data: { status: "CANCELLED", updatedBy: userId },
       });
       await tx.hostAvailability.updateMany({
-        where: { hostProfileId: host.id },
+        where: { listing: { hostProfileId: host.id } },
         data: { isActive: false },
       });
     }

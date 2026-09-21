@@ -37,7 +37,7 @@ export default function AccessScreen() {
       accessInstructions: text.trim(),
     });
 
-    router.push(nextStepPath("access"));
+    router.push(nextStepPath("access", spot.id));
   });
 
   if (isRestoring || loading) return <RestoringScreen />;

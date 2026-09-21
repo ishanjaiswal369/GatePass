@@ -1,5 +1,5 @@
 import type {
-  HostAvailabilityRow,
+  AvailabilityWindow,
   PayoutAccount,
   PresignedUpload,
   SpaceType,
@@ -14,7 +14,9 @@ import { request } from "./client";
  *
  * Every step is its own call against the same draft, so the server holds the
  * progress and a host who closes the app mid-way picks up where they were.
- * Nothing here keeps wizard state on the client.
+ * Nothing here keeps wizard state on the client. A host can have more than
+ * one spot -- every call below is scoped to the specific `id` its caller
+ * passes, never to "the" spot.
  */
 
 export const list = (token: string) =>
@@ -23,12 +25,21 @@ export const list = (token: string) =>
 export const getById = (token: string, id: string) =>
   request<SpotListing>(`/host/spots/${id}`, { token });
 
-export const create = (
+/** Opens a new, empty draft. Name and space type are the next step, saveType. */
+export const create = (token: string) =>
+  request<SpotListing>("/host/spots", { method: "POST", token });
+
+/** A soft cancel -- see the service for why this is not a row deletion. */
+export const deleteSpot = (token: string, id: string) =>
+  request<null>(`/host/spots/${id}`, { method: "DELETE", token });
+
+export const saveType = (
   token: string,
+  id: string,
   input: { name: string; venueName: string; spaceType: SpaceType }
 ) =>
-  request<SpotListing>("/host/spots", {
-    method: "POST",
+  request<SpotListing>(`/host/spots/${id}/type`, {
+    method: "PATCH",
     body: input,
     token,
   });
@@ -130,7 +141,7 @@ export const saveAvailability = (
   id: string,
   windows: { dayOfWeek: number; startMinute: number; endMinute: number }[]
 ) =>
-  request<{ availability: HostAvailabilityRow[] }>(
+  request<{ availability: AvailabilityWindow[] }>(
     `/host/spots/${id}/availability`,
     { method: "PUT", body: { windows }, token }
   );

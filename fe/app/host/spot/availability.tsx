@@ -88,7 +88,7 @@ export default function AvailabilityScreen() {
       days.map((dayOfWeek) => ({ dayOfWeek, ...FULL_DAY }))
     );
 
-    router.push(nextStepPath("availability"));
+    router.push(nextStepPath("availability", spot.id));
   });
 
   if (isRestoring || loading) return <RestoringScreen />;

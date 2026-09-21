@@ -56,7 +56,7 @@ export default function PricingScreen() {
     if (bikeOn && Number(bike) > 0) rates.push({ vehicleType: "BIKE", pricePerHour: Number(bike) });
 
     await spotListingApi.savePricing(token, spot.id, rates);
-    router.push(nextStepPath("pricing"));
+    router.push(nextStepPath("pricing", spot.id));
   });
 
   if (isRestoring || loading) return <RestoringScreen />;

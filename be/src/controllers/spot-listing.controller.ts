@@ -1,6 +1,6 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type {
-  CreateSpotInput,
+  DeleteSpotInput,
   GetSpotInput,
   PresignInput,
   SaveAddressInput,
@@ -9,6 +9,7 @@ import type {
   SavePhotosInput,
   SavePricingInput,
   SaveTermsInput,
+  SaveTypeInput,
   SubmitSpotInput,
 } from "../requests/spot-listing.request.js";
 import * as spotListingService from "../services/spot-listing.service.js";
@@ -42,20 +43,43 @@ export const spotListingController = {
     );
   },
 
-  create: async (
-    input: CreateSpotInput,
-    request: FastifyRequest,
-    reply: FastifyReply
-  ) => {
+  create: async (request: FastifyRequest, reply: FastifyReply) => {
     return reply
       .code(201)
       .send(
-        await spotListingService.createDraft(
+        await spotListingService.createBlankSpot(
           hostProfileId(request),
-          request.user.userId,
-          input.body
+          request.user.userId
         )
       );
+  },
+
+  delete: async (
+    input: DeleteSpotInput,
+    request: FastifyRequest,
+    reply: FastifyReply
+  ) => {
+    await spotListingService.deleteListing(
+      input.params.id,
+      hostProfileId(request),
+      request.user.userId
+    );
+    return reply.code(204).send();
+  },
+
+  saveType: async (
+    input: SaveTypeInput,
+    request: FastifyRequest,
+    reply: FastifyReply
+  ) => {
+    return reply.send(
+      await spotListingService.saveType(
+        input.params.id,
+        hostProfileId(request),
+        request.user.userId,
+        input.body
+      )
+    );
   },
 
   saveAddress: async (

@@ -37,7 +37,9 @@ const STATUS_COPY: Record<PayoutKycStatus, { title: string; body: string }> = {
 };
 
 export default function PayoutScreen() {
-  const { loading, isRestoring, token } = useSpotDraft();
+  // The payout account is the host's own, not this spot's -- but the wizard
+  // still needs to carry this spot's id into the next (and last) step, review.
+  const { spot, loading, isRestoring, token } = useSpotDraft();
 
   const [status, setStatus] = useState<PayoutKycStatus>("NOT_STARTED");
   const [pan, setPan] = useState("");
@@ -65,11 +67,12 @@ export default function PayoutScreen() {
     });
 
     setStatus(payoutKycStatus);
-    router.push(nextStepPath("payout"));
+    router.push(nextStepPath("payout", spot?.id));
   });
 
   if (isRestoring || loading) return <RestoringScreen />;
   if (!token) return <Redirect href="/" />;
+  if (!spot) return <Redirect href="/host/spot" />;
 
   const submitted = status !== "NOT_STARTED" && status !== "REJECTED";
   const copy = STATUS_COPY[status];
@@ -87,7 +90,7 @@ export default function PayoutScreen() {
       step={stepNumber("payout")}
       totalSteps={TOTAL_STEPS}
       onBack={() => router.back()}
-      onContinue={submitted ? () => router.push(nextStepPath("payout")) : save}
+      onContinue={submitted ? () => router.push(nextStepPath("payout", spot.id)) : save}
       canContinue={submitted || valid}
       continueLabel={submitted ? "Continue" : "Submit details"}
       busy={busy}

@@ -60,13 +60,18 @@ export async function exists(userId: string): Promise<boolean> {
 }
 
 /**
- * Onboarding. Creates the profile and the one listing that represents the
- * host's spot in the same transaction, because a profile without a listing is
- * invisible to search and a listing without a profile cannot exist.
+ * Onboarding. Creates the profile and its first listing in the same
+ * transaction, because a profile without a listing is invisible to search and
+ * a listing without a profile cannot exist. Further spots go through
+ * spot-listing.service's `createBlankSpot` once the profile exists.
  *
  * The spot starts as a DRAFT. Onboarding is the first step of the listing
  * wizard, not the whole of it: the spot becomes bookable only after the host
  * finishes the remaining steps and both review gates clear.
+ *
+ * Returns the new listing's id alongside the profile, so the wizard screen
+ * that just created both can carry the right id into its next step instead of
+ * guessing which of the host's (now possibly several) listings it just made.
  */
 export async function createProfile(
   userId: string,
@@ -86,12 +91,16 @@ export async function createProfile(
       data: { userId, ...input },
     });
 
-    await tx.listing.create({
+    const spot = await tx.listing.create({
       data: {
         hostProfileId: profile.id,
         listingType: "INDEPENDENT_SPOT",
         name: `Parking at ${input.addressLine}`,
         venueName: `${input.addressLine}, ${input.city}`,
+        addressLine: input.addressLine,
+        city: input.city,
+        state: input.state,
+        pincode: input.pincode,
         latitude: input.latitude,
         longitude: input.longitude,
         // DRAFT, not PUBLISHED. Onboarding opens the spot; it does not make it
@@ -103,28 +112,52 @@ export async function createProfile(
         createdBy: userId,
         updatedBy: userId,
       },
+      select: { id: true },
     });
 
-    return tx.hostProfile.findUniqueOrThrow({
+    const savedProfile = await tx.hostProfile.findUniqueOrThrow({
       where: { id: profile.id },
       select: hostProfileView,
     });
+
+    return { profile: savedProfile, spotId: spot.id };
   });
 }
 
-export async function listAvailability(hostProfileId: string) {
+/**
+ * A host's windows, across all their spots or narrowed to one. Ownership is
+ * proven through the listing relation rather than a stored hostProfileId --
+ * see the schema note on HostAvailability -- so one host can never read or
+ * touch another host's windows by id.
+ */
+export async function listAvailability(
+  hostProfileId: string,
+  listingId?: string
+) {
   return prisma.hostAvailability.findMany({
-    where: { hostProfileId },
+    where: listingId
+      ? { listingId, listing: { hostProfileId } }
+      : { listing: { hostProfileId } },
     orderBy: [{ dayOfWeek: "asc" }, { startMinute: "asc" }],
   });
 }
 
 export async function addAvailability(
   hostProfileId: string,
+  listingId: string,
   input: AvailabilityInput
 ) {
+  const listing = await prisma.listing.findFirst({
+    where: { id: listingId, hostProfileId, listingType: "INDEPENDENT_SPOT" },
+    select: { id: true },
+  });
+
+  if (!listing) {
+    throw notFound("Listing not found");
+  }
+
   return prisma.hostAvailability.create({
-    data: { hostProfileId, ...input },
+    data: { listingId, ...input },
   });
 }
 
@@ -133,10 +166,10 @@ export async function updateAvailability(
   hostProfileId: string,
   input: Partial<AvailabilityInput>
 ) {
-  // hostProfileId is part of the filter so one host cannot toggle another
-  // host's window by id.
+  // The listing relation is part of the filter so one host cannot toggle
+  // another host's window by id.
   const updated = await prisma.hostAvailability.updateMany({
-    where: { id, hostProfileId },
+    where: { id, listing: { hostProfileId } },
     data: input,
   });
 
@@ -149,7 +182,7 @@ export async function updateAvailability(
 
 export async function removeAvailability(id: string, hostProfileId: string) {
   const deleted = await prisma.hostAvailability.deleteMany({
-    where: { id, hostProfileId },
+    where: { id, listing: { hostProfileId } },
   });
 
   if (deleted.count === 0) {

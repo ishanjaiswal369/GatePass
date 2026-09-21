@@ -17,6 +17,14 @@ model Listing {
   /// DRIVEWAY / GARAGE / CAR_PARK. No ON_STREET: a host cannot warrant
   /// exclusive use of public kerbside.
   spaceType     String?
+  /// The spot's own address, in the host's words. A host can list more than
+  /// one spot, so this cannot live on HostProfile (one row per host, holding
+  /// only the address from whichever spot happened to save it last) the way
+  /// it did when a host had only one.
+  addressLine   String?
+  city          String?
+  state         String?
+  pincode       String?
   /// Kept from the address autocomplete so a re-geocode can be matched back
   /// to the same place instead of drifting to a new pin.
   googlePlaceId String?
@@ -55,6 +63,7 @@ model Listing {
   capacities    ParkingCapacity[]
   photos        SpotPhoto[]
   pricing       SpotPricing[]
+  availability  HostAvailability[]
 }
 
 model ParkingCapacity {

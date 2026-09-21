@@ -8,7 +8,7 @@ import {
   RestoringScreen,
   ScreenHeader,
 } from "@/components/ui";
-import { FIRST_STEP_PATH } from "@/constants/wizard";
+import { firstStepPath } from "@/constants/wizard";
 import { useSpotDraft } from "@/hooks/useSpotDraft";
 import { colors, space, type } from "@/theme";
 
@@ -29,9 +29,11 @@ export default function SpotStatusScreen() {
   if (!token) return <Redirect href="/" />;
 
   // No spot yet, or one the host can still change: there is nothing to report,
-  // so go to the step that continues it.
+  // so go to the step that continues it. spot.id (when there is one) carries
+  // forward so the wizard resumes this specific draft rather than whichever
+  // one useSpotDraft's no-id fallback happens to find.
   if (!error && (!spot || spot.status === "DRAFT" || spot.status === "REJECTED")) {
-    return <Redirect href={FIRST_STEP_PATH} />;
+    return <Redirect href={firstStepPath(spot?.id)} />;
   }
 
   return (

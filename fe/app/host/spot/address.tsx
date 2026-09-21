@@ -197,17 +197,24 @@ export default function AddressScreen() {
       longitude,
     };
 
+    let spotId: string;
+
     if (spot) {
+      spotId = spot.id;
       await spotListingApi.saveAddress(token, spot.id, {
         ...address,
         googlePlaceId: placeId,
       });
     } else {
       // No host profile yet: this step creates it, and the API opens the
-      // draft listing alongside. This is the only place the address is
-      // collected -- onboarding used to ask for it separately, which had a
-      // host typing it twice into two rows that could then disagree.
-      await hostApi.createProfile(token, address);
+      // first draft listing alongside. This is the only place the address is
+      // collected for a brand-new host -- onboarding used to ask for it
+      // separately, which had a host typing it twice into two rows that could
+      // then disagree. A later spot arrives here already having an id (the
+      // dashboard's "Add another spot" opens the blank draft first), so this
+      // branch runs at most once per host.
+      const created = await hostApi.createProfile(token, address);
+      spotId = created.spotId;
 
       // The session's hasHostProfile decides whether later steps bother
       // asking for the spot at all, so it has to move with the profile --
@@ -215,7 +222,7 @@ export default function AddressScreen() {
       if (user) setUser({ ...user, hasHostProfile: true });
     }
 
-    router.push(nextStepPath("address"));
+    router.push(nextStepPath("address", spotId));
   });
 
   if (isRestoring || loading) return <RestoringScreen />;

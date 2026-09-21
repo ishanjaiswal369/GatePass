@@ -172,12 +172,22 @@ export interface HostProfile {
   createdAt: string;
 }
 
-export interface HostAvailabilityRow {
+export interface AvailabilityWindow {
   id: string;
   dayOfWeek: number;
   startMinute: number;
   endMinute: number;
   isActive: boolean;
+}
+
+/**
+ * A window as `/host/availability` returns it -- across every spot a host
+ * has, so `listingId` is what tells one spot's windows apart from another's.
+ * A single spot's own read (SpotListing.availability) already knows which
+ * spot it belongs to and does not carry the field.
+ */
+export interface HostAvailabilityRow extends AvailabilityWindow {
+  listingId: string;
 }
 
 /**
@@ -280,6 +290,10 @@ export interface SpotListing {
   venueName: string;
   spaceType: SpaceType | null;
   status: SpotListingStatus;
+  addressLine: string | null;
+  city: string | null;
+  state: string | null;
+  pincode: string | null;
   latitude: string | null;
   longitude: string | null;
   googlePlaceId: string | null;
@@ -293,7 +307,7 @@ export interface SpotListing {
   photos: SpotPhoto[];
   pricing: SpotPricingRow[];
   /** Only present on the single-spot read, not in the list. */
-  availability?: HostAvailabilityRow[];
+  availability?: AvailabilityWindow[];
 }
 
 /** What the review step needs: whether Submit will be accepted, and why not. */

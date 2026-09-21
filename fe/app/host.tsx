@@ -1,5 +1,5 @@
 import { Redirect, router } from "expo-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import { ApiError, hostApi, spotListingApi } from "@/api";
 import {
@@ -11,6 +11,7 @@ import {
   PhoneFrame,
   type NavKey,
   RestoringScreen,
+  TrashIcon,
 } from "@/components/ui";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
@@ -30,7 +31,7 @@ const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
  * Deliberately says what is outstanding rather than only naming a state: a
  * host reading "PENDING_REVIEW" learns nothing they can act on.
  */
-function ListingStatusCard({ spot }: { spot: SpotListing | null }) {
+function ListingStatusCard({ spot }: { spot: SpotListing }) {
   const { heading, body, tone } = describe(spot);
 
   return (
@@ -41,15 +42,15 @@ function ListingStatusCard({ spot }: { spot: SpotListing | null }) {
   );
 }
 
-function describe(spot: SpotListing | null): {
+function describe(spot: SpotListing): {
   heading: string;
   body: string;
   tone: "neutral" | "good" | "warn";
 } {
-  if (!spot || spot.status === "DRAFT") {
+  if (spot.status === "DRAFT") {
     return {
       heading: "Listing not finished",
-      body: "Your spot is saved as a draft. Finish the remaining steps to send it for review.",
+      body: "Saved as a draft. Finish the remaining steps to send it for review.",
       tone: "neutral",
     };
   }
@@ -73,14 +74,14 @@ function describe(spot: SpotListing | null): {
   if (spot.status === "SUSPENDED") {
     return {
       heading: "Paused",
-      body: spot.rejectionReason ?? "Your spot is offline. Contact support to put it back.",
+      body: spot.rejectionReason ?? "This spot is offline. Contact support to put it back.",
       tone: "warn",
     };
   }
 
   return {
     heading: "Live",
-    body: "Drivers nearby can find and book your spot.",
+    body: "Drivers nearby can find and book this spot.",
     tone: "good",
   };
 }
@@ -110,6 +111,12 @@ function formatMinute(minute: number) {
  * Which one to show comes from `user.hasHostProfile`, which every sign-in and
  * /auth/me carries. So a non-host lands on onboarding with no request at all,
  * and a host sees the dashboard frame at once while its details load.
+ *
+ * A host can list more than one spot. Every spot the host has (minus ones
+ * they have since deleted) gets its own card, with its own status,
+ * availability and a delete action; availability across every spot is
+ * fetched in one call and grouped client-side by `listingId`, because a host
+ * with a handful of spots does not need one round trip per card.
  */
 export default function HostScreen() {
   const { token, user, setUser, isRestoring } = useSession();
@@ -118,12 +125,22 @@ export default function HostScreen() {
   const isHost = user?.hasHostProfile;
   const insets = useScreenInsets();
   const [profile, setProfile] = useState<HostProfile | null>(null);
+  const [spots, setSpots] = useState<SpotListing[]>([]);
   const [availability, setAvailability] = useState<HostAvailabilityRow[]>([]);
-  const [spot, setSpot] = useState<SpotListing | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
+  const loadDashboard = useCallback(async () => {
+    if (!token) return;
 
+    const [{ availability: windows }, { spots: rows }] = await Promise.all([
+      hostApi.listAvailability(token),
+      spotListingApi.list(token),
+    ]);
+
+    setAvailability(windows);
+    setSpots(rows);
+  }, [token]);
 
   useEffect(() => {
     // Not a host: onboarding needs nothing from the server.
@@ -137,15 +154,7 @@ export default function HostScreen() {
         if (cancelled) return;
         setProfile(found);
 
-        if (found) {
-          const [{ availability: windows }, { spots }] = await Promise.all([
-            hostApi.listAvailability(token),
-            spotListingApi.list(token),
-          ]);
-          if (cancelled) return;
-          setAvailability(windows);
-          setSpot(spots[0] ?? null);
-        }
+        if (found) await loadDashboard();
       })
       .catch((err) =>
         setLoadError(err instanceof ApiError ? err.message : "Could not load host")
@@ -157,9 +166,7 @@ export default function HostScreen() {
     return () => {
       cancelled = true;
     };
-  }, [token, isHost]);
-
-  const [error] = useState<string | null>(null);
+  }, [token, isHost, loadDashboard]);
 
   const { run: toggleWindow } = useAsyncAction(
     async (id: string, next: boolean) => {
@@ -170,6 +177,27 @@ export default function HostScreen() {
       );
     }
   );
+
+  const { run: addSpot, busy: addingSpot } = useAsyncAction(async () => {
+    if (!token) return;
+    const created = await spotListingApi.create(token);
+    // Straight into the wizard -- a blank draft has nothing to report on the
+    // status screen, so there is no reason to detour through it.
+    router.push({ pathname: "/host/spot/address", params: { id: created.id } });
+  });
+
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const { run: deleteSpot } = useAsyncAction(async (id: string) => {
+    if (!token) return;
+    setDeletingId(id);
+    try {
+      await spotListingApi.deleteSpot(token, id);
+      setSpots((rows) => rows.filter((row) => row.id !== id));
+      setAvailability((rows) => rows.filter((row) => row.listingId !== id));
+    } finally {
+      setDeletingId(null);
+    }
+  });
 
   const navigate = (key: NavKey) => {
     if (key === "home") router.push("/home");
@@ -185,6 +213,8 @@ export default function HostScreen() {
     return <Redirect href="/" />;
   }
 
+  const activeSpots = spots.filter((spot) => spot.status !== "CANCELLED");
+
   return (
     <PhoneFrame>
       <View style={s.screen}>
@@ -198,7 +228,7 @@ export default function HostScreen() {
               {/* Known host: the dashboard frame shows now, details follow. */}
               {isHost ? (
                 <View style={s.heading}>
-                  <Text style={s.title}>Your spot</Text>
+                  <Text style={s.title}>Your spots</Text>
                 </View>
               ) : null}
               <ActivityIndicator color={colors.ink} style={s.loading} />
@@ -206,70 +236,93 @@ export default function HostScreen() {
           ) : profile ? (
             <>
               <View style={s.heading}>
-                <Text style={s.title}>Your spot</Text>
-                <Text style={s.sub}>
-                  {profile.addressLine}, {profile.city}
-                </Text>
+                <Text style={s.title}>Your spots</Text>
+                <Text style={s.sub}>{activeSpots.length} listed</Text>
               </View>
 
-              {/* What a host opens this screen to find out. Listing status,
-                  not profile verification: the profile has said ACTIVE since
-                  onboarding, while the listing is the thing that is or is not
-                  earning. */}
-              <ListingStatusCard spot={spot} />
-
-              <Button
-                label={
-                  !spot || spot.status === "DRAFT" || spot.status === "REJECTED"
-                    ? "Continue your listing"
-                    : "View your listing"
-                }
-                size="lg"
-                onPress={() => router.push("/host/spot")}
-              />
-
-              <Card heading="Spot">
+              <Card heading="Host details">
                 <DataRow label="City" value={profile.city} />
                 <DataRow label="Pincode" value={profile.pincode} />
-                {spot?.pricing?.length ? (
-                  <DataRow
-                    label="Rates"
-                    value={spot.pricing
-                      .map(
-                        (rate) =>
-                          `${rate.vehicleType === "CAR" ? "Car" : "Bike"} ₹${Number(rate.pricePerHour)}`
-                      )
-                      .join("  ·  ")}
-                  />
-                ) : null}
-                <DataRow label="Photos" value={`${spot?.photos?.length ?? 0}`} />
               </Card>
 
-              <Card heading={`Availability (${availability.length})`}>
-                {availability.length === 0 ? (
-                  <Text style={s.empty}>
-                    No windows yet. Add one in the listing wizard — a spot with
-                    no hours cannot be booked even once it is approved.
-                  </Text>
-                ) : (
-                  availability.map((window) => (
-                    <View key={window.id} style={s.window}>
-                      <View style={s.windowCopy}>
-                        <Text style={s.windowDay}>
-                          {DAY_NAMES[window.dayOfWeek]}{" "}
-                          {formatMinute(window.startMinute)}–
-                          {formatMinute(window.endMinute)}
-                        </Text>
-                      </View>
-                      <Switch
-                        value={window.isActive}
-                        onValueChange={(next) => toggleWindow(window.id, next)}
-                        accessibilityLabel={`Availability on ${DAY_NAMES[window.dayOfWeek]}`}
+              {activeSpots.length === 0 ? (
+                <Text style={s.empty}>
+                  No spots yet. Add one below to start taking bookings.
+                </Text>
+              ) : (
+                activeSpots.map((spot) => {
+                  const windows = availability.filter(
+                    (window) => window.listingId === spot.id
+                  );
+
+                  return (
+                    <Card key={spot.id} heading={spot.name}>
+                      <ListingStatusCard spot={spot} />
+
+                      <Button
+                        label={
+                          spot.status === "DRAFT" || spot.status === "REJECTED"
+                            ? "Continue this listing"
+                            : "View this listing"
+                        }
+                        onPress={() =>
+                          router.push({ pathname: "/host/spot", params: { id: spot.id } })
+                        }
                       />
-                    </View>
-                  ))
-                )}
-              </Card>
+
+                      {spot.city ? <DataRow label="City" value={spot.city} /> : null}
+                      {spot.pricing.length > 0 ? (
+                        <DataRow
+                          label="Rates"
+                          value={spot.pricing
+                            .map(
+                              (rate) =>
+                                `${rate.vehicleType === "CAR" ? "Car" : "Bike"} ₹${Number(rate.pricePerHour)}`
+                            )
+                            .join("  ·  ")}
+                        />
+                      ) : null}
+                      <DataRow label="Photos" value={`${spot.photos.length}`} />
+
+                      {windows.length === 0 ? (
+                        <Text style={s.empty}>
+                          No windows yet. This spot stays hidden until you add
+                          one in the wizard.
+                        </Text>
+                      ) : (
+                        windows.map((window) => (
+                          <View key={window.id} style={s.window}>
+                            <Text style={s.windowDay}>
+                              {DAY_NAMES[window.dayOfWeek]}{" "}
+                              {formatMinute(window.startMinute)}–
+                              {formatMinute(window.endMinute)}
+                            </Text>
+                            <Switch
+                              value={window.isActive}
+                              onValueChange={(next) => toggleWindow(window.id, next)}
+                              accessibilityLabel={`Availability on ${DAY_NAMES[window.dayOfWeek]}`}
+                            />
+                          </View>
+                        ))
+                      )}
+
+                      <Button
+                        label="Delete this spot"
+                        variant="danger"
+                        busy={deletingId === spot.id}
+                        onPress={() => deleteSpot(spot.id)}
+                        leadingIcon={<TrashIcon color={colors.danger} />}
+                      />
+                    </Card>
+                  );
+                })
+              )}
+
+              <Button
+                label="Add another spot"
+                busy={addingSpot}
+                onPress={addSpot}
+              />
             </>
           ) : (
             <>
@@ -279,8 +332,6 @@ export default function HostScreen() {
                   Earn from a driveway, garage or parking bay you already have.
                 </Text>
               </View>
-
-              {error ? <ErrorNotice message={error} /> : null}
 
               <Card heading="What you will need">
                 <View style={s.needs}>
@@ -303,7 +354,8 @@ export default function HostScreen() {
               <Text style={s.fine}>
                 We check your ownership proof before a listing goes live, and
                 your payout account has to be active. Both usually take a
-                couple of days.
+                couple of days. You can list more than one spot once you are
+                set up.
               </Text>
             </>
           )}
@@ -331,9 +383,7 @@ const s = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  windowCopy: { gap: 2 },
   windowDay: { fontSize: 15, fontWeight: "600", color: colors.ink },
-  windowPrice: { fontSize: 12, color: colors.inkFaint },
   fine: { fontSize: 12, color: colors.inkFaint, lineHeight: 18 },
   status: {
     gap: 5,

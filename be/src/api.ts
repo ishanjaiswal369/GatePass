@@ -229,7 +229,11 @@ export function registerApi(app: App): void {
     driver,
     request(hostRequests.createProfile, hostController.createProfile)
   );
-  app.get("/host/availability", host, hostController.listAvailability);
+  app.get(
+    "/host/availability",
+    host,
+    request(hostRequests.listAvailability, hostController.listAvailability)
+  );
   app.post(
     "/host/availability",
     host,
@@ -247,18 +251,26 @@ export function registerApi(app: App): void {
   );
   app.get("/host/settlements", host, settlementController.listForHost);
 
-  // Host spot wizard. Every step writes to the same DRAFT listing, so a host
-  // who drops out halfway keeps what they already entered.
+  // Host spot wizard. A host can list more than one spot; every step writes
+  // to a specific listing id, so a host who drops out halfway keeps what they
+  // already entered on that spot, and starting another does not touch it.
   app.get("/host/spots", host, spotListingController.list);
-  app.post(
-    "/host/spots",
+  // No body: opens a new blank draft. Name and space type are the next step.
+  app.post("/host/spots", host, spotListingController.create);
+  app.delete(
+    "/host/spots/:id",
     host,
-    request(spotListingRequests.create, spotListingController.create)
+    request(spotListingRequests.delete, spotListingController.delete)
   );
   app.get(
     "/host/spots/:id",
     host,
     request(spotListingRequests.getById, spotListingController.getById)
+  );
+  app.patch(
+    "/host/spots/:id/type",
+    host,
+    request(spotListingRequests.saveType, spotListingController.saveType)
   );
   app.patch(
     "/host/spots/:id/address",

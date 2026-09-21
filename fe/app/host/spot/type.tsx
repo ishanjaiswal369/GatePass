@@ -54,19 +54,23 @@ export default function SpaceTypeScreen() {
   }, [spot]);
 
   const { run: save, busy, error } = useAsyncAction(async () => {
-    if (!token || !spaceType) return;
+    if (!token || !spot || !spaceType) return;
 
-    await spotListingApi.create(token, {
+    await spotListingApi.saveType(token, spot.id, {
       name: name.trim(),
-      venueName: spot?.venueName?.trim() || name.trim(),
+      venueName: spot.venueName?.trim() || name.trim(),
       spaceType,
     });
 
-    router.push(nextStepPath("type"));
+    router.push(nextStepPath("type", spot.id));
   });
 
   if (isRestoring || loading) return <RestoringScreen />;
   if (!token) return <Redirect href="/" />;
+  // No id in the URL, or a stale one: there is no draft to name yet. The
+  // dashboard is what opens a blank one (host.tsx's "Add another spot"), or
+  // the address step does for a brand-new host.
+  if (!spot) return <Redirect href="/host/spot" />;
 
   return (
     <WizardShell

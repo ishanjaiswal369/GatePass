@@ -62,6 +62,10 @@ const spotView = {
   venueName: true,
   spaceType: true,
   status: true,
+  addressLine: true,
+  city: true,
+  state: true,
+  pincode: true,
   latitude: true,
   longitude: true,
   googlePlaceId: true,
@@ -140,18 +144,17 @@ export async function getForHost(listingId: string, hostProfileId: string) {
     throw notFound("Spot not found");
   }
 
-  return { ...spot, availability: await availabilityFor(hostProfileId) };
+  return { ...spot, availability: await availabilityFor(listingId) };
 }
 
 /**
- * Availability hangs off the host, not the listing -- a host has one spot in
- * this product, and the table predates the wizard. Read through the listing
- * anyway so the wizard has one shape to work with, and moving the rows later
- * is a service change rather than an API change.
+ * Scoped to the listing, not the host: a host can list more than one spot,
+ * each with its own hours, so two spots cannot share one calendar. See the
+ * schema note on HostAvailability.
  */
-async function availabilityFor(hostProfileId: string) {
+async function availabilityFor(listingId: string) {
   return prisma.hostAvailability.findMany({
-    where: { hostProfileId },
+    where: { listingId },
     select: {
       id: true,
       dayOfWeek: true,
@@ -164,57 +167,22 @@ async function availabilityFor(hostProfileId: string) {
 }
 
 /**
- * Step 1. Opens the draft, or picks up the one already there.
+ * Opens a new, empty draft for an already-onboarded host. A host's very
+ * first spot is opened by host onboarding instead (see
+ * host.service.createProfile), because that step also has to create the
+ * HostProfile; this is what "add another spot" calls afterwards.
  *
- * Host onboarding creates this listing row before the wizard ever runs, so
- * this adopts an existing draft instead of refusing -- a host who restarts
- * the wizard is continuing, not colliding. One spot per host for now, matching
- * the rest of the product: HostProfile is 1:1 with User and carries the
- * address, so a second spot would have nowhere to put its own.
+ * Name and space type are not asked for here -- they are the wizard's next
+ * step (saveType) -- so this is nothing but a fresh row and an id for the
+ * rest of the wizard to address.
  */
-export async function createDraft(
-  hostProfileId: string,
-  userId: string,
-  input: CreateSpotInput
-) {
-  const existing = await prisma.listing.findFirst({
-    where: {
-      hostProfileId,
-      listingType: "INDEPENDENT_SPOT",
-      status: { notIn: ["CANCELLED"] },
-    },
-    select: { id: true, status: true },
-  });
-
-  if (existing && !EDITABLE_STATUSES.includes(existing.status)) {
-    throw conflict(
-      existing.status === "PENDING_REVIEW"
-        ? "This host already has a spot under review"
-        : "This host already has a live spot"
-    );
-  }
-
-  if (existing) {
-    return prisma.listing.update({
-      where: { id: existing.id },
-      data: {
-        name: input.name,
-        venueName: input.venueName,
-        spaceType: input.spaceType,
-        status: "DRAFT",
-        updatedBy: userId,
-      },
-      select: spotView,
-    });
-  }
-
+export async function createBlankSpot(hostProfileId: string, userId: string) {
   return prisma.listing.create({
     data: {
       hostProfileId,
       listingType: "INDEPENDENT_SPOT",
-      name: input.name,
-      venueName: input.venueName,
-      spaceType: input.spaceType,
+      name: "New spot",
+      venueName: "",
       status: "DRAFT",
       createdBy: userId,
       updatedBy: userId,
@@ -223,10 +191,70 @@ export async function createDraft(
   });
 }
 
+/** Step 1 (of the per-spot wizard). What kind of space this is, and its name. */
+export async function saveType(
+  listingId: string,
+  hostProfileId: string,
+  userId: string,
+  input: CreateSpotInput
+) {
+  await editableSpot(listingId, hostProfileId);
+
+  return prisma.listing.update({
+    where: { id: listingId },
+    data: {
+      name: input.name,
+      venueName: input.venueName,
+      spaceType: input.spaceType,
+      updatedBy: userId,
+    },
+    select: spotView,
+  });
+}
+
 /**
- * Step 3. The pin is what a driver navigates to, so it is stored on the
- * listing and on the host profile: search reads the profile's coordinates,
- * and the listing keeps the exact spot the host dragged the pin to.
+ * Taking a spot off the host's own dashboard. A cancel, not a row deletion --
+ * the same pattern account deletion already uses for a host's listings -- so
+ * booking history (once host spots can be booked) and the review record
+ * survive, and only its visibility does not. Availability is switched off
+ * alongside it, or a re-published listing would show windows that were never
+ * really turned off.
+ *
+ * Allowed from any status, not just the editable ones: a host who wants a
+ * live spot gone should not have to wait for support, and there is nothing
+ * for `editableSpot`'s "under review" / "live, contact support" refusal to
+ * protect here -- unlike an edit, a delete cannot corrupt something a human
+ * already checked.
+ */
+export async function deleteListing(
+  listingId: string,
+  hostProfileId: string,
+  userId: string
+) {
+  const spot = await ownedSpot(listingId, hostProfileId);
+
+  if (spot.status === "CANCELLED") return;
+
+  await prisma.$transaction([
+    prisma.listing.update({
+      where: { id: listingId },
+      data: { status: "CANCELLED", updatedBy: userId },
+    }),
+    prisma.hostAvailability.updateMany({
+      where: { listingId },
+      data: { isActive: false },
+    }),
+  ]);
+}
+
+/**
+ * Step 3. The pin is what a driver navigates to.
+ *
+ * Written onto the listing only. It used to also update HostProfile, back
+ * when a host had one spot and the two addresses were the same fact twice;
+ * now that a host can have several spots at different addresses, the last one
+ * saved would otherwise silently overwrite the host's own registered address
+ * on every unrelated spot's edit.
  */
 export async function saveAddress(
   listingId: string,
@@ -236,31 +264,20 @@ export async function saveAddress(
 ) {
   await editableSpot(listingId, hostProfileId);
 
-  const [spot] = await prisma.$transaction([
-    prisma.listing.update({
-      where: { id: listingId },
-      data: {
-        latitude: new Prisma.Decimal(input.latitude),
-        longitude: new Prisma.Decimal(input.longitude),
-        googlePlaceId: input.googlePlaceId,
-        updatedBy: userId,
-      },
-      select: spotView,
-    }),
-    prisma.hostProfile.update({
-      where: { id: hostProfileId },
-      data: {
-        addressLine: input.addressLine,
-        city: input.city,
-        state: input.state,
-        pincode: input.pincode,
-        latitude: new Prisma.Decimal(input.latitude),
-        longitude: new Prisma.Decimal(input.longitude),
-      },
-    }),
-  ]);
-
-  return spot;
+  return prisma.listing.update({
+    where: { id: listingId },
+    data: {
+      addressLine: input.addressLine,
+      city: input.city,
+      state: input.state,
+      pincode: input.pincode,
+      latitude: new Prisma.Decimal(input.latitude),
+      longitude: new Prisma.Decimal(input.longitude),
+      googlePlaceId: input.googlePlaceId,
+      updatedBy: userId,
+    },
+    select: spotView,
+  });
 }
 
 /**
@@ -402,11 +419,11 @@ function isOverlapViolation(error: unknown): boolean {
 }
 
 /**
- * Step 5. Replaces the host's whole weekly schedule.
+ * Step 5. Replaces this spot's whole weekly schedule.
  *
  * A replace rather than a merge: the wizard shows the full week, so what it
  * sends is the truth. Overlaps inside the payload are caught by the database's
- * exclusion constraint, not by a loop here -- see migration 0022.
+ * exclusion constraint, not by a loop here -- see migration 0023.
  */
 export async function replaceAvailability(
   listingId: string,
@@ -417,9 +434,9 @@ export async function replaceAvailability(
 
   try {
     await prisma.$transaction([
-      prisma.hostAvailability.deleteMany({ where: { hostProfileId } }),
+      prisma.hostAvailability.deleteMany({ where: { listingId } }),
       prisma.hostAvailability.createMany({
-        data: windows.map((window) => ({ hostProfileId, ...window })),
+        data: windows.map((window) => ({ listingId, ...window })),
       }),
     ]);
   } catch (error) {
@@ -433,7 +450,7 @@ export async function replaceAvailability(
     throw error;
   }
 
-  return availabilityFor(hostProfileId);
+  return availabilityFor(listingId);
 }
 
 /** Step 9. One rate per vehicle type, replacing whatever was there. */
@@ -494,7 +511,7 @@ export async function missingForSubmit(
   }
 
   const windows = await prisma.hostAvailability.count({
-    where: { hostProfileId, isActive: true },
+    where: { listingId, isActive: true },
   });
 
   const missing: string[] = [];
