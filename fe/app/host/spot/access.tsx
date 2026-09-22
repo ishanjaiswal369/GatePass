@@ -92,7 +92,9 @@ export default function AccessScreen() {
 }
 
 const s = StyleSheet.create({
-  textArea: { minHeight: 120, textAlignVertical: "top" },
+  // Height only. Everything else about how the input sits in its box is
+  // Field's own business -- see the note there about merging this style.
+  textArea: { minHeight: 120 },
   examples: {
     gap: space.sm,
     backgroundColor: colors.surface,

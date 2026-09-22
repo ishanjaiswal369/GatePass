@@ -25,6 +25,8 @@ export function Field({
   optional,
   icon,
   focused,
+  style,
+  multiline,
   ...props
 }: TextInputProps & {
   label: string;
@@ -43,10 +45,23 @@ export function Field({
         {optional ? <Text style={s.optional}>optional</Text> : null}
       </View>
 
-      <View style={[s.box, (focused || hasValue) && s.boxFilled]}>
+      <View
+        style={[
+          s.box,
+          multiline && s.boxMultiline,
+          (focused || hasValue) && s.boxFilled,
+        ]}
+      >
         {icon ? <View style={s.icon}>{icon}</View> : null}
+        {/* `style` is pulled out of props and merged last rather than left in
+            the spread, where it replaced this array wholesale -- a caller
+            passing so much as a minHeight silently dropped the font, the
+            padding, the focus reset and the flex that makes the input fill
+            its box. On web that left a bare <textarea> at its intrinsic
+            column width, sitting inside a full-width border. */}
         <TextInput
-          style={[s.input, webFocusReset]}
+          multiline={multiline}
+          style={[s.input, multiline && s.inputMultiline, webFocusReset, style]}
           placeholderTextColor={colors.inkFaint}
           {...props}
         />
@@ -72,14 +87,21 @@ const s = StyleSheet.create({
     paddingHorizontal: 13,
     minHeight: 48,
   },
+  // A single-line field centres its input in the box; a text area has to fill
+  // it instead, or the text sits in a band down the middle of its own border.
+  boxMultiline: { alignItems: "stretch" },
   boxFilled: { borderColor: colors.borderStrong },
   icon: { flexShrink: 0 },
   input: {
     flexGrow: 1,
     flexShrink: 1,
+    // Without a zero basis the web <textarea> keeps its intrinsic column
+    // width and refuses to grow into the row.
+    flexBasis: 0,
     fontSize: 15,
     color: colors.ink,
     paddingVertical: space.md,
   },
+  inputMultiline: { width: "100%", textAlignVertical: "top" },
   hint: { ...type.caption, color: colors.inkFaint },
 });
