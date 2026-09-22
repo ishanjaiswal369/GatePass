@@ -60,7 +60,11 @@ export default function HomeScreen() {
   const [error, setError] = useState<string | null>(null);
   const [locationNote, setLocationNote] = useState<string | null>(null);
 
-  const { coords, status: locationStatus, requestLocation } = useDriverLocation();
+  const {
+    status: locationStatus,
+    requestLocation,
+    setManualCoords,
+  } = useDriverLocation();
 
   /**
    * Three parallel calls rather than one aggregate endpoint: the feed is
@@ -162,6 +166,16 @@ export default function HomeScreen() {
         return;
       }
 
+      // The typed area *is* the driver's position for this search, so it has
+      // to reach the hook. Without this the lookup and the fetch both
+      // succeed and nothing renders: the tab shows its list only once a
+      // position is known, which left "location denied, type an area
+      // instead" as a fallback that quietly led nowhere.
+      setManualCoords({
+        latitude: first.latitude,
+        longitude: first.longitude,
+      });
+
       await loadSpots({ latitude: first.latitude, longitude: first.longitude });
     } catch (err) {
       setLocationNote(
@@ -170,7 +184,7 @@ export default function HomeScreen() {
           : "Could not look that area up."
       );
     }
-  }, [token, query, loadSpots]);
+  }, [token, query, loadSpots, setManualCoords]);
 
   const navigate = useCallback((key: NavKey) => {
     if (key === "bookings") router.push("/bookings");

@@ -21,6 +21,14 @@
         "backgroundColor": "#ffffff"
       }
     },
-    "plugins": ["expo-router"]
+    "plugins": [
+      "expo-router",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "GatePass uses your location to show parking spots near you. Your location is never shared with hosts."
+        }
+      ]
+    ]
   }
 }
