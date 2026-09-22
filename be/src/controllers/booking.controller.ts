@@ -2,6 +2,7 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import type {
   BookingPassInput,
   CreateBookingInput,
+  CreateSpotBookingInput,
   GetBookingInput,
   ListBookingsInput,
 } from "../requests/booking.request.js";
@@ -66,6 +67,19 @@ export const bookingController = {
     );
 
     // A replay is not a creation, so it does not answer 201.
+    return reply.code(replayed ? 200 : 201).send(booking);
+  },
+
+  createSpot: async (
+    input: CreateSpotBookingInput,
+    request: FastifyRequest,
+    reply: FastifyReply
+  ) => {
+    const { booking, replayed } = await bookingService.createSpotBooking(
+      input.body,
+      request.user.userId
+    );
+
     return reply.code(replayed ? 200 : 201).send(booking);
   },
 };

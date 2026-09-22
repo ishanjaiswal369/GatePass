@@ -1,8 +1,29 @@
+/// Two shapes, one table (migration 0025). An event booking claims slots from
+/// a ParkingCapacity; a host-spot booking claims a stretch of time on one
+/// Listing. A DB CHECK enforces that a row is exactly one of the two, and an
+/// EXCLUDE constraint is what stops two drivers booking overlapping hours on
+/// the same space -- a counter cannot express that, because the thing being
+/// competed for is a range rather than a quantity.
+///
+/// They share a table because everything downstream -- payment, pass,
+/// settlement item -- is identical either way.
 model Booking {
   id              String        @id @default(uuid())
-  parkingCapacityId String
+  parkingCapacityId String?
+  /// Set on host-spot bookings only; the event path reaches its listing
+  /// through ParkingCapacity.
+  listingId       String?
+  startsAt        DateTime?
+  endsAt          DateTime?
+  /// When an unpaid PENDING hold stops reserving the time. Swept on the next
+  /// booking attempt for the same spot, so no scheduler is needed.
+  holdExpiresAt   DateTime?
   driverId        String
   vehicleNumber   String
+  /// Set on host-spot bookings, which choose a rate out of SpotPricing and
+  /// would otherwise have nowhere to record which one. An event booking
+  /// answers this through its ParkingCapacity.
+  vehicleType     String?
   quantity        Int
   amount          Decimal
   status          String        @default("PENDING")
@@ -13,10 +34,13 @@ model Booking {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
-  parkingCapacity ParkingCapacity @relation(fields: [parkingCapacityId], references: [id])
+  parkingCapacity ParkingCapacity? @relation(fields: [parkingCapacityId], references: [id])
+  listing         Listing?        @relation(fields: [listingId], references: [id])
   driver          User            @relation(fields: [driverId], references: [id])
   payment         Payment?
   settlementItems SettlementItem[]
   creator         User?           @relation("BookingCreatedBy", fields: [createdBy], references: [id])
   updater         User?           @relation("BookingUpdatedBy", fields: [updatedBy], references: [id])
+
+  @@index([listingId, startsAt])
 }

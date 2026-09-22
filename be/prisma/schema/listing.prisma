@@ -64,6 +64,9 @@ model Listing {
   photos        SpotPhoto[]
   pricing       SpotPricing[]
   availability  HostAvailability[]
+  /// Host-spot bookings, which claim a stretch of this listing's time rather
+  /// than a slot from a ParkingCapacity. Empty on event listings.
+  spotBookings  Booking[]
 }
 
 model ParkingCapacity {

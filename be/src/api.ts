@@ -219,6 +219,13 @@ export function registerApi(app: App): void {
     driver,
     request(bookingRequests.create, bookingController.create)
   );
+  // A host spot is booked by the hour against its own listing, not by the
+  // slot against a ParkingCapacity -- see booking.service.createSpotBooking.
+  app.post(
+    "/spot-bookings",
+    driver,
+    request(bookingRequests.createSpot, bookingController.createSpot)
+  );
 
   // Driver payments, against the driver's own bookings.
   app.get("/payments", driver, paymentController.list);

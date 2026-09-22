@@ -13,6 +13,7 @@ import {
   RestoringScreen,
 } from "@/components/ui";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
+import { bookingListing, bookingWhen, isSpotBooking } from "@/lib/booking";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, space } from "@/theme";
 import type { BookingRow } from "@/types/api.types";
@@ -90,10 +91,18 @@ export default function BookingsScreen() {
             </Text>
           ) : (
             rows.map((row) => (
-              <Card key={row.id} heading={row.parkingCapacity.listing.name}>
-                <DataRow label="Venue" value={row.parkingCapacity.listing.venueName} />
+              <Card key={row.id} heading={bookingListing(row)?.name ?? "Booking"}>
+                <DataRow
+                  label="Where"
+                  value={bookingListing(row)?.venueName ?? "—"}
+                />
+                <DataRow label="When" value={bookingWhen(row)} />
                 <DataRow label="Vehicle" value={row.vehicleNumber} />
-                <DataRow label="Spots" value={String(row.quantity)} />
+                {/* A host spot is one space, so "how many" is only a question
+                    an event booking answers. */}
+                {isSpotBooking(row) ? null : (
+                  <DataRow label="Spots" value={String(row.quantity)} />
+                )}
                 <DataRow label="Amount" value={`₹${Math.round(Number(row.amount))}`} />
                 <DataRow label="Status" value={row.status} />
               </Card>

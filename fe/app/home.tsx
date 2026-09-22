@@ -15,6 +15,12 @@ import {
   RestoringScreen,
 } from "@/components/ui";
 import { BookParkingForm } from "@/features/search/BookParkingForm";
+import {
+  bookingGate,
+  bookingListing,
+  bookingVehicleType,
+  bookingWhen,
+} from "@/lib/booking";
 import { useSession } from "@/providers/SessionProvider";
 import { toParams, type SearchCriteria } from "@/lib/searchCriteria";
 import { colors, radius, space, type } from "@/theme";
@@ -38,21 +44,6 @@ const TABS = [
   { value: "parked" as const, label: "Already parked" },
   { value: "book" as const, label: "Book parking" },
 ];
-
-function passWhen(eventDate: string | null): string {
-  if (!eventDate) return "Any time";
-
-  const date = new Date(eventDate);
-  const time = date.toLocaleTimeString(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-  });
-
-  const days = Math.round((date.getTime() - Date.now()) / 86_400_000);
-  if (days <= 0) return `Today · ${time}`;
-  if (days === 1) return `Tomorrow · ${time}`;
-  return `${date.toLocaleDateString(undefined, { day: "numeric", month: "short" })} · ${time}`;
-}
 
 export default function HomeScreen() {
   const { token, user, isRestoring } = useSession();
@@ -231,16 +222,16 @@ function ParkedPanel({
     );
   }
 
-  const listing = pass.parkingCapacity.listing;
+  const listing = bookingListing(pass);
 
   return (
     <>
       <ActivePassCard
-        eventName={listing.name}
-        venueName={listing.venueName}
-        gate={pass.parkingCapacity.gate}
-        vehicleType={pass.parkingCapacity.vehicleType}
-        when={passWhen(listing.eventDate)}
+        eventName={listing?.name ?? "Your booking"}
+        venueName={listing?.venueName ?? ""}
+        gate={bookingGate(pass)}
+        vehicleType={bookingVehicleType(pass) ?? ""}
+        when={bookingWhen(pass)}
         onShowPass={() => router.push(`/pass/${pass.id}`)}
       />
 

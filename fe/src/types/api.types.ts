@@ -112,27 +112,44 @@ export interface EventDetail {
   capacities: EventCapacity[];
 }
 
+export interface BookingListing {
+  id: string;
+  name: string;
+  venueName: string;
+  addressLine?: string | null;
+  city?: string | null;
+  eventDate: string | null;
+  listingType: ListingType;
+  status: ListingStatus;
+}
+
+/**
+ * A booking in either of its two shapes.
+ *
+ * An event booking claims slots from a `parkingCapacity` and reaches its
+ * listing through it. A host-spot booking carries its own `listing` plus the
+ * hours it covers. Exactly one side is ever populated -- the database
+ * enforces it -- so read whichever is not null; `lib/booking.ts` does that in
+ * one place rather than at every call site.
+ */
 export interface BookingRow {
   id: string;
   quantity: number;
   amount: string;
   status: BookingStatus;
   vehicleNumber: string;
+  vehicleType: VehicleType | null;
   createdAt: string;
+  startsAt: string | null;
+  endsAt: string | null;
+  listing: BookingListing | null;
   parkingCapacity: {
     id: string;
     vehicleType: VehicleType;
     gate: string | null;
     price: string;
-    listing: {
-      id: string;
-      name: string;
-      venueName: string;
-      eventDate: string | null;
-      listingType: ListingType;
-      status: ListingStatus;
-    };
-  };
+    listing: BookingListing;
+  } | null;
 }
 
 export interface GatePassResult {
