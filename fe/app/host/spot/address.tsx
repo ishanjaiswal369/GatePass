@@ -1,7 +1,7 @@
 import { Redirect, router, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { hostApi, spotListingApi, spotsApi } from "@/api";
+import { spotListingApi, spotsApi } from "@/api";
 import type { AddressParts, PlaceSuggestion } from "@/types/api.types";
 import {
   Button,
@@ -15,13 +15,18 @@ import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useDriverLocation } from "@/hooks/useDriverLocation";
 import { usePlaceSearch } from "@/hooks/usePlaceSearch";
 import { useSpotDraft } from "@/hooks/useSpotDraft";
+import { useWizardBack } from "@/hooks/useWizardBack";
 import { takePin } from "@/lib/pinHandoff";
-import { useSession } from "@/providers/SessionProvider";
-import { TOTAL_STEPS, nextStepPath, stepNumber } from "@/constants/wizard";
+import {
+  TOTAL_STEPS,
+  firstStepPath,
+  nextStepPath,
+  stepNumber,
+} from "@/constants/wizard";
 import { colors, radius, space, type } from "@/theme";
 
 /**
- * Step 2. Where the space is.
+ * Step 2. Where the space is, on the listing the previous step created.
  *
  * Search fills the coordinates; the map then moves the pin without touching
  * the typed address. Those are two different truths -- the address a driver
@@ -33,7 +38,7 @@ import { colors, radius, space, type } from "@/theme";
 export default function AddressScreen() {
   const { spot, loading, isRestoring, token } = useSpotDraft();
   const { requestLocation } = useDriverLocation();
-  const { user, setUser } = useSession();
+  const back = useWizardBack("address", spot?.id);
   const {
     query,
     setQuery,
@@ -57,25 +62,11 @@ export default function AddressScreen() {
     if (spot.latitude) setLatitude(Number(spot.latitude));
     if (spot.longitude) setLongitude(Number(spot.longitude));
     setPlaceId(spot.googlePlaceId ?? undefined);
+    if (spot.addressLine) setAddressLine(spot.addressLine);
+    if (spot.city) setCity(spot.city);
+    if (spot.state) setStateName(spot.state);
+    if (spot.pincode) setPincode(spot.pincode);
   }, [spot]);
-
-  // Onboarding already collected the address onto the host profile. Asking
-  // for it again on a blank form is asking a host to retype what they just
-  // typed, and the two would then be free to disagree.
-  useEffect(() => {
-    if (!token) return;
-
-    hostApi
-      .getProfile(token)
-      .then(({ profile }) => {
-        if (!profile) return;
-        setAddressLine((current) => current || profile.addressLine);
-        setCity((current) => current || profile.city);
-        setStateName((current) => current || profile.state);
-        setPincode((current) => current || profile.pincode);
-      })
-      .catch(() => undefined);
-  }, [token]);
 
   const { run: useMyLocation, busy: locating } = useAsyncAction(async () => {
     const at = await requestLocation();
@@ -186,47 +177,26 @@ export default function AddressScreen() {
   );
 
   const { run: save, busy, error } = useAsyncAction(async () => {
-    if (!token || latitude === null || longitude === null) return;
+    if (!token || !spot || latitude === null || longitude === null) return;
 
-    const address = {
+    await spotListingApi.saveAddress(token, spot.id, {
       addressLine: addressLine.trim(),
       city: city.trim(),
       state: stateName.trim(),
       pincode: pincode.trim(),
       latitude,
       longitude,
-    };
+      googlePlaceId: placeId,
+    });
 
-    let spotId: string;
-
-    if (spot) {
-      spotId = spot.id;
-      await spotListingApi.saveAddress(token, spot.id, {
-        ...address,
-        googlePlaceId: placeId,
-      });
-    } else {
-      // No host profile yet: this step creates it, and the API opens the
-      // first draft listing alongside. This is the only place the address is
-      // collected for a brand-new host -- onboarding used to ask for it
-      // separately, which had a host typing it twice into two rows that could
-      // then disagree. A later spot arrives here already having an id (the
-      // dashboard's "Add another spot" opens the blank draft first), so this
-      // branch runs at most once per host.
-      const created = await hostApi.createProfile(token, address);
-      spotId = created.spotId;
-
-      // The session's hasHostProfile decides whether later steps bother
-      // asking for the spot at all, so it has to move with the profile --
-      // otherwise every step after this one believes there is nothing to load.
-      if (user) setUser({ ...user, hasHostProfile: true });
-    }
-
-    router.push(nextStepPath("address", spotId));
+    router.push(nextStepPath("address", spot.id));
   });
 
   if (isRestoring || loading) return <RestoringScreen />;
   if (!token) return <Redirect href="/" />;
+  // Arrived without a listing -- a stale link, or a reload after the id was
+  // dropped. The step before this one is what creates it.
+  if (!spot) return <Redirect href={firstStepPath()} />;
 
   const hasPin = latitude !== null && longitude !== null;
   const canContinue = Boolean(
@@ -239,7 +209,7 @@ export default function AddressScreen() {
       sub="Where drivers will come to park."
       step={stepNumber("address")}
       totalSteps={TOTAL_STEPS}
-      onBack={() => router.back()}
+      onBack={back}
       onContinue={save}
       canContinue={canContinue}
       busy={busy}

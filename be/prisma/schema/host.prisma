@@ -5,18 +5,23 @@
 model HostProfile {
   id                 String   @id @default(uuid())
   userId             String   @unique
-  addressLine        String
-  city               String
-  state              String
-  pincode            String
-  latitude           Decimal
-  longitude          Decimal
   panNumber          String?
-  bankAccountId      String?
   // Onboarding submits as ACTIVE; the checks behind PENDING are not automated
   // yet. Kept as a column so turning verification on later is a data change,
   // not a schema change.
   verificationStatus String   @default("ACTIVE")
+
+  /// What the host said their bank account is. Held because somebody has to
+  /// check it: an admin today, a gateway later. They used to be validated and
+  /// discarded, which left payoutKycStatus sitting at UNDER_REVIEW with
+  /// nothing to review.
+  ///
+  /// Read back only in masked form -- see host-payout.service's payoutView.
+  /// Once a gateway holds these, this is where they stop being stored.
+  payoutAccountName   String?
+  payoutAccountNumber String?
+  payoutIfsc          String?
+  payoutSubmittedAt   DateTime?
 
   /// The host's account with whoever pays them -- a Cashfree vendor id today.
   /// Named for the job rather than the vendor so a gateway change is an

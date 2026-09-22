@@ -25,6 +25,14 @@ const reviewView = {
   venueName: true,
   spaceType: true,
   status: true,
+  // The spot's own address, not the host's. A reviewer is checking that the
+  // ownership document names this place, and a host with three driveways has
+  // three addresses -- reading one off HostProfile would hand the reviewer
+  // whichever spot was saved last.
+  addressLine: true,
+  city: true,
+  state: true,
+  pincode: true,
   latitude: true,
   longitude: true,
   accessInstructions: true,
@@ -39,12 +47,16 @@ const reviewView = {
   hostProfile: {
     select: {
       id: true,
-      city: true,
-      state: true,
-      pincode: true,
-      addressLine: true,
       payoutKycStatus: true,
       verificationStatus: true,
+      // The details behind payoutKycStatus. Unmasked, unlike the host's own
+      // read: an admin clearing UNDER_REVIEW is checking exactly these, and
+      // last four digits cannot be checked against anything.
+      panNumber: true,
+      payoutAccountName: true,
+      payoutAccountNumber: true,
+      payoutIfsc: true,
+      payoutSubmittedAt: true,
       user: { select: { id: true, email: true, firstName: true, lastName: true } },
     },
   },

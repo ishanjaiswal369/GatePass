@@ -4,6 +4,9 @@ import type { RequestInput, RequestSchemas } from "../lib/request.js";
 
 const MINUTES_IN_DAY = 24 * 60;
 
+/** 0 = Sunday .. 6 = Saturday, matching JS getDay(). */
+const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
 const listingId = z.object({ id: z.string().uuid() });
 
 const createSpotBody = z.object({
@@ -58,8 +61,42 @@ const availabilityWindow = z
     message: "must be after startMinute; split windows that cross midnight",
   });
 
+/**
+ * The database refuses overlapping windows too (the EXCLUDE constraint in
+ * migration 0023), and it is the one that has to, because two concurrent
+ * requests can each pass a check the other invalidates. This is here anyway
+ * so the common case -- one host, one payload, two windows they typed
+ * themselves -- comes back naming the day it went wrong instead of as a
+ * generic "two of these overlap".
+ */
 const availabilityBody = z.object({
-  windows: z.array(availabilityWindow).max(7 * 6),
+  windows: z
+    .array(availabilityWindow)
+    .max(7 * 6)
+    .superRefine((windows, ctx) => {
+      const byDay = new Map<number, { startMinute: number; endMinute: number }[]>();
+
+      for (const window of windows) {
+        const sameDay = byDay.get(window.dayOfWeek) ?? [];
+
+        if (
+          sameDay.some(
+            (other) =>
+              window.startMinute < other.endMinute &&
+              other.startMinute < window.endMinute
+          )
+        ) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `two windows overlap on ${DAY_NAMES[window.dayOfWeek]}`,
+          });
+          return;
+        }
+
+        sameDay.push(window);
+        byDay.set(window.dayOfWeek, sameDay);
+      }
+    }),
 });
 
 const pricingBody = z.object({
@@ -75,9 +112,9 @@ const pricingBody = z.object({
 
 export const spotListingRequests = {
   getById: { params: listingId } satisfies RequestSchemas,
-  // No body: opens a blank draft, with nothing to validate yet. What kind of
-  // space it is and its name are the next step, saveType.
-  create: {} satisfies RequestSchemas,
+  // The name is required here rather than on a later step, so that no row can
+  // exist before the host has said what it is.
+  create: { body: createSpotBody } satisfies RequestSchemas,
   delete: { params: listingId } satisfies RequestSchemas,
   saveType: { params: listingId, body: createSpotBody } satisfies RequestSchemas,
   saveAddress: { params: listingId, body: saveAddressBody } satisfies RequestSchemas,
@@ -98,6 +135,7 @@ export const spotListingRequests = {
 };
 
 export type GetSpotInput = RequestInput<typeof spotListingRequests.getById>;
+export type CreateSpotInput = RequestInput<typeof spotListingRequests.create>;
 export type DeleteSpotInput = RequestInput<typeof spotListingRequests.delete>;
 export type SaveTypeInput = RequestInput<typeof spotListingRequests.saveType>;
 export type SaveAddressInput = RequestInput<typeof spotListingRequests.saveAddress>;

@@ -160,15 +160,14 @@ export interface NearbySpot {
   availableUntilMinute: number;
 }
 
+/**
+ * A host, with no address of their own: each spot carries the address that
+ * describes it, and a host with two driveways has two.
+ */
 export interface HostProfile {
   id: string;
-  addressLine: string;
-  city: string;
-  state: string;
-  pincode: string;
-  latitude: string;
-  longitude: string;
   verificationStatus: VerificationStatus;
+  payoutKycStatus: PayoutKycStatus;
   createdAt: string;
 }
 
@@ -306,8 +305,7 @@ export interface SpotListing {
   createdAt: string;
   photos: SpotPhoto[];
   pricing: SpotPricingRow[];
-  /** Only present on the single-spot read, not in the list. */
-  availability?: AvailabilityWindow[];
+  availability: AvailabilityWindow[];
 }
 
 /** What the review step needs: whether Submit will be accepted, and why not. */
@@ -323,7 +321,23 @@ export interface PresignedUpload {
   expiresInSeconds: number;
 }
 
+/**
+ * The host's own read of their payout details. The account number comes back
+ * as its last four digits only -- enough to recognise what was submitted,
+ * which is all this screen is for.
+ */
 export interface PayoutAccount {
   payoutAccountId: string | null;
   payoutKycStatus: PayoutKycStatus;
+  panNumber: string | null;
+  accountHolderName: string | null;
+  accountNumberLast4: string | null;
+  ifsc: string | null;
+  submittedAt: string | null;
+  /**
+   * Whether the host still has to enter their details. Not derivable from
+   * the status: an account submitted before the details were stored reads as
+   * UNDER_REVIEW with nothing behind it, and only the API knows that.
+   */
+  needsDetails: boolean;
 }

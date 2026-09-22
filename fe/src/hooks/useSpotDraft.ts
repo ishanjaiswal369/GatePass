@@ -18,6 +18,11 @@ import type { SpotListing } from "@/types/api.types";
  * param (see wizard.ts's nextStepPath/firstStepPath, which carry it forward
  * from screen to screen). Reading it here, rather than in every screen, means
  * no wizard screen has to know this hook is id-aware at all.
+ *
+ * No id means no spot. It used to mean "whichever one the host touched
+ * first", which was harmless when a host had one; now that the first step
+ * creates a spot, that fallback would have "add another spot" open the
+ * existing one and rename it.
  */
 export function useSpotDraft() {
   const { token, user, isRestoring } = useSession();
@@ -32,9 +37,10 @@ export function useSpotDraft() {
   const load = useCallback(async () => {
     if (!token) return;
 
-    // A user who has not onboarded has no spot to load, and the address step
-    // is where they get one. Calling anyway would be a guaranteed 403.
-    if (isHost === false) {
+    // Nothing to load: a spot the host has not created yet (the first step
+    // creates it), or a user who is not a host, for whom every call here
+    // would be a guaranteed 403.
+    if (!id || isHost === false) {
       setSpot(null);
       setLoading(false);
       return;
@@ -44,21 +50,10 @@ export function useSpotDraft() {
     setError(null);
 
     try {
-      if (id) {
-        setSpot(await spotListingApi.getById(token, id));
-      } else {
-        // No id in the route: legacy entry with nothing to resume yet. Falls
-        // back to whichever spot the host touched first, which only matters
-        // before any screen has had the chance to attach a real id.
-        const { spots } = await spotListingApi.list(token);
-        const current = spots[0] ?? null;
-        setSpot(
-          current ? await spotListingApi.getById(token, current.id) : null
-        );
-      }
+      setSpot(await spotListingApi.getById(token, id));
     } catch (err) {
       // 403 means this user is not a host yet, which is the expected state on
-      // the first step -- the profile is created by the address step. 404
+      // the first step -- the profile is created alongside the listing. 404
       // means a stale or foreign id in the URL. Anything else is a real
       // failure worth showing.
       if (

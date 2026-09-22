@@ -6,11 +6,15 @@
  * every later screen counting wrong.
  */
 export const WIZARD_STEPS = [
-  // Address first, and it is the only place the address is asked for. It used
-  // to be collected again by host onboarding before the wizard opened, which
-  // meant a host typed it twice and the two copies were free to disagree.
-  "address",
+  // Name and space type first, because this is the step that creates the
+  // listing. Nothing is written until a host has said what they are listing:
+  // opening a blank row here and naming it later left an unnamed "New spot"
+  // on the dashboard for everyone who looked at the wizard and backed out.
   "type",
+  // The only place the address is asked for. Host onboarding used to collect
+  // it separately before the wizard opened, which meant typing it twice into
+  // two rows free to disagree.
+  "address",
   "photos",
   "availability",
   "pricing",
@@ -38,12 +42,28 @@ export const stepNumber = (step: WizardStep) =>
  */
 export function nextStepPath(step: WizardStep, id?: string): string {
   const next = WIZARD_STEPS[WIZARD_STEPS.indexOf(step) + 1];
-  const path = next ? `/host/spot/${next}` : "/host/spot";
-  return id ? `${path}?id=${id}` : path;
+  return next ? stepPath(next, id) : id ? `/host/spot?id=${id}` : "/host/spot";
 }
 
 /** Where the wizard opens. Derived, so reordering the steps moves it too. */
 export function firstStepPath(id?: string): string {
-  const path = `/host/spot/${WIZARD_STEPS[0]}`;
+  return stepPath(WIZARD_STEPS[0], id);
+}
+
+/**
+ * Where Back goes from a given step, when there is no history to go back to.
+ *
+ * Every wizard screen is a real URL, so a host can land on one cold -- a
+ * browser reload, a link, a `replace` that ended the previous flow. `back()`
+ * does nothing in that case, which reads as a broken button. Before the first
+ * step the wizard is the Host tab, which is where it was opened from.
+ */
+export function prevStepPath(step: WizardStep, id?: string): string {
+  const previous = WIZARD_STEPS[WIZARD_STEPS.indexOf(step) - 1];
+  return previous ? stepPath(previous, id) : "/host";
+}
+
+function stepPath(step: WizardStep, id?: string): string {
+  const path = `/host/spot/${step}`;
   return id ? `${path}?id=${id}` : path;
 }

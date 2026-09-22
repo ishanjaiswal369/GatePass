@@ -1,5 +1,6 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type {
+  CreateSpotInput,
   DeleteSpotInput,
   GetSpotInput,
   PresignInput,
@@ -12,6 +13,7 @@ import type {
   SaveTypeInput,
   SubmitSpotInput,
 } from "../requests/spot-listing.request.js";
+import * as hostPayoutService from "../services/host-payout.service.js";
 import * as spotListingService from "../services/spot-listing.service.js";
 
 /**
@@ -27,10 +29,21 @@ function hostProfileId(request: FastifyRequest): string {
 }
 
 export const spotListingController = {
+  /**
+   * The host dashboard, in one call. Payout status rides along because it is
+   * the second of the two gates on going live: a host looking at a submitted
+   * spot that is not yet live is owed the reason, and half the time the
+   * reason is here rather than on the listing.
+   */
   list: async (request: FastifyRequest, reply: FastifyReply) => {
-    return reply.send({
-      spots: await spotListingService.listForHost(hostProfileId(request)),
-    });
+    const id = hostProfileId(request);
+
+    const [spots, payout] = await Promise.all([
+      spotListingService.listForHost(id),
+      hostPayoutService.getStatus(id),
+    ]);
+
+    return reply.send({ spots, payout });
   },
 
   getById: async (
@@ -43,14 +56,20 @@ export const spotListingController = {
     );
   },
 
-  create: async (request: FastifyRequest, reply: FastifyReply) => {
+  /**
+   * Not gated on being a host: this is the request that makes someone one.
+   * Every other route here is behind requireHost, which reads the profile
+   * this one creates.
+   */
+  create: async (
+    input: CreateSpotInput,
+    request: FastifyRequest,
+    reply: FastifyReply
+  ) => {
     return reply
       .code(201)
       .send(
-        await spotListingService.createBlankSpot(
-          hostProfileId(request),
-          request.user.userId
-        )
+        await spotListingService.createSpot(request.user.userId, input.body)
       );
   },
 
@@ -176,13 +195,13 @@ export const spotListingController = {
     request: FastifyRequest,
     reply: FastifyReply
   ) => {
-    return reply.send({
-      availability: await spotListingService.replaceAvailability(
+    return reply.send(
+      await spotListingService.replaceAvailability(
         input.params.id,
         hostProfileId(request),
         input.body.windows
-      ),
-    });
+      )
+    );
   },
 
   savePricing: async (

@@ -5,7 +5,13 @@ import { spotListingApi } from "@/api";
 import { Checkbox, Field, RestoringScreen, WizardShell } from "@/components/ui";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useSpotDraft } from "@/hooks/useSpotDraft";
-import { TOTAL_STEPS, nextStepPath, stepNumber } from "@/constants/wizard";
+import { useWizardBack } from "@/hooks/useWizardBack";
+import {
+  TOTAL_STEPS,
+  firstStepPath,
+  nextStepPath,
+  stepNumber,
+} from "@/constants/wizard";
 import { colors, radius, space, type } from "@/theme";
 import type { VehicleType } from "@/types/api.types";
 
@@ -27,6 +33,7 @@ const GUIDE: Record<VehicleType, string> = {
 
 export default function PricingScreen() {
   const { spot, loading, isRestoring, token } = useSpotDraft();
+  const back = useWizardBack("pricing", spot?.id);
 
   const [carOn, setCarOn] = useState(true);
   const [bikeOn, setBikeOn] = useState(false);
@@ -61,7 +68,7 @@ export default function PricingScreen() {
 
   if (isRestoring || loading) return <RestoringScreen />;
   if (!token) return <Redirect href="/" />;
-  if (!spot) return <Redirect href="/host/spot" />;
+  if (!spot) return <Redirect href={firstStepPath()} />;
 
   const valid =
     (carOn && Number(car) > 0) || (bikeOn && Number(bike) > 0);
@@ -72,7 +79,7 @@ export default function PricingScreen() {
       sub="What you charge, per hour."
       step={stepNumber("pricing")}
       totalSteps={TOTAL_STEPS}
-      onBack={() => router.back()}
+      onBack={back}
       onContinue={save}
       canContinue={valid}
       busy={busy}

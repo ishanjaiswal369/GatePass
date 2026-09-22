@@ -221,14 +221,12 @@ export function registerApi(app: App): void {
   );
 
   // Host
+  //
+  // There is no POST /host/profile any more. Becoming a host was its own
+  // step, which asked for an address and opened an unnamed listing before the
+  // host had said what they were listing; POST /host/spots does both now, at
+  // the point the spot gets a name.
   app.get("/host/profile", driver, hostController.getProfile);
-  app.post(
-    "/host/profile",
-    // Deliberately `driver`, not `host`: this is the endpoint that makes
-    // someone a host, so requiring a host profile would lock everyone out.
-    driver,
-    request(hostRequests.createProfile, hostController.createProfile)
-  );
   app.get(
     "/host/availability",
     host,
@@ -255,8 +253,13 @@ export function registerApi(app: App): void {
   // to a specific listing id, so a host who drops out halfway keeps what they
   // already entered on that spot, and starting another does not touch it.
   app.get("/host/spots", host, spotListingController.list);
-  // No body: opens a new blank draft. Name and space type are the next step.
-  app.post("/host/spots", host, spotListingController.create);
+  // `driver`, not `host`: this is the request that makes someone a host, so
+  // requiring a host profile would lock every new one out.
+  app.post(
+    "/host/spots",
+    driver,
+    request(spotListingRequests.create, spotListingController.create)
+  );
   app.delete(
     "/host/spots/:id",
     host,

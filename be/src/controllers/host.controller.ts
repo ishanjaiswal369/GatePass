@@ -1,7 +1,6 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type {
   AddAvailabilityInput,
-  CreateHostProfileInput,
   ListAvailabilityInput,
   RemoveAvailabilityInput,
   UpdateAvailabilityInput,
@@ -29,19 +28,6 @@ export const hostController = {
   getProfile: async (request: FastifyRequest, reply: FastifyReply) => {
     const profile = await hostService.getByUserId(request.user.userId);
     return reply.send({ profile });
-  },
-
-  createProfile: async (
-    input: CreateHostProfileInput,
-    request: FastifyRequest,
-    reply: FastifyReply
-  ) => {
-    const { profile, spotId } = await hostService.createProfile(
-      request.user.userId,
-      input.body
-    );
-
-    return reply.code(201).send({ profile, spotId });
   },
 
   listAvailability: async (

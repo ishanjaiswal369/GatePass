@@ -3,23 +3,6 @@ import type { RequestInput, RequestSchemas } from "../lib/request.js";
 
 const MINUTES_IN_DAY = 24 * 60;
 
-const createHostProfileBody = z.object({
-  addressLine: z.string().trim().min(1).max(200),
-  city: z.string().trim().min(1).max(100),
-  state: z.string().trim().min(1).max(100),
-  pincode: z.string().trim().regex(/^\d{6}$/, "must be a 6-digit pincode"),
-  latitude: z.number().min(-90).max(90),
-  longitude: z.number().min(-180).max(180),
-  // Format check only. Whether the PAN is real is a verification problem, and
-  // verification is not automated yet.
-  panNumber: z
-    .string()
-    .trim()
-    .regex(/^[A-Z]{5}\d{4}[A-Z]$/, "must look like ABCDE1234F")
-    .optional(),
-  bankAccountId: z.string().trim().min(1).max(64).optional(),
-});
-
 const availabilityBody = z
   .object({
     listingId: z.string().uuid(),
@@ -52,7 +35,6 @@ const availabilityParams = z.object({
 });
 
 export const hostRequests = {
-  createProfile: { body: createHostProfileBody } satisfies RequestSchemas,
   listAvailability: { query: listAvailabilityQuery } satisfies RequestSchemas,
   addAvailability: { body: availabilityBody } satisfies RequestSchemas,
   updateAvailability: {
@@ -62,9 +44,6 @@ export const hostRequests = {
   removeAvailability: { params: availabilityParams } satisfies RequestSchemas,
 };
 
-export type CreateHostProfileInput = RequestInput<
-  typeof hostRequests.createProfile
->;
 export type ListAvailabilityInput = RequestInput<
   typeof hostRequests.listAvailability
 >;

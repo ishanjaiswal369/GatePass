@@ -7,11 +7,14 @@ import {
   InfoIcon,
   RestoringScreen,
   WizardShell,
+  formatMinute,
 } from "@/components/ui";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useSpotDraft } from "@/hooks/useSpotDraft";
-import { TOTAL_STEPS, stepNumber } from "@/constants/wizard";
+import { useWizardBack } from "@/hooks/useWizardBack";
+import { TOTAL_STEPS, firstStepPath, stepNumber } from "@/constants/wizard";
 import { colors, radius, space, type } from "@/theme";
+import type { AvailabilityWindow } from "@/types/api.types";
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -24,6 +27,7 @@ const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
  */
 export default function ReviewScreen() {
   const { spot, loading, isRestoring, token, reload } = useSpotDraft();
+  const back = useWizardBack("review", spot?.id);
 
   const [missing, setMissing] = useState<string[]>([]);
   const [checking, setChecking] = useState(true);
@@ -54,10 +58,10 @@ export default function ReviewScreen() {
 
   if (isRestoring || loading) return <RestoringScreen />;
   if (!token) return <Redirect href="/" />;
-  if (!spot) return <Redirect href="/host/spot" />;
+  if (!spot) return <Redirect href={firstStepPath()} />;
 
   const ready = missing.length === 0 && !checking;
-  const days = [...new Set((spot.availability ?? []).filter((w) => w.isActive).map((w) => w.dayOfWeek))].sort();
+  const open = spot.availability.filter((window) => window.isActive);
 
   return (
     <WizardShell
@@ -65,7 +69,7 @@ export default function ReviewScreen() {
       sub="Check it over, then send it to us."
       step={stepNumber("review")}
       totalSteps={TOTAL_STEPS}
-      onBack={() => router.back()}
+      onBack={back}
       onContinue={submit}
       canContinue={ready}
       continueLabel="Submit for review"
@@ -115,16 +119,7 @@ export default function ReviewScreen() {
             : "Not set"
         }
       />
-      <Summary
-        label="Open"
-        value={
-          days.length === 7
-            ? "Every day"
-            : days.length > 0
-              ? days.map((day) => DAY_LABELS[day]).join(", ")
-              : "Not set"
-        }
-      />
+      <Summary label="Open" value={describeHours(open)} />
       <Summary label="Photos" value={`${spot.photos.length} attached`} />
       <Summary
         label="Ownership proof"
@@ -165,6 +160,37 @@ function Summary({
       </View>
     </View>
   );
+}
+
+/**
+ * The week in one line.
+ *
+ * Collapses to "Every day, 09:00–18:00" when every window agrees, because
+ * that is what most spots are and seven identical rows say no more than one.
+ * Anything else is listed per day -- a spot open late on Saturdays is exactly
+ * the case a host is checking for here.
+ */
+function describeHours(windows: AvailabilityWindow[]): string {
+  if (windows.length === 0) return "Not set";
+
+  const label = (window: AvailabilityWindow) =>
+    window.startMinute === 0 && window.endMinute >= 1440
+      ? "all day"
+      : `${formatMinute(window.startMinute)}–${formatMinute(window.endMinute)}`;
+
+  const days = [...new Set(windows.map((window) => window.dayOfWeek))].sort();
+  const uniform = windows.every(
+    (window) => label(window) === label(windows[0])
+  );
+
+  if (uniform && days.length === windows.length) {
+    const when = days.length === 7 ? "Every day" : days.map((day) => DAY_LABELS[day]).join(", ");
+    return `${when}, ${label(windows[0])}`;
+  }
+
+  return windows
+    .map((window) => `${DAY_LABELS[window.dayOfWeek]} ${label(window)}`)
+    .join("\n");
 }
 
 function spaceTypeLabel(spaceType: string | null) {

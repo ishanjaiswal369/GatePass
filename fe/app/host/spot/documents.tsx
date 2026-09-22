@@ -12,7 +12,13 @@ import {
 } from "@/components/ui";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useSpotDraft } from "@/hooks/useSpotDraft";
-import { TOTAL_STEPS, nextStepPath, stepNumber } from "@/constants/wizard";
+import { useWizardBack } from "@/hooks/useWizardBack";
+import {
+  TOTAL_STEPS,
+  firstStepPath,
+  nextStepPath,
+  stepNumber,
+} from "@/constants/wizard";
 import { colors, radius, space, type } from "@/theme";
 
 /**
@@ -25,6 +31,7 @@ import { colors, radius, space, type } from "@/theme";
  */
 export default function DocumentsScreen() {
   const { spot, loading, isRestoring, token } = useSpotDraft();
+  const back = useWizardBack("documents", spot?.id);
 
   const [docUrl, setDocUrl] = useState<string | null>(null);
   const [warranty, setWarranty] = useState(false);
@@ -71,7 +78,7 @@ export default function DocumentsScreen() {
 
   if (isRestoring || loading) return <RestoringScreen />;
   if (!token) return <Redirect href="/" />;
-  if (!spot) return <Redirect href="/host/spot" />;
+  if (!spot) return <Redirect href={firstStepPath()} />;
 
   return (
     <WizardShell
@@ -79,7 +86,7 @@ export default function DocumentsScreen() {
       sub="The last checks before review."
       step={stepNumber("documents")}
       totalSteps={TOTAL_STEPS}
-      onBack={() => router.back()}
+      onBack={back}
       onContinue={save}
       canContinue={Boolean(docUrl && warranty)}
       busy={busy}

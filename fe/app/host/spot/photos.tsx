@@ -10,7 +10,13 @@ import {
 } from "@/components/ui";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useSpotDraft } from "@/hooks/useSpotDraft";
-import { TOTAL_STEPS, nextStepPath, stepNumber } from "@/constants/wizard";
+import { useWizardBack } from "@/hooks/useWizardBack";
+import {
+  TOTAL_STEPS,
+  firstStepPath,
+  nextStepPath,
+  stepNumber,
+} from "@/constants/wizard";
 import { colors, radius, space, type } from "@/theme";
 
 const MAX_PHOTOS = 8;
@@ -27,6 +33,7 @@ const MAX_PHOTOS = 8;
  */
 export default function PhotosScreen() {
   const { spot, loading, isRestoring, token } = useSpotDraft();
+  const back = useWizardBack("photos", spot?.id);
   const [urls, setUrls] = useState<string[]>([]);
 
   useEffect(() => {
@@ -78,7 +85,7 @@ export default function PhotosScreen() {
 
   if (isRestoring || loading) return <RestoringScreen />;
   if (!token) return <Redirect href="/" />;
-  if (!spot) return <Redirect href="/host/spot" />;
+  if (!spot) return <Redirect href={firstStepPath()} />;
 
   return (
     <WizardShell
@@ -86,7 +93,7 @@ export default function PhotosScreen() {
       sub="Show drivers what they are pulling into."
       step={stepNumber("photos")}
       totalSteps={TOTAL_STEPS}
-      onBack={() => router.back()}
+      onBack={back}
       onContinue={() => router.push(nextStepPath("photos", spot.id))}
       canContinue={urls.length > 0}
       error={uploadError}

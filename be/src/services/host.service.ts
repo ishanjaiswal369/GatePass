@@ -1,17 +1,6 @@
-import type { Prisma } from "@prisma/client";
-import { conflict, notFound } from "../lib/errors.js";
+import { Prisma } from "@prisma/client";
+import { notFound } from "../lib/errors.js";
 import { prisma } from "../lib/prisma.js";
-
-export interface CreateHostProfileInput {
-  addressLine: string;
-  city: string;
-  state: string;
-  pincode: string;
-  latitude: number;
-  longitude: number;
-  panNumber?: string;
-  bankAccountId?: string;
-}
 
 /**
  * Price is absent on purpose: it moved to SpotPricing, which holds one rate
@@ -26,16 +15,16 @@ export interface AvailabilityInput {
   isActive?: boolean;
 }
 
-/** panNumber and bankAccountId never go back over the wire. */
+/**
+ * An address is absent because a host no longer has one: each spot carries
+ * its own (migration 0023), and a host with two driveways has two. Payout
+ * details never go back over the wire from here -- host-payout.service owns
+ * that read, and masks it.
+ */
 const hostProfileView = {
   id: true,
-  addressLine: true,
-  city: true,
-  state: true,
-  pincode: true,
-  latitude: true,
-  longitude: true,
   verificationStatus: true,
+  payoutKycStatus: true,
   createdAt: true,
 } satisfies Prisma.HostProfileSelect;
 
@@ -60,68 +49,53 @@ export async function exists(userId: string): Promise<boolean> {
 }
 
 /**
- * Onboarding. Creates the profile and its first listing in the same
- * transaction, because a profile without a listing is invisible to search and
- * a listing without a profile cannot exist. Further spots go through
- * spot-listing.service's `createBlankSpot` once the profile exists.
+ * The host profile for this user, creating it on first use.
  *
- * The spot starts as a DRAFT. Onboarding is the first step of the listing
- * wizard, not the whole of it: the spot becomes bookable only after the host
- * finishes the remaining steps and both review gates clear.
+ * Becoming a host is no longer a step of its own. It used to be: onboarding
+ * asked for an address, wrote a HostProfile and opened a listing named after
+ * that address, all before the host had said what they were listing. That is
+ * what put a nameless "New spot" on the dashboard for anyone who opened the
+ * wizard and closed it again.
  *
- * Returns the new listing's id alongside the profile, so the wizard screen
- * that just created both can carry the right id into its next step instead of
- * guessing which of the host's (now possibly several) listings it just made.
+ * Now the first thing the wizard asks for is the listing's name, and the
+ * profile is a side effect of creating that listing -- so there is no state
+ * between "not a host" and "a host with a named spot". This returns only the
+ * id because that is all its one caller (spot-listing.service.createSpot)
+ * needs.
  */
-export async function createProfile(
-  userId: string,
-  input: CreateHostProfileInput
-) {
+export async function ensureProfile(userId: string): Promise<string> {
   const existing = await prisma.hostProfile.findUnique({
     where: { userId },
     select: { id: true },
   });
 
-  if (existing) {
-    throw conflict("Host profile already exists");
-  }
+  if (existing) return existing.id;
 
-  return prisma.$transaction(async (tx) => {
-    const profile = await tx.hostProfile.create({
-      data: { userId, ...input },
-    });
-
-    const spot = await tx.listing.create({
-      data: {
-        hostProfileId: profile.id,
-        listingType: "INDEPENDENT_SPOT",
-        name: `Parking at ${input.addressLine}`,
-        venueName: `${input.addressLine}, ${input.city}`,
-        addressLine: input.addressLine,
-        city: input.city,
-        state: input.state,
-        pincode: input.pincode,
-        latitude: input.latitude,
-        longitude: input.longitude,
-        // DRAFT, not PUBLISHED. Onboarding opens the spot; it does not make it
-        // bookable. Going live needs the wizard's remaining steps, an admin
-        // accepting the ownership document, and an active payout account --
-        // publishing here would route drivers and their money to a space
-        // nobody has checked and a host nobody can pay.
-        status: "DRAFT",
-        createdBy: userId,
-        updatedBy: userId,
-      },
+  try {
+    const created = await prisma.hostProfile.create({
+      data: { userId },
       select: { id: true },
     });
 
-    const savedProfile = await tx.hostProfile.findUniqueOrThrow({
-      where: { id: profile.id },
-      select: hostProfileView,
-    });
+    return created.id;
+  } catch (error) {
+    // A double-tapped Continue sends two creates, and the loser hits userId's
+    // unique index. The row it lost to is the one it wanted, so read it back
+    // rather than failing a request that asked for nothing unreasonable.
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002"
+    ) {
+      const raced = await prisma.hostProfile.findUniqueOrThrow({
+        where: { userId },
+        select: { id: true },
+      });
 
-    return { profile: savedProfile, spotId: spot.id };
-  });
+      return raced.id;
+    }
+
+    throw error;
+  }
 }
 
 /**

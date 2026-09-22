@@ -1,5 +1,5 @@
-import { Redirect, router } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { Redirect, router, useFocusEffect } from "expo-router";
+import { useCallback, useState } from "react";
 import { ActivityIndicator, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import { ApiError, hostApi, spotListingApi } from "@/api";
 import {
@@ -12,18 +12,316 @@ import {
   type NavKey,
   RestoringScreen,
   TrashIcon,
+  formatMinute,
 } from "@/components/ui";
+import { firstStepPath } from "@/constants/wizard";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { useSession } from "@/providers/SessionProvider";
-import { colors, radius, space } from "@/theme";
+import { colors, radius, space, type } from "@/theme";
 import type {
-  HostAvailabilityRow,
-  HostProfile,
+  AvailabilityWindow,
+  PayoutAccount,
   SpotListing,
 } from "@/types/api.types";
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/**
+ * One nav item, two destinations: onboarding when no HostProfile exists, the
+ * dashboard when it does. The fork is decided by `user.hasHostProfile`, which
+ * every sign-in and /auth/me carries -- not by a role claim, because a user
+ * can be a driver and a host at the same time. So a non-host lands on
+ * onboarding with no request at all.
+ *
+ * The dashboard itself is one call. It used to be three -- the profile, every
+ * spot, and every availability window -- which is two more round trips than
+ * the screen has pieces: `/host/spots` carries each spot's own windows and
+ * the payout gate alongside them, and the host's profile held nothing this
+ * screen still shows.
+ */
+export default function HostScreen() {
+  const { token, user, isRestoring } = useSession();
+  // Read from the session every render, never captured in initial state:
+  // after a reload `user` is null until the session restores.
+  const isHost = user?.hasHostProfile;
+  const insets = useScreenInsets();
+
+  const [spots, setSpots] = useState<SpotListing[]>([]);
+  const [payout, setPayout] = useState<PayoutAccount | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  /**
+   * On focus, not on mount. The wizard runs on top of this screen and returns
+   * to it without remounting, so a spot that was just submitted -- or just
+   * created -- would otherwise show whatever was true when the tab first
+   * opened, which reads as a failed save.
+   */
+  useFocusEffect(
+    useCallback(() => {
+      if (!token || isHost !== true) {
+        setLoaded(true);
+        return;
+      }
+
+      let cancelled = false;
+
+      spotListingApi
+        .list(token)
+        .then(({ spots: rows, payout: account }) => {
+          if (cancelled) return;
+          setSpots(rows);
+          setPayout(account);
+          setLoadError(null);
+        })
+        .catch((err) =>
+          setLoadError(
+            err instanceof ApiError ? err.message : "Could not load your spots"
+          )
+        )
+        .finally(() => {
+          if (!cancelled) setLoaded(true);
+        });
+
+      return () => {
+        cancelled = true;
+      };
+    }, [token, isHost])
+  );
+
+  const { run: toggleWindow } = useAsyncAction(
+    async (spotId: string, id: string, next: boolean) => {
+      if (!token) return;
+      const updated = await hostApi.setAvailabilityActive(token, id, next);
+
+      setSpots((rows) =>
+        rows.map((spot) =>
+          spot.id === spotId
+            ? {
+                ...spot,
+                availability: spot.availability.map((window) =>
+                  window.id === id ? { ...window, ...updated } : window
+                ),
+              }
+            : spot
+        )
+      );
+    }
+  );
+
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const { run: deleteSpot } = useAsyncAction(async (id: string) => {
+    if (!token) return;
+    setDeletingId(id);
+    try {
+      await spotListingApi.deleteSpot(token, id);
+      setSpots((rows) => rows.filter((row) => row.id !== id));
+    } finally {
+      setDeletingId(null);
+    }
+  });
+
+  const navigate = (key: NavKey) => {
+    if (key === "home") router.push("/home");
+    if (key === "bookings") router.push("/bookings");
+    if (key === "profile") router.push("/account");
+  };
+
+  if (isRestoring) return <RestoringScreen />;
+  if (!token) return <Redirect href="/" />;
+
+  const activeSpots = spots.filter((spot) => spot.status !== "CANCELLED");
+
+  return (
+    <PhoneFrame>
+      <View style={s.screen}>
+        <ScrollView contentContainerStyle={[s.body, { paddingTop: insets.top + 32 }]}>
+          {loadError ? <ErrorNotice message={loadError} /> : null}
+
+          {isHost !== true ? (
+            <Onboarding />
+          ) : !loaded ? (
+            <>
+              {/* The frame shows now, the details follow. A known host should
+                  not watch a blank screen for one request. */}
+              <View style={s.heading}>
+                <Text style={s.title}>Your spots</Text>
+              </View>
+              <ActivityIndicator color={colors.ink} style={s.loading} />
+            </>
+          ) : (
+            <>
+              <View style={s.heading}>
+                <Text style={s.title}>Your spots</Text>
+                <Text style={s.sub}>
+                  {activeSpots.length === 1 ? "1 listed" : `${activeSpots.length} listed`}
+                </Text>
+              </View>
+
+              {payout ? <PayoutCard payout={payout} /> : null}
+
+              {activeSpots.length === 0 ? (
+                <Text style={s.empty}>
+                  No spots yet. Add one below to start taking bookings.
+                </Text>
+              ) : (
+                activeSpots.map((spot) => (
+                  <SpotCard
+                    key={spot.id}
+                    spot={spot}
+                    deleting={deletingId === spot.id}
+                    onDelete={() => deleteSpot(spot.id)}
+                    onToggleWindow={(id, next) => toggleWindow(spot.id, id, next)}
+                  />
+                ))
+              )}
+
+              {/* No request: the wizard's first step is what creates a spot,
+                  and it does so only once the host has named it. Opening a
+                  blank draft here left unnamed rows behind for anyone who
+                  looked at the wizard and backed out. */}
+              <Button
+                label="Add another spot"
+                onPress={() => router.push(firstStepPath())}
+              />
+            </>
+          )}
+        </ScrollView>
+
+        <BottomNav active="host" onNavigate={navigate} />
+      </View>
+    </PhoneFrame>
+  );
+}
+
+function SpotCard({
+  spot,
+  deleting,
+  onDelete,
+  onToggleWindow,
+}: {
+  spot: SpotListing;
+  deleting: boolean;
+  onDelete: () => void;
+  onToggleWindow: (id: string, next: boolean) => void;
+}) {
+  const editable = spot.status === "DRAFT" || spot.status === "REJECTED";
+
+  return (
+    <Card heading={spot.name}>
+      <ListingStatusCard spot={spot} />
+
+      <Button
+        label={editable ? "Continue this listing" : "View this listing"}
+        onPress={() =>
+          router.push(
+            editable
+              ? firstStepPath(spot.id)
+              : { pathname: "/host/spot", params: { id: spot.id } }
+          )
+        }
+      />
+
+      {spot.city ? <DataRow label="City" value={spot.city} /> : null}
+
+      {spot.pricing.length > 0 ? (
+        <DataRow
+          label="Rates"
+          value={spot.pricing
+            .map(
+              (rate) =>
+                `${rate.vehicleType === "CAR" ? "Car" : "Bike"} ₹${Number(rate.pricePerHour)}`
+            )
+            .join("  ·  ")}
+        />
+      ) : null}
+
+      <DataRow label="Photos" value={`${spot.photos.length}`} />
+
+      {spot.availability.length === 0 ? (
+        <Text style={s.empty}>
+          No hours yet. This spot stays hidden until you set them in the wizard.
+        </Text>
+      ) : (
+        spot.availability.map((window) => (
+          <View key={window.id} style={s.window}>
+            <Text style={s.windowDay}>{describeWindow(window)}</Text>
+            <Switch
+              value={window.isActive}
+              onValueChange={(next) => onToggleWindow(window.id, next)}
+              accessibilityLabel={`Availability on ${DAY_NAMES[window.dayOfWeek]}`}
+            />
+          </View>
+        ))
+      )}
+
+      <Button
+        label="Delete this spot"
+        variant="danger"
+        busy={deleting}
+        onPress={onDelete}
+        leadingIcon={<TrashIcon color={colors.danger} />}
+      />
+    </Card>
+  );
+}
+
+/**
+ * The payout gate, once, at the top -- not per spot.
+ *
+ * It is one account for the whole host, and it blocks every one of their
+ * spots at the same time, so repeating it on each card would say the same
+ * thing three times. Hidden once activated: a gate that is open is not news.
+ */
+function PayoutCard({ payout }: { payout: PayoutAccount }) {
+  if (payout.payoutKycStatus === "ACTIVATED") return null;
+
+  // Whatever the status says, a host with nothing stored has not really
+  // submitted anything -- see the API's needsDetails.
+  if (payout.needsDetails) {
+    return (
+      <View style={s.status}>
+        <Text style={s.statusHeading}>No payout account yet</Text>
+        <Text style={s.statusBody}>
+          Your spots cannot go live until we know where to send your earnings.
+          The listing wizard asks for this.
+        </Text>
+      </View>
+    );
+  }
+
+  const copy = {
+    NOT_STARTED: {
+      title: "No payout account yet",
+      body: "Your spots cannot go live until we know where to send your earnings. The listing wizard asks for this.",
+    },
+    PENDING: {
+      title: "Payout details received",
+      body: "We are sending them for verification.",
+    },
+    UNDER_REVIEW: {
+      title: "Payout account being verified",
+      body: `We are checking the account ending ${payout.accountNumberLast4 ?? "••••"}. This usually takes a day or two, and your spots go live once it clears.`,
+    },
+    REJECTED: {
+      title: "Payout account could not be verified",
+      body: "The details did not check out. Enter them again in the listing wizard.",
+    },
+  }[payout.payoutKycStatus];
+
+  return (
+    <View
+      style={[
+        s.status,
+        payout.payoutKycStatus === "REJECTED" && s.statusWarn,
+      ]}
+    >
+      <Text style={s.statusHeading}>{copy.title}</Text>
+      <Text style={s.statusBody}>{copy.body}</Text>
+    </View>
+  );
+}
 
 /**
  * Where the listing stands, and what moves it forward.
@@ -86,284 +384,52 @@ function describe(spot: SpotListing): {
   };
 }
 
+function describeWindow(window: AvailabilityWindow): string {
+  const day = DAY_NAMES[window.dayOfWeek];
+
+  if (window.startMinute === 0 && window.endMinute >= 1440) {
+    return `${day}  ·  all day`;
+  }
+
+  return `${day}  ·  ${formatMinute(window.startMinute)}–${formatMinute(window.endMinute)}`;
+}
+
+function Onboarding() {
+  return (
+    <>
+      <View style={s.heading}>
+        <Text style={s.title}>Rent out your space</Text>
+        <Text style={s.sub}>
+          Earn from a driveway, garage or parking bay you already have.
+        </Text>
+      </View>
+
+      <Card heading="What you will need">
+        <View style={s.needs}>
+          <Need text="Photos of the space" />
+          <Need text="The address, and a pin you can move to the exact entrance" />
+          <Need text="Proof you may rent it out — an electricity bill or property tax receipt" />
+          <Need text="Your PAN and bank details, so you can be paid" />
+        </View>
+      </Card>
+
+      <Button label="Get started" size="lg" onPress={() => router.push(firstStepPath())} />
+
+      <Text style={s.fine}>
+        We check your ownership proof before a listing goes live, and your
+        payout account has to be active. Both usually take a couple of days.
+        You can list more than one spot once you are set up.
+      </Text>
+    </>
+  );
+}
+
 function Need({ text }: { text: string }) {
   return (
     <View style={s.need}>
       <View style={s.needDot} />
       <Text style={s.needText}>{text}</Text>
     </View>
-  );
-}
-
-function formatMinute(minute: number) {
-  // End-of-day is stored as 1440, which "% 24" would render as 00:00 -- a
-  // window reading "18:00-00:00" looks like a typo, and "00:00-00:00" looks
-  // broken.
-  if (minute >= 1440) return "24:00";
-  return `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
-}
-
-/**
- * One nav item, two destinations: onboarding when no HostProfile exists, the
- * dashboard when it does. The fork is decided by the API, not by a role claim
- * -- a user can be a driver and a host at the same time.
- *
- * Which one to show comes from `user.hasHostProfile`, which every sign-in and
- * /auth/me carries. So a non-host lands on onboarding with no request at all,
- * and a host sees the dashboard frame at once while its details load.
- *
- * A host can list more than one spot. Every spot the host has (minus ones
- * they have since deleted) gets its own card, with its own status,
- * availability and a delete action; availability across every spot is
- * fetched in one call and grouped client-side by `listingId`, because a host
- * with a handful of spots does not need one round trip per card.
- */
-export default function HostScreen() {
-  const { token, user, setUser, isRestoring } = useSession();
-  // Read from the session every render, never captured in initial state: after
-  // a reload `user` is null until the session restores.
-  const isHost = user?.hasHostProfile;
-  const insets = useScreenInsets();
-  const [profile, setProfile] = useState<HostProfile | null>(null);
-  const [spots, setSpots] = useState<SpotListing[]>([]);
-  const [availability, setAvailability] = useState<HostAvailabilityRow[]>([]);
-  const [loaded, setLoaded] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
-
-  const loadDashboard = useCallback(async () => {
-    if (!token) return;
-
-    const [{ availability: windows }, { spots: rows }] = await Promise.all([
-      hostApi.listAvailability(token),
-      spotListingApi.list(token),
-    ]);
-
-    setAvailability(windows);
-    setSpots(rows);
-  }, [token]);
-
-  useEffect(() => {
-    // Not a host: onboarding needs nothing from the server.
-    if (!token || isHost === false) return;
-
-    let cancelled = false;
-
-    hostApi
-      .getProfile(token)
-      .then(async ({ profile: found }) => {
-        if (cancelled) return;
-        setProfile(found);
-
-        if (found) await loadDashboard();
-      })
-      .catch((err) =>
-        setLoadError(err instanceof ApiError ? err.message : "Could not load host")
-      )
-      .finally(() => {
-        if (!cancelled) setLoaded(true);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [token, isHost, loadDashboard]);
-
-  const { run: toggleWindow } = useAsyncAction(
-    async (id: string, next: boolean) => {
-      if (!token) return;
-      const updated = await hostApi.setAvailabilityActive(token, id, next);
-      setAvailability((rows) =>
-        rows.map((row) => (row.id === id ? updated : row))
-      );
-    }
-  );
-
-  const { run: addSpot, busy: addingSpot } = useAsyncAction(async () => {
-    if (!token) return;
-    const created = await spotListingApi.create(token);
-    // Straight into the wizard -- a blank draft has nothing to report on the
-    // status screen, so there is no reason to detour through it.
-    router.push({ pathname: "/host/spot/address", params: { id: created.id } });
-  });
-
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const { run: deleteSpot } = useAsyncAction(async (id: string) => {
-    if (!token) return;
-    setDeletingId(id);
-    try {
-      await spotListingApi.deleteSpot(token, id);
-      setSpots((rows) => rows.filter((row) => row.id !== id));
-      setAvailability((rows) => rows.filter((row) => row.listingId !== id));
-    } finally {
-      setDeletingId(null);
-    }
-  });
-
-  const navigate = (key: NavKey) => {
-    if (key === "home") router.push("/home");
-    if (key === "bookings") router.push("/bookings");
-    if (key === "profile") router.push("/account");
-  };
-
-  if (isRestoring) {
-    return <RestoringScreen />;
-  }
-
-  if (!token) {
-    return <Redirect href="/" />;
-  }
-
-  const activeSpots = spots.filter((spot) => spot.status !== "CANCELLED");
-
-  return (
-    <PhoneFrame>
-      <View style={s.screen}>
-        <ScrollView contentContainerStyle={[s.body, { paddingTop: insets.top + 32 }]}>
-          {loadError ? <ErrorNotice message={loadError} /> : null}
-
-          {/* Spinner only when there is something to wait for. A known
-              non-host skips it and gets onboarding on first paint. */}
-          {!profile && !loaded && isHost !== false ? (
-            <>
-              {/* Known host: the dashboard frame shows now, details follow. */}
-              {isHost ? (
-                <View style={s.heading}>
-                  <Text style={s.title}>Your spots</Text>
-                </View>
-              ) : null}
-              <ActivityIndicator color={colors.ink} style={s.loading} />
-            </>
-          ) : profile ? (
-            <>
-              <View style={s.heading}>
-                <Text style={s.title}>Your spots</Text>
-                <Text style={s.sub}>{activeSpots.length} listed</Text>
-              </View>
-
-              <Card heading="Host details">
-                <DataRow label="City" value={profile.city} />
-                <DataRow label="Pincode" value={profile.pincode} />
-              </Card>
-
-              {activeSpots.length === 0 ? (
-                <Text style={s.empty}>
-                  No spots yet. Add one below to start taking bookings.
-                </Text>
-              ) : (
-                activeSpots.map((spot) => {
-                  const windows = availability.filter(
-                    (window) => window.listingId === spot.id
-                  );
-
-                  return (
-                    <Card key={spot.id} heading={spot.name}>
-                      <ListingStatusCard spot={spot} />
-
-                      <Button
-                        label={
-                          spot.status === "DRAFT" || spot.status === "REJECTED"
-                            ? "Continue this listing"
-                            : "View this listing"
-                        }
-                        onPress={() =>
-                          router.push({ pathname: "/host/spot", params: { id: spot.id } })
-                        }
-                      />
-
-                      {spot.city ? <DataRow label="City" value={spot.city} /> : null}
-                      {spot.pricing.length > 0 ? (
-                        <DataRow
-                          label="Rates"
-                          value={spot.pricing
-                            .map(
-                              (rate) =>
-                                `${rate.vehicleType === "CAR" ? "Car" : "Bike"} ₹${Number(rate.pricePerHour)}`
-                            )
-                            .join("  ·  ")}
-                        />
-                      ) : null}
-                      <DataRow label="Photos" value={`${spot.photos.length}`} />
-
-                      {windows.length === 0 ? (
-                        <Text style={s.empty}>
-                          No windows yet. This spot stays hidden until you add
-                          one in the wizard.
-                        </Text>
-                      ) : (
-                        windows.map((window) => (
-                          <View key={window.id} style={s.window}>
-                            <Text style={s.windowDay}>
-                              {DAY_NAMES[window.dayOfWeek]}{" "}
-                              {formatMinute(window.startMinute)}–
-                              {formatMinute(window.endMinute)}
-                            </Text>
-                            <Switch
-                              value={window.isActive}
-                              onValueChange={(next) => toggleWindow(window.id, next)}
-                              accessibilityLabel={`Availability on ${DAY_NAMES[window.dayOfWeek]}`}
-                            />
-                          </View>
-                        ))
-                      )}
-
-                      <Button
-                        label="Delete this spot"
-                        variant="danger"
-                        busy={deletingId === spot.id}
-                        onPress={() => deleteSpot(spot.id)}
-                        leadingIcon={<TrashIcon color={colors.danger} />}
-                      />
-                    </Card>
-                  );
-                })
-              )}
-
-              <Button
-                label="Add another spot"
-                busy={addingSpot}
-                onPress={addSpot}
-              />
-            </>
-          ) : (
-            <>
-              <View style={s.heading}>
-                <Text style={s.title}>Rent out your space</Text>
-                <Text style={s.sub}>
-                  Earn from a driveway, garage or parking bay you already have.
-                </Text>
-              </View>
-
-              <Card heading="What you will need">
-                <View style={s.needs}>
-                  <Need text="Photos of the space" />
-                  <Need text="The address, and a pin you can move to the exact entrance" />
-                  <Need text="Proof you may rent it out — an electricity bill or property tax receipt" />
-                  <Need text="Your PAN and bank details, so you can be paid" />
-                </View>
-              </Card>
-
-              {/* Straight into the wizard. The address used to be collected
-                  here first, which asked a host for it twice and left two
-                  copies free to disagree; the wizard's first step owns it now. */}
-              <Button
-                label="Get started"
-                size="lg"
-                onPress={() => router.push("/host/spot")}
-              />
-
-              <Text style={s.fine}>
-                We check your ownership proof before a listing goes live, and
-                your payout account has to be active. Both usually take a
-                couple of days. You can list more than one spot once you are
-                set up.
-              </Text>
-            </>
-          )}
-        </ScrollView>
-
-        <BottomNav active="host" onNavigate={navigate} />
-      </View>
-    </PhoneFrame>
   );
 }
 

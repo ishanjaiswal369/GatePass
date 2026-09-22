@@ -1,5 +1,4 @@
 import type {
-  AvailabilityWindow,
   PayoutAccount,
   PresignedUpload,
   SpaceType,
@@ -19,15 +18,24 @@ import { request } from "./client";
  * passes, never to "the" spot.
  */
 
+/** The whole dashboard: every spot with its hours, and the payout gate. */
 export const list = (token: string) =>
-  request<{ spots: SpotListing[] }>("/host/spots", { token });
+  request<{ spots: SpotListing[]; payout: PayoutAccount }>("/host/spots", {
+    token,
+  });
 
 export const getById = (token: string, id: string) =>
   request<SpotListing>(`/host/spots/${id}`, { token });
 
-/** Opens a new, empty draft. Name and space type are the next step, saveType. */
-export const create = (token: string) =>
-  request<SpotListing>("/host/spots", { method: "POST", token });
+/**
+ * Opens the listing, named. Also makes the caller a host if they were not one
+ * -- so this is the only wizard call that works before a host profile exists,
+ * and the only one that creates a row.
+ */
+export const create = (
+  token: string,
+  input: { name: string; venueName: string; spaceType: SpaceType }
+) => request<SpotListing>("/host/spots", { method: "POST", body: input, token });
 
 /** A soft cancel -- see the service for why this is not a row deletion. */
 export const deleteSpot = (token: string, id: string) =>
@@ -141,10 +149,11 @@ export const saveAvailability = (
   id: string,
   windows: { dayOfWeek: number; startMinute: number; endMinute: number }[]
 ) =>
-  request<{ availability: AvailabilityWindow[] }>(
-    `/host/spots/${id}/availability`,
-    { method: "PUT", body: { windows }, token }
-  );
+  request<SpotListing>(`/host/spots/${id}/availability`, {
+    method: "PUT",
+    body: { windows },
+    token,
+  });
 
 export const savePricing = (
   token: string,

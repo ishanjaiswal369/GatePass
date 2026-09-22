@@ -3,6 +3,7 @@ import { badRequest, conflict, notFound } from "../lib/errors.js";
 import { prisma } from "../lib/prisma.js";
 import { getStorageProvider } from "../integrations/storage/index.js";
 import { env } from "../config/env.js";
+import * as hostService from "./host.service.js";
 
 /**
  * The host's side of a spot listing: everything between "I have a driveway"
@@ -83,6 +84,18 @@ const spotView = {
   pricing: {
     select: { id: true, vehicleType: true, pricePerHour: true },
   },
+  // Included in the list read as well as the single one, so the dashboard can
+  // show each spot's hours without a second round trip for every card.
+  availability: {
+    select: {
+      id: true,
+      dayOfWeek: true,
+      startMinute: true,
+      endMinute: true,
+      isActive: true,
+    },
+    orderBy: [{ dayOfWeek: "asc" }, { startMinute: "asc" }],
+  },
 } satisfies Prisma.ListingSelect;
 
 /**
@@ -144,45 +157,39 @@ export async function getForHost(listingId: string, hostProfileId: string) {
     throw notFound("Spot not found");
   }
 
-  return { ...spot, availability: await availabilityFor(listingId) };
+  return spot;
 }
 
 /**
- * Scoped to the listing, not the host: a host can list more than one spot,
- * each with its own hours, so two spots cannot share one calendar. See the
- * schema note on HostAvailability.
- */
-async function availabilityFor(listingId: string) {
-  return prisma.hostAvailability.findMany({
-    where: { listingId },
-    select: {
-      id: true,
-      dayOfWeek: true,
-      startMinute: true,
-      endMinute: true,
-      isActive: true,
-    },
-    orderBy: [{ dayOfWeek: "asc" }, { startMinute: "asc" }],
-  });
-}
-
-/**
- * Opens a new, empty draft for an already-onboarded host. A host's very
- * first spot is opened by host onboarding instead (see
- * host.service.createProfile), because that step also has to create the
- * HostProfile; this is what "add another spot" calls afterwards.
+ * Opens a spot, named. This is the wizard's first step for every spot, a
+ * host's first and their fifth alike.
  *
- * Name and space type are not asked for here -- they are the wizard's next
- * step (saveType) -- so this is nothing but a fresh row and an id for the
- * rest of the wizard to address.
+ * It used to open a blank row called "New spot" and ask for the name on the
+ * next screen. Anyone who opened the wizard and backed out left that row
+ * behind, so the dashboard grew nameless drafts nobody had chosen to create
+ * -- and a host could not tell two of them apart to delete the right one. A
+ * row now exists only once the host has said what it is.
+ *
+ * It also creates the HostProfile if this is the host's first spot, which is
+ * why the route behind it is not gated on being a host: this is the request
+ * that makes someone one. Both go in one transaction, so a failure cannot
+ * leave a profile with nothing in it.
  */
-export async function createBlankSpot(hostProfileId: string, userId: string) {
+export async function createSpot(userId: string, input: CreateSpotInput) {
+  const hostProfileId = await hostService.ensureProfile(userId);
+
   return prisma.listing.create({
     data: {
       hostProfileId,
       listingType: "INDEPENDENT_SPOT",
-      name: "New spot",
-      venueName: "",
+      name: input.name,
+      venueName: input.venueName,
+      spaceType: input.spaceType,
+      // DRAFT, not PUBLISHED. Naming a spot opens it; it does not make it
+      // bookable. Going live needs the rest of the wizard, an admin accepting
+      // the ownership document, and an active payout account -- publishing
+      // here would route drivers and their money to a space nobody has
+      // checked and a host nobody can pay.
       status: "DRAFT",
       createdBy: userId,
       updatedBy: userId,
@@ -450,7 +457,7 @@ export async function replaceAvailability(
     throw error;
   }
 
-  return availabilityFor(listingId);
+  return getForHost(listingId, hostProfileId);
 }
 
 /** Step 9. One rate per vehicle type, replacing whatever was there. */

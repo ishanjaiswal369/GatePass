@@ -5,7 +5,13 @@ import { spotListingApi } from "@/api";
 import { Field, RestoringScreen, WizardShell } from "@/components/ui";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useSpotDraft } from "@/hooks/useSpotDraft";
-import { TOTAL_STEPS, nextStepPath, stepNumber } from "@/constants/wizard";
+import { useWizardBack } from "@/hooks/useWizardBack";
+import {
+  TOTAL_STEPS,
+  firstStepPath,
+  nextStepPath,
+  stepNumber,
+} from "@/constants/wizard";
 import { colors, radius, space, type } from "@/theme";
 
 /**
@@ -23,6 +29,7 @@ const EXAMPLES = [
 
 export default function AccessScreen() {
   const { spot, loading, isRestoring, token } = useSpotDraft();
+  const back = useWizardBack("access", spot?.id);
   const [text, setText] = useState("");
 
   useEffect(() => {
@@ -42,7 +49,7 @@ export default function AccessScreen() {
 
   if (isRestoring || loading) return <RestoringScreen />;
   if (!token) return <Redirect href="/" />;
-  if (!spot) return <Redirect href="/host/spot" />;
+  if (!spot) return <Redirect href={firstStepPath()} />;
 
   return (
     <WizardShell
@@ -50,7 +57,7 @@ export default function AccessScreen() {
       sub="What should a driver do when they arrive?"
       step={stepNumber("access")}
       totalSteps={TOTAL_STEPS}
-      onBack={() => router.back()}
+      onBack={back}
       onContinue={save}
       canContinue={text.trim().length > 0}
       busy={busy}

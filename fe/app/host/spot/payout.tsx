@@ -2,12 +2,24 @@ import { Redirect, router } from "expo-router";
 import { useEffect, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { spotListingApi } from "@/api";
-import { Field, LockIcon, RestoringScreen, WizardShell } from "@/components/ui";
+import {
+  DataRow,
+  Field,
+  LockIcon,
+  RestoringScreen,
+  WizardShell,
+} from "@/components/ui";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useSpotDraft } from "@/hooks/useSpotDraft";
-import { TOTAL_STEPS, nextStepPath, stepNumber } from "@/constants/wizard";
+import { useWizardBack } from "@/hooks/useWizardBack";
+import {
+  TOTAL_STEPS,
+  firstStepPath,
+  nextStepPath,
+  stepNumber,
+} from "@/constants/wizard";
 import { colors, radius, space, type } from "@/theme";
-import type { PayoutKycStatus } from "@/types/api.types";
+import type { PayoutAccount, PayoutKycStatus } from "@/types/api.types";
 
 /**
  * Step 8. Where the host's money goes.
@@ -40,11 +52,12 @@ export default function PayoutScreen() {
   // The payout account is the host's own, not this spot's -- but the wizard
   // still needs to carry this spot's id into the next (and last) step, review.
   const { spot, loading, isRestoring, token } = useSpotDraft();
+  const back = useWizardBack("payout", spot?.id);
 
-  const [status, setStatus] = useState<PayoutKycStatus>("NOT_STARTED");
+  const [account, setAccountDetails] = useState<PayoutAccount | null>(null);
   const [pan, setPan] = useState("");
   const [holder, setHolder] = useState("");
-  const [account, setAccount] = useState("");
+  const [number, setNumber] = useState("");
   const [ifsc, setIfsc] = useState("");
 
   useEffect(() => {
@@ -52,35 +65,40 @@ export default function PayoutScreen() {
 
     spotListingApi
       .getPayoutAccount(token)
-      .then(({ payoutKycStatus }) => setStatus(payoutKycStatus))
+      .then(setAccountDetails)
       .catch(() => undefined);
   }, [token]);
 
   const { run: save, busy, error } = useAsyncAction(async () => {
     if (!token) return;
 
-    const { payoutKycStatus } = await spotListingApi.submitPayoutAccount(token, {
+    const saved = await spotListingApi.submitPayoutAccount(token, {
       panNumber: pan.trim().toUpperCase(),
       accountHolderName: holder.trim(),
-      accountNumber: account.trim(),
+      accountNumber: number.trim(),
       ifsc: ifsc.trim().toUpperCase(),
     });
 
-    setStatus(payoutKycStatus);
+    setAccountDetails(saved);
     router.push(nextStepPath("payout", spot?.id));
   });
 
   if (isRestoring || loading) return <RestoringScreen />;
   if (!token) return <Redirect href="/" />;
-  if (!spot) return <Redirect href="/host/spot" />;
+  if (!spot) return <Redirect href={firstStepPath()} />;
 
-  const submitted = status !== "NOT_STARTED" && status !== "REJECTED";
+  const status = account?.payoutKycStatus ?? "NOT_STARTED";
+  // The API decides, not the status. An account submitted before the details
+  // were stored reads as UNDER_REVIEW with nothing behind it, and showing
+  // that host a read-only "being verified" would strand them on the one
+  // screen that could fix it.
+  const submitted = account !== null && !account.needsDetails;
   const copy = STATUS_COPY[status];
 
   const valid =
     /^[A-Z]{5}\d{4}[A-Z]$/.test(pan.trim().toUpperCase()) &&
     holder.trim().length > 0 &&
-    /^\d{9,18}$/.test(account.trim()) &&
+    /^\d{9,18}$/.test(number.trim()) &&
     /^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifsc.trim().toUpperCase());
 
   return (
@@ -89,7 +107,7 @@ export default function PayoutScreen() {
       sub="Where your earnings are sent."
       step={stepNumber("payout")}
       totalSteps={TOTAL_STEPS}
-      onBack={() => router.back()}
+      onBack={back}
       onContinue={submitted ? () => router.push(nextStepPath("payout", spot.id)) : save}
       canContinue={submitted || valid}
       continueLabel={submitted ? "Continue" : "Submit details"}
@@ -97,10 +115,36 @@ export default function PayoutScreen() {
       error={error}
     >
       {submitted ? (
-        <View style={s.status}>
-          <Text style={s.statusTitle}>{copy.title}</Text>
-          <Text style={s.statusBody}>{copy.body}</Text>
-        </View>
+        <>
+          <View style={s.status}>
+            <Text style={s.statusTitle}>{copy.title}</Text>
+            <Text style={s.statusBody}>{copy.body}</Text>
+          </View>
+
+          {/* What is being verified, rather than only the fact that something
+              is. A host who mistyped an account number has no way to spot it
+              from "being checked" alone -- and these are the details this
+              screen exists to collect, so they belong on it either way. */}
+          <View style={s.card}>
+            <Text style={s.cardHeading}>Details we hold</Text>
+            <DataRow label="PAN" value={account?.panNumber ?? "—"} />
+            <DataRow label="Account holder" value={account?.accountHolderName ?? "—"} />
+            <DataRow
+              label="Account number"
+              value={
+                account?.accountNumberLast4
+                  ? `•••• ${account.accountNumberLast4}`
+                  : "—"
+              }
+            />
+            <DataRow label="IFSC" value={account?.ifsc ?? "—"} />
+          </View>
+
+          <Text style={s.amend}>
+            Something wrong? Contact support — details cannot be changed while
+            they are being verified.
+          </Text>
+        </>
       ) : (
         <>
           {status === "REJECTED" ? (
@@ -112,9 +156,13 @@ export default function PayoutScreen() {
 
           <View style={s.secure}>
             <LockIcon color={colors.inkMuted} size={15} />
+            {/* Says what actually happens. It used to promise the account
+                number was not kept, which stopped being true the moment it
+                had to be -- nobody could verify an account they were never
+                given. A claim about what we hold has to match what we hold. */}
             <Text style={s.secureText}>
-              These go to our payment provider for verification. GatePass does
-              not keep your account number.
+              We hold these to verify your account, and show you only the last
+              four digits afterwards.
             </Text>
           </View>
 
@@ -135,8 +183,8 @@ export default function PayoutScreen() {
           />
           <Field
             label="Account number"
-            value={account}
-            onChangeText={setAccount}
+            value={number}
+            onChangeText={setNumber}
             keyboardType="number-pad"
             maxLength={18}
           />
@@ -166,6 +214,21 @@ const s = StyleSheet.create({
   statusBad: { backgroundColor: colors.dangerSurface, borderColor: colors.danger },
   statusTitle: { ...type.label, color: colors.ink, fontSize: 15 },
   statusBody: { fontSize: 13, lineHeight: 19, color: colors.inkMuted },
+  card: {
+    gap: space.sm,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: space.lg,
+  },
+  cardHeading: {
+    ...type.label,
+    color: colors.inkMuted,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+  },
+  amend: { ...type.caption, color: colors.inkFaint, lineHeight: 17 },
   secure: {
     flexDirection: "row",
     gap: space.sm,
