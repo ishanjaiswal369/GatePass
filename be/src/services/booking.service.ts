@@ -53,6 +53,12 @@ const bookingView = {
   amount: true,
   status: true,
   vehicleNumber: true,
+  // Only a host-spot booking carries these. `vehicleType` is on the booking
+  // because a spot has no ParkingCapacity to read it from, and
+  // `holdExpiresAt` is here because an unpaid hold that silently lapses is
+  // worse than one the driver can watch running out.
+  vehicleType: true,
+  holdExpiresAt: true,
   createdAt: true,
   startsAt: true,
   endsAt: true,
@@ -105,18 +111,33 @@ function graceCutoff(): Date {
 }
 
 /**
- * Bookings that still matter to the driver: not cancelled, and either undated
- * or recent enough that the pass is still worth showing.
+ * Bookings that still matter to the driver: not cancelled, and not yet over.
+ *
+ * When a booking is over depends on which shape it is, so the two are asked
+ * separately. An event booking is over a while after its event, and an
+ * undated one never is. A host-spot booking is over when the hours it claimed
+ * have passed -- no grace, because unlike a gate that may still want to see a
+ * QR, a driveway is simply free again.
+ *
+ * The OR matters: a filter on `parkingCapacity` alone is a relation-exists
+ * check, which no spot booking can satisfy, so every one of them fell through
+ * to `pastWhere` and a driver found a stay they had just booked filed under
+ * Past.
  */
 function upcomingWhere(driverId: string): Prisma.BookingWhereInput {
   return {
     driverId,
     status: { in: ["PENDING", "CONFIRMED"] },
-    parkingCapacity: {
-      listing: {
-        OR: [{ eventDate: null }, { eventDate: { gte: graceCutoff() } }],
+    OR: [
+      {
+        parkingCapacity: {
+          listing: {
+            OR: [{ eventDate: null }, { eventDate: { gte: graceCutoff() } }],
+          },
+        },
       },
-    },
+      { endsAt: { gte: new Date() } },
+    ],
   };
 }
 

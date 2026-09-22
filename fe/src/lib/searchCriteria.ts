@@ -192,19 +192,35 @@ export function fromParams(
   return { mode: "hourly", place, from, to };
 }
 
+/**
+ * A stretch of time, in one line. Collapses the day when both ends fall on
+ * it, so an ordinary afternoon does not read like an overnight stay.
+ */
+export function describeRange(from: Date, to: Date): string {
+  const time = (date: Date) =>
+    date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+
+  return toDateKey(from) === toDateKey(to)
+    ? `${dayLabel(from)}, ${time(from)} – ${time(to)}`
+    : `${dayLabel(from)} ${time(from)} – ${dayLabel(to)} ${time(to)}`;
+}
+
+/** "45 min", "2 hours", "3 hours 30 min". Days stay in hours: a driver books
+ *  a car park by the hour and reads a bill the same way. */
+export function formatDuration(minutes: number): string {
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+
+  if (hours === 0) return `${rest} min`;
+
+  const hourPart = `${hours} ${hours === 1 ? "hour" : "hours"}`;
+  return rest === 0 ? hourPart : `${hourPart} ${rest} min`;
+}
+
 /** How the search reads back to the driver, on the results screen. */
 export function describeCriteria(criteria: SearchCriteria): string {
   if (criteria.mode === "hourly") {
-    const from = new Date(criteria.from);
-    const to = new Date(criteria.to);
-    const time = (date: Date) =>
-      date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-
-    const sameDay = toDateKey(from) === toDateKey(to);
-
-    return sameDay
-      ? `${dayLabel(from)}, ${time(from)} – ${time(to)}`
-      : `${dayLabel(from)} ${time(from)} – ${dayLabel(to)} ${time(to)}`;
+    return describeRange(new Date(criteria.from), new Date(criteria.to));
   }
 
   const names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];

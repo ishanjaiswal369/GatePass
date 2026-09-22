@@ -70,3 +70,18 @@ export function bookingWhen(row: BookingRow): string {
   const date = new Date(eventDate);
   return `${dayOf(date)} · ${timeOf(date)}`;
 }
+
+/**
+ * How much longer an unpaid hold lasts, in whole minutes.
+ *
+ * Null when the booking is not holding anything: an event booking, which has
+ * no hold, or a spot booking past PENDING, whose `holdExpiresAt` is still set
+ * but no longer decides anything. 0 means the hold has lapsed and the next
+ * driver to ask for those hours will sweep it.
+ */
+export function holdMinutesLeft(row: BookingRow): number | null {
+  if (row.status !== "PENDING" || !row.holdExpiresAt) return null;
+
+  const left = Date.parse(row.holdExpiresAt) - Date.now();
+  return Number.isNaN(left) ? null : Math.max(0, Math.ceil(left / 60_000));
+}

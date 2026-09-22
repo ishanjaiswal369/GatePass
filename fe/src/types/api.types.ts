@@ -139,6 +139,13 @@ export interface BookingRow {
   status: BookingStatus;
   vehicleNumber: string;
   vehicleType: VehicleType | null;
+  /**
+   * When an unpaid hold on a host spot lapses. Null on an event booking. It is
+   * stamped once at creation and never cleared, so it only means anything
+   * while the booking is PENDING -- a confirmed booking is not held, it is
+   * booked.
+   */
+  holdExpiresAt: string | null;
   createdAt: string;
   startsAt: string | null;
   endsAt: string | null;

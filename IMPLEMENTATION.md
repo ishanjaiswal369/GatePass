@@ -843,13 +843,18 @@ is not built** -- `pass.service.verify` exists for it.
 
 Auth, discovery and booking correctness are done. What remains:
 
-**The gap that matters most: unpaid holds are never released.** A booking is
-created `PENDING` and has already claimed its capacity. If the driver never
-pays, that slot stays claimed forever -- an event can show "sold out" with
-nobody actually coming. Nothing expires it today. The fix is a `holdExpiresAt`
-column plus a sweeper that releases expired `PENDING` rows, and it has to land
-with the payment flow, because the two are the same problem seen from two
-sides. **Do not run a real event sale before this exists.**
+**The gap that matters most: unpaid holds on an *event* are never released.**
+A booking is created `PENDING` and has already claimed its capacity. If the
+driver never pays, that slot stays claimed forever -- an event can show "sold
+out" with nobody actually coming. **Do not run a real event sale before this
+exists.**
+
+Host spots no longer have this problem: 0025 gave `Booking` a `holdExpiresAt`,
+and `releaseExpiredHolds` cancels lapsed `PENDING` rows on the next attempt
+against that listing -- swept on demand rather than on a schedule, because the
+only moment an expired hold matters is when somebody else wants those hours.
+The event path needs the same treatment, and it has to land with payments,
+because the two are one problem seen from two sides.
 
 Also missing:
 
@@ -898,16 +903,35 @@ Also missing:
   - Only the web Google client id is wired; iOS and Android need their own,
     plus a dev build (Expo Go will not do native Google sign-in here).
   - The Android adaptive icon sets `backgroundColor` but no `foregroundImage`.
-- **Checkout.** `event/[id]` lists prices and availability but cannot book:
-  that is the `design/Booking` flow and it needs Razorpay. The driver home,
-  its two tabs, the QR pass, bookings and host screens are built.
+- **Event checkout.** `event/[id]` lists prices and availability but cannot
+  book: that is the `design/Booking` flow and it needs Razorpay. A host spot
+  *can* be booked -- `spots/[id]` carries the search hours into
+  `spots/checkout`, which picks a saved vehicle, prices the stay and calls
+  `POST /spot-bookings` -- but it stops at a `PENDING` hold, and the screen
+  says so rather than implying a pass.
+- **Nothing reaches `COMPLETED`.** A stay that has ended stays `PENDING` or
+  `CONFIRMED` forever: no job, no scan and no host action moves it on. Reviews
+  are blocked on this, since "was this spot as described" is only a fair
+  question once the booking is over.
+- **`/spots/nearby` does not subtract existing bookings.** It matches a search
+  against the host's *availability* only, so a spot whose hours are already
+  taken still comes back as a result. The driver finds out at checkout, from
+  the 409 the `EXCLUDE` constraint produces. Honest, but late:
+  `booking.service.bookedRanges` exists to fix this and has no route yet.
+- **`getActiveForDriver` cannot see a spot booking.** It filters through
+  `parkingCapacity`, which a spot booking does not have, so one would never
+  surface as the home screen's active pass. Unreachable today -- it also
+  requires `CONFIRMED`, and no spot booking can reach that without payments --
+  but it needs fixing before they can, together with a decision about which
+  booking wins when a driver holds both shapes at once.
 - **Dead columns.** `User.gstNumber` and `User.bankAccountId` are no longer
   read or written anywhere: `Organizer` and `HostProfile` carry those now.
   They are still in the schema and should be dropped.
-- **Bookings do not use saved vehicles yet.** The `Vehicle` table exists and
-  the profile manages it, but `POST /bookings` still takes `vehicleNumber` as
-  free text. Wiring checkout to pick a saved vehicle — and to preselect the
-  `ParkingCapacity` matching its type — is the next step.
+- **Event bookings do not use saved vehicles yet.** `spots/checkout` picks one
+  and sends its type, so the spot path reads the rate off it. `POST /bookings`
+  still takes `vehicleNumber` as free text; wiring event checkout the same way
+  — and preselecting the `ParkingCapacity` matching the vehicle's type — is
+  the next step.
 - **Phone is unverified.** `PATCH /auth/me` stores a normalised `+91` number,
   but nothing proves the user holds it. Razorpay and gate contact both assume
   it is real, so an SMS OTP is needed before either depends on it.

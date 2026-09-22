@@ -13,9 +13,15 @@ import {
   RestoringScreen,
 } from "@/components/ui";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
-import { bookingListing, bookingWhen, isSpotBooking } from "@/lib/booking";
+import {
+  bookingListing,
+  bookingWhen,
+  holdMinutesLeft,
+  isSpotBooking,
+} from "@/lib/booking";
+import { formatRupees } from "@/lib/money";
 import { useSession } from "@/providers/SessionProvider";
-import { colors, space } from "@/theme";
+import { colors, space, type } from "@/theme";
 import type { BookingRow } from "@/types/api.types";
 
 type Scope = "upcoming" | "past";
@@ -90,23 +96,39 @@ export default function BookingsScreen() {
                 : "No past bookings."}
             </Text>
           ) : (
-            rows.map((row) => (
-              <Card key={row.id} heading={bookingListing(row)?.name ?? "Booking"}>
-                <DataRow
-                  label="Where"
-                  value={bookingListing(row)?.venueName ?? "—"}
-                />
-                <DataRow label="When" value={bookingWhen(row)} />
-                <DataRow label="Vehicle" value={row.vehicleNumber} />
-                {/* A host spot is one space, so "how many" is only a question
-                    an event booking answers. */}
-                {isSpotBooking(row) ? null : (
-                  <DataRow label="Spots" value={String(row.quantity)} />
-                )}
-                <DataRow label="Amount" value={`₹${Math.round(Number(row.amount))}`} />
-                <DataRow label="Status" value={row.status} />
-              </Card>
-            ))
+            rows.map((row) => {
+              const heldFor = holdMinutesLeft(row);
+
+              return (
+                <Card key={row.id} heading={bookingListing(row)?.name ?? "Booking"}>
+                  <DataRow
+                    label="Where"
+                    value={bookingListing(row)?.venueName ?? "—"}
+                  />
+                  <DataRow label="When" value={bookingWhen(row)} />
+                  <DataRow label="Vehicle" value={row.vehicleNumber} />
+                  {/* A host spot is one space, so "how many" is only a question
+                      an event booking answers. */}
+                  {isSpotBooking(row) ? null : (
+                    <DataRow label="Spots" value={String(row.quantity)} />
+                  )}
+                  <DataRow label="Amount" value={formatRupees(row.amount)} />
+                  <DataRow label="Status" value={row.status} />
+
+                  {/* PENDING on a spot is a hold with a deadline, not a booking
+                      waiting its turn, and this list is where a driver comes
+                      looking for it. The bare status word would read as
+                      "nearly there" right up until it silently lapsed. */}
+                  {heldFor === null ? null : (
+                    <Text style={s.hold}>
+                      {heldFor === 0
+                        ? "This hold has lapsed. The hours are back on sale."
+                        : `Held for about ${heldFor} more ${heldFor === 1 ? "minute" : "minutes"}. An unpaid hold lapses on its own.`}
+                    </Text>
+                  )}
+                </Card>
+              );
+            })
           )}
         </ScrollView>
 
@@ -123,4 +145,10 @@ const s = StyleSheet.create({
   body: { paddingHorizontal: 20, paddingBottom: 20, gap: space.md },
   loading: { paddingVertical: space.xl },
   empty: { fontSize: 14, color: colors.inkMuted, lineHeight: 21 },
+  hold: {
+    ...type.caption,
+    lineHeight: 18,
+    color: colors.accentInk,
+    paddingTop: space.sm,
+  },
 });

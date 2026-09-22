@@ -14,6 +14,7 @@ import { useSession } from "@/providers/SessionProvider";
 import {
   describeCriteria,
   fromParams,
+  toParams,
   type SearchCriteria,
 } from "@/lib/searchCriteria";
 import { colors, space, type } from "@/theme";
@@ -144,7 +145,15 @@ export default function SpotResultsScreen() {
                   distanceKm={spot.distanceKm}
                   pricePerHour={spot.pricePerHour}
                   availableUntilMinute={spot.availableUntilMinute}
-                  onPress={() => router.push(`/spots/${spot.id}`)}
+                  // The criteria travel on: the detail screen needs the hours
+                  // to hand the checkout, and a driver who lands there from a
+                  // shared link has not told anyone when they want to park.
+                  onPress={() =>
+                    router.push({
+                      pathname: "/spots/[id]",
+                      params: { id: spot.id, ...toParams(criteria) },
+                    })
+                  }
                 />
               ))}
             </>
