@@ -1,4 +1,4 @@
-import type { GeocodeResult, NearbySpot } from "@/types/api.types";
+import type { GeocodeResult, PlaceSuggestion, NearbySpot } from "@/types/api.types";
 import { request } from "./client";
 
 export const nearby = (
@@ -20,3 +20,56 @@ export const geocode = (token: string, q: string) =>
     `/geocode?q=${encodeURIComponent(q)}`,
     { token }
   );
+
+/**
+ * Type-ahead suggestions. May come back without coordinates: the better
+ * autocomplete APIs answer with a place id and a label, and charge for the
+ * coordinates separately -- see placeDetails.
+ */
+export const autocomplete = (
+  token: string,
+  q: string,
+  options: { sessionToken?: string } = {}
+) => {
+  const params = new URLSearchParams({ q });
+  if (options.sessionToken) params.set("sessionToken", options.sessionToken);
+
+  return request<{ suggestions: PlaceSuggestion[] }>(
+    `/geocode/autocomplete?${params}`,
+    { token }
+  );
+};
+
+/**
+ * The address at a point.
+ *
+ * The other direction from geocode(): the map gives coordinates, and this is
+ * what turns them into something a host can read and a driver can follow.
+ * Answers 404 when the provider has nothing there, which is a valid pin with
+ * no name rather than a failure.
+ */
+export const reverseGeocode = (
+  token: string,
+  latitude: number,
+  longitude: number
+) =>
+  request<{ result: GeocodeResult }>(
+    `/geocode/reverse?latitude=${latitude}&longitude=${longitude}`,
+    { token }
+  );
+
+/** Coordinates for the one suggestion the host actually picked. */
+export const placeDetails = (
+  token: string,
+  placeId: string,
+  options: { sessionToken?: string } = {}
+) => {
+  const params = new URLSearchParams();
+  if (options.sessionToken) params.set("sessionToken", options.sessionToken);
+  const query = params.toString();
+
+  return request<{ result: GeocodeResult }>(
+    `/geocode/place/${encodeURIComponent(placeId)}${query ? `?${query}` : ""}`,
+    { token }
+  );
+};

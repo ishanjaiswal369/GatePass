@@ -29,3 +29,6 @@ Thumbs.db
 .idea/
 .vscode/
 design/gatepass-*.html
+
+# Files written by STORAGE_PROVIDER=local. Dev only, never committed.
+be/uploads/

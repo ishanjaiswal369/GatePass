@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { VEHICLE_TYPES } from "../constants/enums/index.js";
 import type { RequestInput, RequestSchemas } from "../lib/request.js";
 
 const nearbyQuery = z.object({
@@ -7,6 +8,7 @@ const nearbyQuery = z.object({
   radiusKm: z.coerce.number().positive().max(25).default(5),
   at: z.coerce.date().optional(),
   durationMinutes: z.coerce.number().int().positive().max(1440).default(60),
+  vehicleType: z.enum(VEHICLE_TYPES).optional(),
   limit: z.coerce.number().int().positive().max(50).optional(),
 });
 

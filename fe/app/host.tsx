@@ -1,136 +1,126 @@
-import { Redirect, router } from "expo-router";
-import { useEffect, useState } from "react";
+import { Redirect, router, useFocusEffect } from "expo-router";
+import { useCallback, useState } from "react";
 import { ActivityIndicator, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
-import { ApiError, hostApi } from "@/api";
+import { ApiError, hostApi, spotListingApi } from "@/api";
 import {
   BottomNav,
   Button,
   Card,
   DataRow,
   ErrorNotice,
-  Field,
   PhoneFrame,
   type NavKey,
   RestoringScreen,
+  TrashIcon,
+  formatMinute,
 } from "@/components/ui";
+import { firstStepPath } from "@/constants/wizard";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
-import { useDriverLocation } from "@/hooks/useDriverLocation";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { useSession } from "@/providers/SessionProvider";
-import { colors, space } from "@/theme";
-import type { HostAvailabilityRow, HostProfile } from "@/types/api.types";
+import { colors, radius, space, type } from "@/theme";
+import type {
+  AvailabilityWindow,
+  PayoutAccount,
+  SpotListing,
+} from "@/types/api.types";
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-function formatMinute(minute: number) {
-  // End-of-day is stored as 1440, which "% 24" would render as 00:00 -- a
-  // window reading "18:00-00:00" looks like a typo, and "00:00-00:00" looks
-  // broken.
-  if (minute >= 1440) return "24:00";
-  return `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
-}
-
 /**
  * One nav item, two destinations: onboarding when no HostProfile exists, the
- * dashboard when it does. The fork is decided by the API, not by a role claim
- * -- a user can be a driver and a host at the same time.
+ * dashboard when it does. The fork is decided by `user.hasHostProfile`, which
+ * every sign-in and /auth/me carries -- not by a role claim, because a user
+ * can be a driver and a host at the same time. So a non-host lands on
+ * onboarding with no request at all.
  *
- * Which one to show comes from `user.hasHostProfile`, which every sign-in and
- * /auth/me carries. So a non-host lands on onboarding with no request at all,
- * and a host sees the dashboard frame at once while its details load.
+ * The dashboard itself is one call. It used to be three -- the profile, every
+ * spot, and every availability window -- which is two more round trips than
+ * the screen has pieces: `/host/spots` carries each spot's own windows and
+ * the payout gate alongside them, and the host's profile held nothing this
+ * screen still shows.
  */
 export default function HostScreen() {
-  const { token, user, setUser, isRestoring } = useSession();
-  // Read from the session every render, never captured in initial state: after
-  // a reload `user` is null until the session restores.
+  const { token, user, isRestoring } = useSession();
+  // Read from the session every render, never captured in initial state:
+  // after a reload `user` is null until the session restores.
   const isHost = user?.hasHostProfile;
   const insets = useScreenInsets();
-  const [profile, setProfile] = useState<HostProfile | null>(null);
-  const [availability, setAvailability] = useState<HostAvailabilityRow[]>([]);
+
+  const [spots, setSpots] = useState<SpotListing[]>([]);
+  const [payout, setPayout] = useState<PayoutAccount | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const [addressLine, setAddressLine] = useState("");
-  const [city, setCity] = useState("");
-  const [state, setState] = useState("");
-  const [pincode, setPincode] = useState("");
+  /**
+   * On focus, not on mount. The wizard runs on top of this screen and returns
+   * to it without remounting, so a spot that was just submitted -- or just
+   * created -- would otherwise show whatever was true when the tab first
+   * opened, which reads as a failed save.
+   */
+  useFocusEffect(
+    useCallback(() => {
+      if (!token || isHost !== true) {
+        setLoaded(true);
+        return;
+      }
 
-  const { coords, requestLocation } = useDriverLocation();
+      let cancelled = false;
 
-  useEffect(() => {
-    // Not a host: onboarding needs nothing from the server.
-    if (!token || isHost === false) return;
+      spotListingApi
+        .list(token)
+        .then(({ spots: rows, payout: account }) => {
+          if (cancelled) return;
+          setSpots(rows);
+          setPayout(account);
+          setLoadError(null);
+        })
+        .catch((err) =>
+          setLoadError(
+            err instanceof ApiError ? err.message : "Could not load your spots"
+          )
+        )
+        .finally(() => {
+          if (!cancelled) setLoaded(true);
+        });
 
-    let cancelled = false;
-
-    hostApi
-      .getProfile(token)
-      .then(async ({ profile: found }) => {
-        if (cancelled) return;
-        setProfile(found);
-
-        if (found) {
-          const { availability: windows } = await hostApi.listAvailability(token);
-          if (!cancelled) setAvailability(windows);
-        }
-      })
-      .catch((err) =>
-        setLoadError(err instanceof ApiError ? err.message : "Could not load host")
-      )
-      .finally(() => {
-        if (!cancelled) setLoaded(true);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [token, isHost]);
-
-  const { run: submit, busy, error } = useAsyncAction(async () => {
-    if (!token) return;
-
-    // The spot's coordinates are what the Nearby search matches on, so they
-    // are taken from the device rather than typed -- a mistyped pin makes a
-    // listing invisible in a way nobody would think to check.
-    const at = coords ?? (await requestLocation());
-
-    if (!at) {
-      throw new ApiError(
-        "Location is needed to place your spot on the map.",
-        400
-      );
-    }
-
-    try {
-      const { profile: created } = await hostApi.createProfile(token, {
-        addressLine: addressLine.trim(),
-        city: city.trim(),
-        state: state.trim(),
-        pincode: pincode.trim(),
-        latitude: at.latitude,
-        longitude: at.longitude,
-      });
-
-      setProfile(created);
-    } catch (err) {
-      // 409: this account became a host elsewhere (another device) after this
-      // session was loaded, so its flag is stale. Flipping it below loads the
-      // existing dashboard instead of stranding the user on an error.
-      if (!(err instanceof ApiError && err.status === 409)) throw err;
-    }
-
-    if (user) setUser({ ...user, hasHostProfile: true });
-  });
+      return () => {
+        cancelled = true;
+      };
+    }, [token, isHost])
+  );
 
   const { run: toggleWindow } = useAsyncAction(
-    async (id: string, next: boolean) => {
+    async (spotId: string, id: string, next: boolean) => {
       if (!token) return;
       const updated = await hostApi.setAvailabilityActive(token, id, next);
-      setAvailability((rows) =>
-        rows.map((row) => (row.id === id ? updated : row))
+
+      setSpots((rows) =>
+        rows.map((spot) =>
+          spot.id === spotId
+            ? {
+                ...spot,
+                availability: spot.availability.map((window) =>
+                  window.id === id ? { ...window, ...updated } : window
+                ),
+              }
+            : spot
+        )
       );
     }
   );
+
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const { run: deleteSpot } = useAsyncAction(async (id: string) => {
+    if (!token) return;
+    setDeletingId(id);
+    try {
+      await spotListingApi.deleteSpot(token, id);
+      setSpots((rows) => rows.filter((row) => row.id !== id));
+    } finally {
+      setDeletingId(null);
+    }
+  });
 
   const navigate = (key: NavKey) => {
     if (key === "home") router.push("/home");
@@ -138,13 +128,10 @@ export default function HostScreen() {
     if (key === "profile") router.push("/account");
   };
 
-  if (isRestoring) {
-    return <RestoringScreen />;
-  }
+  if (isRestoring) return <RestoringScreen />;
+  if (!token) return <Redirect href="/" />;
 
-  if (!token) {
-    return <Redirect href="/" />;
-  }
+  const activeSpots = spots.filter((spot) => spot.status !== "CANCELLED");
 
   return (
     <PhoneFrame>
@@ -152,106 +139,52 @@ export default function HostScreen() {
         <ScrollView contentContainerStyle={[s.body, { paddingTop: insets.top + 32 }]}>
           {loadError ? <ErrorNotice message={loadError} /> : null}
 
-          {/* Spinner only when there is something to wait for. A known
-              non-host skips it and gets onboarding on first paint. */}
-          {!profile && !loaded && isHost !== false ? (
+          {isHost !== true ? (
+            <Onboarding />
+          ) : !loaded ? (
             <>
-              {/* Known host: the dashboard frame shows now, details follow. */}
-              {isHost ? (
-                <View style={s.heading}>
-                  <Text style={s.title}>Your spot</Text>
-                </View>
-              ) : null}
-              <ActivityIndicator color={colors.ink} style={s.loading} />
-            </>
-          ) : profile ? (
-            <>
+              {/* The frame shows now, the details follow. A known host should
+                  not watch a blank screen for one request. */}
               <View style={s.heading}>
-                <Text style={s.title}>Your spot</Text>
-                <Text style={s.sub}>
-                  {profile.addressLine}, {profile.city}
-                </Text>
+                <Text style={s.title}>Your spots</Text>
               </View>
-
-              <Card heading="Spot">
-                <DataRow label="City" value={profile.city} />
-                <DataRow label="Pincode" value={profile.pincode} />
-                <DataRow label="Status" value={profile.verificationStatus} />
-              </Card>
-
-              <Card heading={`Availability (${availability.length})`}>
-                {availability.length === 0 ? (
-                  <Text style={s.empty}>
-                    No windows yet. Your spot stays hidden until you add one.
-                  </Text>
-                ) : (
-                  availability.map((window) => (
-                    <View key={window.id} style={s.window}>
-                      <View style={s.windowCopy}>
-                        <Text style={s.windowDay}>
-                          {DAY_NAMES[window.dayOfWeek]}{" "}
-                          {formatMinute(window.startMinute)}–
-                          {formatMinute(window.endMinute)}
-                        </Text>
-                        <Text style={s.windowPrice}>
-                          ₹{Math.round(Number(window.pricePerHour))}/hour
-                        </Text>
-                      </View>
-                      <Switch
-                        value={window.isActive}
-                        onValueChange={(next) => toggleWindow(window.id, next)}
-                        accessibilityLabel={`Availability on ${DAY_NAMES[window.dayOfWeek]}`}
-                      />
-                    </View>
-                  ))
-                )}
-              </Card>
+              <ActivityIndicator color={colors.ink} style={s.loading} />
             </>
           ) : (
             <>
               <View style={s.heading}>
-                <Text style={s.title}>Rent out your spot</Text>
+                <Text style={s.title}>Your spots</Text>
                 <Text style={s.sub}>
-                  Tell us where it is. You set the hours and the price after
-                  this.
+                  {activeSpots.length === 1 ? "1 listed" : `${activeSpots.length} listed`}
                 </Text>
               </View>
 
-              {error ? <ErrorNotice message={error} /> : null}
+              {payout ? <PayoutCard payout={payout} /> : null}
 
-              <Field
-                label="Address"
-                value={addressLine}
-                onChangeText={setAddressLine}
-                placeholder="12 Carter Road"
-              />
-              <Field label="City" value={city} onChangeText={setCity} placeholder="Mumbai" />
-              <Field
-                label="State"
-                value={state}
-                onChangeText={setState}
-                placeholder="Maharashtra"
-              />
-              <Field
-                label="Pincode"
-                value={pincode}
-                onChangeText={setPincode}
-                placeholder="400050"
-                keyboardType="number-pad"
-                maxLength={6}
-              />
+              {activeSpots.length === 0 ? (
+                <Text style={s.empty}>
+                  No spots yet. Add one below to start taking bookings.
+                </Text>
+              ) : (
+                activeSpots.map((spot) => (
+                  <SpotCard
+                    key={spot.id}
+                    spot={spot}
+                    deleting={deletingId === spot.id}
+                    onDelete={() => deleteSpot(spot.id)}
+                    onToggleWindow={(id, next) => toggleWindow(spot.id, id, next)}
+                  />
+                ))
+              )}
 
+              {/* No request: the wizard's first step is what creates a spot,
+                  and it does so only once the host has named it. Opening a
+                  blank draft here left unnamed rows behind for anyone who
+                  looked at the wizard and backed out. */}
               <Button
-                label="Submit"
-                size="lg"
-                busy={busy}
-                onPress={submit}
-                disabled={!addressLine.trim() || !city.trim() || !state.trim() || pincode.length !== 6}
+                label="Add another spot"
+                onPress={() => router.push(firstStepPath())}
               />
-
-              <Text style={s.fine}>
-                Your spot goes live as soon as you add an availability window.
-              </Text>
             </>
           )}
         </ScrollView>
@@ -259,6 +192,244 @@ export default function HostScreen() {
         <BottomNav active="host" onNavigate={navigate} />
       </View>
     </PhoneFrame>
+  );
+}
+
+function SpotCard({
+  spot,
+  deleting,
+  onDelete,
+  onToggleWindow,
+}: {
+  spot: SpotListing;
+  deleting: boolean;
+  onDelete: () => void;
+  onToggleWindow: (id: string, next: boolean) => void;
+}) {
+  const editable = spot.status === "DRAFT" || spot.status === "REJECTED";
+
+  return (
+    <Card heading={spot.name}>
+      <ListingStatusCard spot={spot} />
+
+      <Button
+        label={editable ? "Continue this listing" : "View this listing"}
+        onPress={() =>
+          router.push(
+            editable
+              ? firstStepPath(spot.id)
+              : { pathname: "/host/spot", params: { id: spot.id } }
+          )
+        }
+      />
+
+      {spot.city ? <DataRow label="City" value={spot.city} /> : null}
+
+      {spot.pricing.length > 0 ? (
+        <DataRow
+          label="Rates"
+          value={spot.pricing
+            .map(
+              (rate) =>
+                `${rate.vehicleType === "CAR" ? "Car" : "Bike"} ₹${Number(rate.pricePerHour)}`
+            )
+            .join("  ·  ")}
+        />
+      ) : null}
+
+      <DataRow label="Photos" value={`${spot.photos.length}`} />
+
+      {spot.availability.length === 0 ? (
+        <Text style={s.empty}>
+          No hours yet. This spot stays hidden until you set them in the wizard.
+        </Text>
+      ) : (
+        spot.availability.map((window) => (
+          <View key={window.id} style={s.window}>
+            <Text style={s.windowDay}>{describeWindow(window)}</Text>
+            <Switch
+              value={window.isActive}
+              onValueChange={(next) => onToggleWindow(window.id, next)}
+              accessibilityLabel={`Availability on ${DAY_NAMES[window.dayOfWeek]}`}
+            />
+          </View>
+        ))
+      )}
+
+      <Button
+        label="Delete this spot"
+        variant="danger"
+        busy={deleting}
+        onPress={onDelete}
+        leadingIcon={<TrashIcon color={colors.danger} />}
+      />
+    </Card>
+  );
+}
+
+/**
+ * The payout gate, once, at the top -- not per spot.
+ *
+ * It is one account for the whole host, and it blocks every one of their
+ * spots at the same time, so repeating it on each card would say the same
+ * thing three times. Hidden once activated: a gate that is open is not news.
+ */
+function PayoutCard({ payout }: { payout: PayoutAccount }) {
+  if (payout.payoutKycStatus === "ACTIVATED") return null;
+
+  // Whatever the status says, a host with nothing stored has not really
+  // submitted anything -- see the API's needsDetails.
+  if (payout.needsDetails) {
+    return (
+      <View style={s.status}>
+        <Text style={s.statusHeading}>No payout account yet</Text>
+        <Text style={s.statusBody}>
+          Your spots cannot go live until we know where to send your earnings.
+          The listing wizard asks for this.
+        </Text>
+      </View>
+    );
+  }
+
+  const copy = {
+    NOT_STARTED: {
+      title: "No payout account yet",
+      body: "Your spots cannot go live until we know where to send your earnings. The listing wizard asks for this.",
+    },
+    PENDING: {
+      title: "Payout details received",
+      body: "We are sending them for verification.",
+    },
+    UNDER_REVIEW: {
+      title: "Payout account being verified",
+      body: `We are checking the account ending ${payout.accountNumberLast4 ?? "••••"}. This usually takes a day or two, and your spots go live once it clears.`,
+    },
+    REJECTED: {
+      title: "Payout account could not be verified",
+      body: "The details did not check out. Enter them again in the listing wizard.",
+    },
+  }[payout.payoutKycStatus];
+
+  return (
+    <View
+      style={[
+        s.status,
+        payout.payoutKycStatus === "REJECTED" && s.statusWarn,
+      ]}
+    >
+      <Text style={s.statusHeading}>{copy.title}</Text>
+      <Text style={s.statusBody}>{copy.body}</Text>
+    </View>
+  );
+}
+
+/**
+ * Where the listing stands, and what moves it forward.
+ *
+ * Deliberately says what is outstanding rather than only naming a state: a
+ * host reading "PENDING_REVIEW" learns nothing they can act on.
+ */
+function ListingStatusCard({ spot }: { spot: SpotListing }) {
+  const { heading, body, tone } = describe(spot);
+
+  return (
+    <View style={[s.status, tone === "good" && s.statusGood, tone === "warn" && s.statusWarn]}>
+      <Text style={s.statusHeading}>{heading}</Text>
+      <Text style={s.statusBody}>{body}</Text>
+    </View>
+  );
+}
+
+function describe(spot: SpotListing): {
+  heading: string;
+  body: string;
+  tone: "neutral" | "good" | "warn";
+} {
+  if (spot.status === "DRAFT") {
+    return {
+      heading: "Listing not finished",
+      body: "Saved as a draft. Finish the remaining steps to send it for review.",
+      tone: "neutral",
+    };
+  }
+
+  if (spot.status === "PENDING_REVIEW") {
+    return {
+      heading: "With us for review",
+      body: "We are checking your ownership proof. It goes live once that clears and your payout account is active.",
+      tone: "neutral",
+    };
+  }
+
+  if (spot.status === "REJECTED") {
+    return {
+      heading: "Not approved",
+      body: spot.rejectionReason ?? "Something was missing. Edit your listing and submit it again.",
+      tone: "warn",
+    };
+  }
+
+  if (spot.status === "SUSPENDED") {
+    return {
+      heading: "Paused",
+      body: spot.rejectionReason ?? "This spot is offline. Contact support to put it back.",
+      tone: "warn",
+    };
+  }
+
+  return {
+    heading: "Live",
+    body: "Drivers nearby can find and book this spot.",
+    tone: "good",
+  };
+}
+
+function describeWindow(window: AvailabilityWindow): string {
+  const day = DAY_NAMES[window.dayOfWeek];
+
+  if (window.startMinute === 0 && window.endMinute >= 1440) {
+    return `${day}  ·  all day`;
+  }
+
+  return `${day}  ·  ${formatMinute(window.startMinute)}–${formatMinute(window.endMinute)}`;
+}
+
+function Onboarding() {
+  return (
+    <>
+      <View style={s.heading}>
+        <Text style={s.title}>Rent out your space</Text>
+        <Text style={s.sub}>
+          Earn from a driveway, garage or parking bay you already have.
+        </Text>
+      </View>
+
+      <Card heading="What you will need">
+        <View style={s.needs}>
+          <Need text="Photos of the space" />
+          <Need text="The address, and a pin you can move to the exact entrance" />
+          <Need text="Proof you may rent it out — an electricity bill or property tax receipt" />
+          <Need text="Your PAN and bank details, so you can be paid" />
+        </View>
+      </Card>
+
+      <Button label="Get started" size="lg" onPress={() => router.push(firstStepPath())} />
+
+      <Text style={s.fine}>
+        We check your ownership proof before a listing goes live, and your
+        payout account has to be active. Both usually take a couple of days.
+        You can list more than one spot once you are set up.
+      </Text>
+    </>
+  );
+}
+
+function Need({ text }: { text: string }) {
+  return (
+    <View style={s.need}>
+      <View style={s.needDot} />
+      <Text style={s.needText}>{text}</Text>
+    </View>
   );
 }
 
@@ -278,8 +449,28 @@ const s = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  windowCopy: { gap: 2 },
   windowDay: { fontSize: 15, fontWeight: "600", color: colors.ink },
-  windowPrice: { fontSize: 12, color: colors.inkFaint },
   fine: { fontSize: 12, color: colors.inkFaint, lineHeight: 18 },
+  status: {
+    gap: 5,
+    padding: space.lg,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.canvas,
+  },
+  statusGood: { borderColor: colors.success, backgroundColor: "#f0fdf4" },
+  statusWarn: { borderColor: colors.devBorder, backgroundColor: colors.devSurface },
+  statusHeading: { fontSize: 16, fontWeight: "700", color: colors.ink },
+  statusBody: { fontSize: 13, lineHeight: 19, color: colors.inkMuted },
+  needs: { gap: space.md, paddingTop: space.xs },
+  need: { flexDirection: "row", gap: space.md, alignItems: "flex-start" },
+  needDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: colors.accent,
+    marginTop: 7,
+  },
+  needText: { flex: 1, fontSize: 14, lineHeight: 20, color: colors.inkMuted },
 });

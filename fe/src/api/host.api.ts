@@ -1,49 +1,17 @@
-import type { HostAvailabilityRow, HostProfile } from "@/types/api.types";
+import type { HostAvailabilityRow } from "@/types/api.types";
 import { request } from "./client";
 
-/** `profile: null` means "not a host yet", which is the common case. */
-export const getProfile = (token: string) =>
-  request<{ profile: HostProfile | null }>("/host/profile", { token });
-
-export const createProfile = (
-  token: string,
-  input: {
-    addressLine: string;
-    city: string;
-    state: string;
-    pincode: string;
-    latitude: number;
-    longitude: number;
-    panNumber?: string;
-    bankAccountId?: string;
-  }
-) =>
-  request<{ profile: HostProfile }>("/host/profile", {
-    method: "POST",
-    body: input,
-    token,
-  });
-
-export const listAvailability = (token: string) =>
-  request<{ availability: HostAvailabilityRow[] }>("/host/availability", {
-    token,
-  });
-
-export const addAvailability = (
-  token: string,
-  input: {
-    dayOfWeek: number;
-    startMinute: number;
-    endMinute: number;
-    pricePerHour: number;
-  }
-) =>
-  request<HostAvailabilityRow>("/host/availability", {
-    method: "POST",
-    body: input,
-    token,
-  });
-
+/**
+ * A host's availability windows, one at a time.
+ *
+ * Reading them has no call here: `/host/spots` carries each spot's own
+ * windows, so the dashboard gets the whole picture in the request it was
+ * already making. This is only for changing one.
+ *
+ * There is no "become a host" call either -- `spotListingApi.create` makes
+ * the caller one as a side effect of naming their first spot, so there is no
+ * state between "not a host" and "a host with a named spot".
+ */
 export const setAvailabilityActive = (
   token: string,
   id: string,

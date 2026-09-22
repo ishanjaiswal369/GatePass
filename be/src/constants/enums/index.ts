@@ -9,6 +9,7 @@ export {
 export {
   LISTING_STATUSES,
   DEFAULT_LISTING_STATUS,
+  BOOKABLE_LISTING_STATUSES,
   type ListingStatus,
 } from "./listing-status.js";
 
@@ -55,3 +56,15 @@ export {
   DEFAULT_VERIFICATION_PURPOSE,
   type VerificationPurpose,
 } from "./verification-purpose.js";
+
+export {
+  SPACE_TYPES,
+  DEFAULT_SPACE_TYPE,
+  type SpaceType,
+} from "./space-type.js";
+
+export {
+  PAYOUT_KYC_STATUSES,
+  DEFAULT_PAYOUT_KYC_STATUS,
+  type PayoutKycStatus,
+} from "./payout-kyc-status.js";

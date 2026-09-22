@@ -1,36 +1,30 @@
-import type { Prisma } from "@prisma/client";
-import { conflict, notFound } from "../lib/errors.js";
+import { Prisma } from "@prisma/client";
+import { notFound } from "../lib/errors.js";
 import { prisma } from "../lib/prisma.js";
 
-export interface CreateHostProfileInput {
-  addressLine: string;
-  city: string;
-  state: string;
-  pincode: string;
-  latitude: number;
-  longitude: number;
-  panNumber?: string;
-  bankAccountId?: string;
-}
-
+/**
+ * Price is absent on purpose: it moved to SpotPricing, which holds one rate
+ * per vehicle type for the whole spot. It used to sit on each window, which
+ * meant one spot could quote two rates depending on which window a booking
+ * landed in.
+ */
 export interface AvailabilityInput {
   dayOfWeek: number;
   startMinute: number;
   endMinute: number;
-  pricePerHour: number;
   isActive?: boolean;
 }
 
-/** panNumber and bankAccountId never go back over the wire. */
+/**
+ * An address is absent because a host no longer has one: each spot carries
+ * its own (migration 0023), and a host with two driveways has two. Payout
+ * details never go back over the wire from here -- host-payout.service owns
+ * that read, and masks it.
+ */
 const hostProfileView = {
   id: true,
-  addressLine: true,
-  city: true,
-  state: true,
-  pincode: true,
-  latitude: true,
-  longitude: true,
   verificationStatus: true,
+  payoutKycStatus: true,
   createdAt: true,
 } satisfies Prisma.HostProfileSelect;
 
@@ -55,66 +49,89 @@ export async function exists(userId: string): Promise<boolean> {
 }
 
 /**
- * Onboarding. Creates the profile and the one listing that represents the
- * host's spot in the same transaction, because a profile without a listing is
- * invisible to search and a listing without a profile cannot exist.
+ * The host profile for this user, creating it on first use.
  *
- * The spot is PUBLISHED immediately -- submit means active, per the product
- * decision -- but it still only surfaces once the host adds an availability
- * window, which is the host's own on/off switch.
+ * Becoming a host is no longer a step of its own. It used to be: onboarding
+ * asked for an address, wrote a HostProfile and opened a listing named after
+ * that address, all before the host had said what they were listing. That is
+ * what put a nameless "New spot" on the dashboard for anyone who opened the
+ * wizard and closed it again.
+ *
+ * Now the first thing the wizard asks for is the listing's name, and the
+ * profile is a side effect of creating that listing -- so there is no state
+ * between "not a host" and "a host with a named spot". This returns only the
+ * id because that is all its one caller (spot-listing.service.createSpot)
+ * needs.
  */
-export async function createProfile(
-  userId: string,
-  input: CreateHostProfileInput
-) {
+export async function ensureProfile(userId: string): Promise<string> {
   const existing = await prisma.hostProfile.findUnique({
     where: { userId },
     select: { id: true },
   });
 
-  if (existing) {
-    throw conflict("Host profile already exists");
+  if (existing) return existing.id;
+
+  try {
+    const created = await prisma.hostProfile.create({
+      data: { userId },
+      select: { id: true },
+    });
+
+    return created.id;
+  } catch (error) {
+    // A double-tapped Continue sends two creates, and the loser hits userId's
+    // unique index. The row it lost to is the one it wanted, so read it back
+    // rather than failing a request that asked for nothing unreasonable.
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002"
+    ) {
+      const raced = await prisma.hostProfile.findUniqueOrThrow({
+        where: { userId },
+        select: { id: true },
+      });
+
+      return raced.id;
+    }
+
+    throw error;
   }
-
-  return prisma.$transaction(async (tx) => {
-    const profile = await tx.hostProfile.create({
-      data: { userId, ...input },
-    });
-
-    await tx.listing.create({
-      data: {
-        hostProfileId: profile.id,
-        listingType: "INDEPENDENT_SPOT",
-        name: `Parking at ${input.addressLine}`,
-        venueName: `${input.addressLine}, ${input.city}`,
-        latitude: input.latitude,
-        longitude: input.longitude,
-        status: "PUBLISHED",
-        createdBy: userId,
-        updatedBy: userId,
-      },
-    });
-
-    return tx.hostProfile.findUniqueOrThrow({
-      where: { id: profile.id },
-      select: hostProfileView,
-    });
-  });
 }
 
-export async function listAvailability(hostProfileId: string) {
+/**
+ * A host's windows, across all their spots or narrowed to one. Ownership is
+ * proven through the listing relation rather than a stored hostProfileId --
+ * see the schema note on HostAvailability -- so one host can never read or
+ * touch another host's windows by id.
+ */
+export async function listAvailability(
+  hostProfileId: string,
+  listingId?: string
+) {
   return prisma.hostAvailability.findMany({
-    where: { hostProfileId },
+    where: listingId
+      ? { listingId, listing: { hostProfileId } }
+      : { listing: { hostProfileId } },
     orderBy: [{ dayOfWeek: "asc" }, { startMinute: "asc" }],
   });
 }
 
 export async function addAvailability(
   hostProfileId: string,
+  listingId: string,
   input: AvailabilityInput
 ) {
+  const listing = await prisma.listing.findFirst({
+    where: { id: listingId, hostProfileId, listingType: "INDEPENDENT_SPOT" },
+    select: { id: true },
+  });
+
+  if (!listing) {
+    throw notFound("Listing not found");
+  }
+
   return prisma.hostAvailability.create({
-    data: { hostProfileId, ...input },
+    data: { listingId, ...input },
   });
 }
 
@@ -123,10 +140,10 @@ export async function updateAvailability(
   hostProfileId: string,
   input: Partial<AvailabilityInput>
 ) {
-  // hostProfileId is part of the filter so one host cannot toggle another
-  // host's window by id.
+  // The listing relation is part of the filter so one host cannot toggle
+  // another host's window by id.
   const updated = await prisma.hostAvailability.updateMany({
-    where: { id, hostProfileId },
+    where: { id, listing: { hostProfileId } },
     data: input,
   });
 
@@ -139,7 +156,7 @@ export async function updateAvailability(
 
 export async function removeAvailability(id: string, hostProfileId: string) {
   const deleted = await prisma.hostAvailability.deleteMany({
-    where: { id, hostProfileId },
+    where: { id, listing: { hostProfileId } },
   });
 
   if (deleted.count === 0) {

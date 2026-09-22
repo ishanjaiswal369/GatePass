@@ -30,6 +30,7 @@ model User {
   sessions        UserSession[]
   createdListings Listing[]   @relation("ListingCreatedBy")
   updatedListings Listing[]   @relation("ListingUpdatedBy")
+  reviewedListings Listing[]  @relation("ListingReviewedBy")
   createdBookings Booking[]   @relation("BookingCreatedBy")
   updatedBookings Booking[]   @relation("BookingUpdatedBy")
   createdPayments Payment[]   @relation("PaymentCreatedBy")

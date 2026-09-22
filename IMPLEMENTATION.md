@@ -1,6 +1,6 @@
 # GatePass — Implementation Notes
 
-Last updated: 2026-09-19
+Last updated: 2026-09-22
 
 A paid marketplace for parking at public ticketed events in India. Organizers
 list parking capacity at a venue; drivers reserve and pay in advance; the
@@ -289,8 +289,9 @@ Also driven through the app in the browser.
   whatever the caller asked for, promoting a new default clears the old one in
   the same transaction, and deleting the default promotes the oldest
   remaining.
-- `UserAddress` is **not** `HostProfile`'s address: that one is where a parking
-  spot is, this is where its owner lives, and a user can have both.
+- `UserAddress` is where the user lives. A spot's address is on the `Listing`
+  that describes it, not on `HostProfile` — a host can list several spots at
+  several addresses, and one row could only ever hold the last one saved.
 - **`/auth/me` eager-loads vehicles and address** in the same Prisma query as
   the user (`userService.getProfile`, with `include`), and also derives
   `hasHostProfile` from that include rather than a second lookup. The profile
@@ -484,6 +485,65 @@ Screens reached from the home screen but **not** in the canvas --
 the nav has no dead ends. `event/[id]` is read-only: checkout is its own
 designed flow and needs Razorpay.
 
+### The host listing wizard
+
+Nine steps under `app/host/spot/`, in the order `constants/wizard.ts` lists
+them: **type, address, photos, availability, pricing, access, documents,
+payout, review**. Each step is its own URL and its own request against the
+same listing, so a host who closes the app mid-way picks up where they were —
+nothing is held between screens. `useSpotDraft` reads the listing from the
+server on every step, keyed by the `?id=` the steps carry forward.
+
+- **The name comes first, because the first step is what creates the row.**
+  It used to open a blank listing called "New spot" and ask for the name on a
+  later screen, so everyone who opened the wizard and backed out left a
+  nameless draft on their dashboard — several of them, indistinguishable from
+  each other. `POST /host/spots` now takes the name, and nothing exists until
+  it is given.
+- **That same request makes a first-time host a host**, which is why it is the
+  one route in this group not behind `requireHost`. There is no separate
+  onboarding step and no `POST /host/profile` any more: a `HostProfile` is
+  created alongside the listing, in `spotListingService.createSpot`.
+- **`HostProfile` has no address.** Migration 0023 moved a spot's address onto
+  the `Listing` that describes it, because a host with two driveways has two;
+  0024 dropped what was left behind, which by then was whichever spot had
+  saved last. A host profile is now the answer to "is this user a host", and
+  where they live is `UserAddress`.
+- **Availability is days *and* hours.** The screen offers Every day / Working
+  week / Custom for the days, an "open 24 hours" switch, and a from–to range;
+  "different hours on some days" opens a row per day, which is what the API
+  has always stored. Times are minutes from midnight, `1440` meaning midnight
+  *closing* — rendering that as `00:00` made a window read as broken. The
+  picker is a list in a modal, not a platform date picker, for the same reason
+  auth uses `expo-auth-session`: no native module, so it runs on web too.
+- **Overlapping windows are refused twice.** The request schema names the day
+  it went wrong; the database's `EXCLUDE` constraint is what actually holds,
+  because two concurrent requests can each pass a check the other invalidates.
+- **Payout details are kept.** `submit` used to validate a PAN, an account
+  holder, an account number and an IFSC, store only the PAN and park the host
+  at `UNDER_REVIEW` — a review with nothing to review, and a status that could
+  never honestly move. They are stored now and read back masked (`ABCDE****F`,
+  `•••• 9012`). When a gateway lands, `host-payout.service` is the only file
+  that changes.
+  - Hosts who submitted under the old code have a status but no details, so
+    `needsDetails` answers "must this host still enter them?" separately from
+    the status. Without it they would be locked out of the one screen that
+    fixes it, permanently.
+- **Back always moves.** Every step is a real URL, so a host can land on one
+  cold — a reload, a link, a `replace` that ended the previous flow — where
+  `router.back()` does nothing at all and reads as a broken button.
+  `useWizardBack` falls back to the previous step's own path, and to `/host`
+  before the first step.
+- **The dashboard is one call.** `GET /host/spots` carries each spot's own
+  availability and the host's payout status, so `app/host.tsx` makes one
+  request where it used to make three. It refetches on focus, not on mount —
+  the wizard runs on top of it and returns without remounting.
+- **The header is light, not the dark ink band.** `SectionHeader` is shared by
+  every wizard step and by the listing status screen. The dark `ScreenHeader`
+  marks a screen reached from the app's chrome; partway through the Host tab
+  it reads as having left the section, which is exactly how the status screen
+  looked before.
+
 Three decisions worth knowing:
 
 - **The code input is six boxes over one hidden field**, not six inputs. That
@@ -571,8 +631,9 @@ it needs `expo-secure-store` on native and is a separate decision.
 | `UserAddress` | the driver's own address, 1:1 with `User`; `country` fixed to India |
 | `UserSession` | per-device session, `deviceId`, `fcmToken` (reserved), `lastActiveAt`, `expiresAt` |
 | `Listing` | an organizer's event **or** a host's spot; exactly one of `organizerId`/`hostProfileId` is set (DB `CHECK`) |
-| `HostProfile` | 1:1 optional on `User`. Its existence *is* the answer to "is this user a host" -- never `role` |
-| `HostAvailability` | weekly windows for a host spot: `dayOfWeek`, minute range, `pricePerHour`, `isActive` toggle |
+| `HostProfile` | 1:1 optional on `User`. Its existence *is* the answer to "is this user a host" -- never `role`. Holds no address (0024); holds the payout details until a gateway does |
+| `HostAvailability` | weekly windows for one spot: `dayOfWeek`, minute range, `isActive` toggle. Scoped to the `Listing`, not the host, with a DB `EXCLUDE` against overlaps. Price is **not** here -- see `SpotPricing` |
+| `SpotPhoto` / `SpotPricing` | a spot's photos in display order, and one rate per vehicle type for the whole spot |
 | `Organizer` / `OrganizerMember` | the business entity and its staff logins; listings and settlements hang off the entity |
 | `ParkingCapacity` | per `(listing, vehicleType)`: `totalCapacity`, `bookedCount`, `price` |
 | `Booking` | `quantity`, `amount` snapshot, `status`, `idempotencyKey` unique, `qrToken` unique |
@@ -648,8 +709,11 @@ Hand-written SQL, one per concern, so each change is reviewable in isolation.
 | `0019_user_password` | `User.passwordHash`, `passwordSetAt`, both nullable | yes |
 | `0020_user_vehicle_and_address` | `Vehicle`, `UserAddress` | yes |
 | `0021_user_deleted_at` | `User.deletedAt`, for soft account deletion | yes |
+| `0022_host_spot_wizard` | `SpotPhoto`, `SpotPricing`, the listing's wizard columns, payout account columns | yes |
+| `0023_host_spot_multi_listing` | a spot's address and hours move from `HostProfile` onto `Listing`; overlap `EXCLUDE` rescoped | yes |
+| `0024_host_payout_details` | stores the payout details a host submits; drops `HostProfile`'s dead address columns and `bankAccountId` | yes |
 
-All twenty are applied to the local database.
+All twenty-four are applied to the local database.
 
 `0016` backfills one `Organizer` and one `OWNER` membership per user who owns
 a listing or settlement today. The new id is derived from the owner's user id
@@ -704,8 +768,17 @@ open group left.
 | GET | `/bookings/:id/pass` | JWT | Working; mints a 5-minute pass |
 | POST | `/bookings` | JWT | Working; atomic and idempotent |
 | GET / POST | `/payments` | JWT | Stub, but scoped and server-priced |
-| GET / POST | `/host/profile` | JWT | Working; onboarding |
-| GET/POST/PATCH/DELETE | `/host/availability` | Host | Working |
+| GET | `/host/profile` | JWT | Working; `profile: null` for a non-host |
+| GET | `/host/spots` | Host | Working; every spot with its hours, plus the payout gate — the whole dashboard in one call |
+| POST | `/host/spots` | JWT | Working; opens a **named** listing, and makes the caller a host if they were not one |
+| GET / DELETE | `/host/spots/:id` | Host | Working; delete is a soft cancel |
+| PATCH | `/host/spots/:id/{type,address,photos,ownership-document,terms,pricing}` | Host | Working; one wizard step each |
+| PUT | `/host/spots/:id/availability` | Host | Working; replaces the week |
+| POST | `/host/spots/:id/{photo,document}-upload-url` | Host | Working; presigned, bytes never touch the API |
+| GET | `/host/spots/:id/readiness` | Host | Working; what is still missing |
+| POST | `/host/spots/:id/submit` | Host | Working; → `PENDING_REVIEW`, never straight to live |
+| GET / POST | `/host/payout-account` | Host | Working; PAN + bank details, read back masked |
+| GET/POST/PATCH/DELETE | `/host/availability` | Host | Working; one window at a time |
 | GET | `/host/settlements` | Host | Working (engine not built) |
 | GET / POST | `/listings` | Organizer | Working; scoped to the caller's organizers |
 | GET / POST | `/capacities` | Organizer | Working; scoped |
@@ -789,8 +862,15 @@ Also missing:
   Hosts are paid through the same periodic engine as organizers in v1; instant
   payout (Razorpay Route) is a deliberate omission -- it needs a linked
   account and KYC that self-serve onboarding does not collect.
-- **Host verification.** Onboarding submits as `ACTIVE`. `panNumber` is only
-  format-checked; nothing confirms it is real.
+- **Host verification is manual, and half of it has no operator.** A spot goes
+  live only when both gates clear — an admin accepting the ownership document
+  (`docApprovedAt`) and the payout account reaching `ACTIVATED` — and
+  `publishIfReady` handles them arriving in either order. But `HostProfile`
+  starts at `verificationStatus: ACTIVE` with nothing checking it, the PAN and
+  bank details are format-checked only, and there is no gateway and no admin
+  UI, so `UNDER_REVIEW` currently moves only by hand in SQL. Storing the
+  details (0024) is what makes that possible at all; automating it is the
+  gateway integration.
 - **Booking a host spot.** `/spots/nearby` finds them, but the booking flow is
   per-slot against `ParkingCapacity`, and a host spot is priced per hour
   against a `HostAvailability` window. `POST /bookings` refuses an

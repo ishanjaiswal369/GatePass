@@ -5,11 +5,22 @@ import type {
   EmailProvider,
   SendEmailInput,
   SendLoginCodeInput,
+  SendOptions,
 } from "./provider.js";
 
 const CAPABILITY = "email";
 const SEND_ENDPOINT = "https://api.resend.com/emails";
 const CODE_TTL_MINUTES = 5;
+
+/**
+ * One attempt, and a short one.
+ *
+ * Someone is watching a button while this runs. A code that takes half a
+ * minute to reach them is no longer worth sending -- they have already given
+ * up -- so failing quickly and letting them press it again beats retrying
+ * behind a spinner.
+ */
+const LOGIN_CODE_SEND: SendOptions = { timeoutMs: 5000, retries: 0 };
 
 export interface ResendConfig {
   apiKey: string;
@@ -23,19 +34,26 @@ export class ResendEmailProvider implements EmailProvider {
   constructor(private readonly config: ResendConfig) {}
 
   async sendLoginCode({ to, code }: SendLoginCodeInput): Promise<SendResult> {
-    return this.send({
+    return this.send(
+      {
       to,
-      subject: "Your GatePass login code",
-      text: `${code} is your GatePass verification code. It expires in ${CODE_TTL_MINUTES} minutes.`,
-      html: `<p><strong>${code}</strong> is your GatePass verification code. It expires in ${CODE_TTL_MINUTES} minutes.</p>`,
-    });
+        subject: "Your GatePass login code",
+        text: `${code} is your GatePass verification code. It expires in ${CODE_TTL_MINUTES} minutes.`,
+        html: `<p><strong>${code}</strong> is your GatePass verification code. It expires in ${CODE_TTL_MINUTES} minutes.</p>`,
+      },
+      LOGIN_CODE_SEND
+    );
   }
 
-  async send({ to, subject, html, text }: SendEmailInput): Promise<SendResult> {
+  async send(
+    { to, subject, html, text }: SendEmailInput,
+    options: SendOptions = {}
+  ): Promise<SendResult> {
     const { from, fromName } = this.config;
     const fromHeader = fromName ? `${fromName} <${from}>` : from;
 
-    return withRetry(async () => {
+    return withRetry(
+      async () => {
       try {
         const response = await http.post(
           SEND_ENDPOINT,
@@ -45,6 +63,7 @@ export class ResendEmailProvider implements EmailProvider {
               "Content-Type": "application/json",
               Authorization: `Bearer ${this.config.apiKey}`,
             },
+            ...(options.timeoutMs ? { timeout: options.timeoutMs } : {}),
           }
         );
         return this.readResult(response.data);
@@ -54,7 +73,9 @@ export class ResendEmailProvider implements EmailProvider {
           error
         );
       }
-    });
+      },
+      options.retries !== undefined ? { retries: options.retries } : {}
+    );
   }
 
   private readResult(data: unknown): SendResult {

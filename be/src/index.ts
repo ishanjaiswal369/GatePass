@@ -9,6 +9,24 @@ import { BUILD_STAMP } from "./lib/build.js";
 
 await app.register(cors, { origin: true });
 
+// Binary bodies for the local upload endpoint. Fastify only parses JSON out of
+// the box, so without these a PUT of image bytes is refused before the route
+// runs. Registered globally because a parser is per content type, not per
+// route, and nothing else in this API accepts these types.
+for (const contentType of [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "application/pdf",
+  "application/octet-stream",
+]) {
+  app.addContentTypeParser(
+    contentType,
+    { parseAs: "buffer" },
+    (_request, body, done) => done(null, body)
+  );
+}
+
 registerErrorHandler(app);
 registerApi(app);
 
