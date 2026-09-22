@@ -1,15 +1,49 @@
-import type { GeocodeResult, PlaceSuggestion, NearbySpot } from "@/types/api.types";
+import type {
+  GeocodeResult,
+  PlaceSuggestion,
+  NearbySpot,
+  PublicSpot,
+} from "@/types/api.types";
 import { request } from "./client";
 
+/**
+ * Spots bookable around a point.
+ *
+ * Two shapes of question through one endpoint. `at` + `durationMinutes` asks
+ * about one stay; `days` + `startMinute` + `endMinute` asks about a recurring
+ * one, and only returns spots open across that range on *every* listed day.
+ */
 export const nearby = (
   token: string,
-  input: { latitude: number; longitude: number; radiusKm?: number }
-) =>
-  request<{ spots: NearbySpot[] }>(
-    `/spots/nearby?latitude=${input.latitude}&longitude=${input.longitude}` +
-      `&radiusKm=${input.radiusKm ?? 5}`,
-    { token }
-  );
+  input: {
+    latitude: number;
+    longitude: number;
+    radiusKm?: number;
+    at?: string;
+    durationMinutes?: number;
+    days?: number[];
+    startMinute?: number;
+    endMinute?: number;
+  }
+) => {
+  const params = new URLSearchParams({
+    latitude: String(input.latitude),
+    longitude: String(input.longitude),
+    radiusKm: String(input.radiusKm ?? 5),
+  });
+
+  if (input.at) params.set("at", input.at);
+  if (input.durationMinutes !== undefined) {
+    params.set("durationMinutes", String(input.durationMinutes));
+  }
+  if (input.days?.length) {
+    params.set("days", input.days.join(","));
+    params.set("startMinute", String(input.startMinute));
+    params.set("endMinute", String(input.endMinute));
+  }
+
+  return request<{ spots: NearbySpot[] }>(`/spots/nearby?${params}`, { token });
+};
 
 /**
  * Place search for typing an area by hand. Answers 503 when no provider is
@@ -73,3 +107,13 @@ export const placeDetails = (
     { token }
   );
 };
+
+/**
+ * One spot, for a driver deciding whether to book it.
+ *
+ * `/events/:id` cannot answer this -- it excludes INDEPENDENT_SPOT by design
+ * -- so host spots have their own read. Access instructions are not in it:
+ * those arrive with a paid booking.
+ */
+export const getById = (token: string, id: string) =>
+  request<PublicSpot>(`/spots/${id}`, { token });

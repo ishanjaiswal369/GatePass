@@ -271,6 +271,28 @@ export type PayoutKycStatus =
   | "ACTIVATED"
   | "REJECTED";
 
+/**
+ * A host spot as a driver sees it before booking.
+ *
+ * No `accessInstructions`: those are the gate code and the guard's name, and
+ * they arrive with a paid booking, never with a search result.
+ */
+export interface PublicSpot {
+  id: string;
+  name: string;
+  venueName: string;
+  spaceType: SpaceType | null;
+  addressLine: string | null;
+  city: string | null;
+  state: string | null;
+  pincode: string | null;
+  latitude: string | null;
+  longitude: string | null;
+  photos: SpotPhoto[];
+  pricing: SpotPricingRow[];
+  availability: AvailabilityWindow[];
+}
+
 export interface SpotPhoto {
   id: string;
   url: string;

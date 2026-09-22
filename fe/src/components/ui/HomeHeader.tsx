@@ -22,6 +22,7 @@ function BarrierMark({ size = 22 }: { size?: number }) {
  */
 export function HomeHeader({
   initial,
+  headline = "Where are you headed?",
   placeholder,
   query,
   onChangeQuery,
@@ -29,9 +30,16 @@ export function HomeHeader({
   onPressProfile,
 }: {
   initial: string;
-  placeholder: string;
-  query: string;
-  onChangeQuery: (next: string) => void;
+  headline?: string;
+  /**
+   * The search box is rendered only when there is somewhere for it to type
+   * into. The home screen asks for a place inside its own form, where the
+   * answer sits next to the dates it belongs with; a second box up here would
+   * be a second place to answer the same question.
+   */
+  placeholder?: string;
+  query?: string;
+  onChangeQuery?: (next: string) => void;
   onSubmitQuery?: () => void;
   onPressProfile: () => void;
 }) {
@@ -57,21 +65,23 @@ export function HomeHeader({
         </Pressable>
       </View>
 
-      <Text style={s.headline}>Where are you headed?</Text>
+      <Text style={s.headline}>{headline}</Text>
 
-      <View style={s.search}>
-        <SearchIcon color={colors.onInkMuted} />
-        <TextInput
-          value={query}
-          onChangeText={onChangeQuery}
-          onSubmitEditing={onSubmitQuery}
-          returnKeyType="search"
-          placeholder={placeholder}
-          placeholderTextColor={colors.onInkMuted}
-          accessibilityLabel={placeholder}
-          style={s.input}
-        />
-      </View>
+      {onChangeQuery ? (
+        <View style={s.search}>
+          <SearchIcon color={colors.onInkMuted} />
+          <TextInput
+            value={query}
+            onChangeText={onChangeQuery}
+            onSubmitEditing={onSubmitQuery}
+            returnKeyType="search"
+            placeholder={placeholder}
+            placeholderTextColor={colors.onInkMuted}
+            accessibilityLabel={placeholder}
+            style={s.input}
+          />
+        </View>
+      ) : null}
     </View>
   );
 }

@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { notFound } from "../lib/errors.js";
 import { prisma } from "../lib/prisma.js";
 
 const KM_PER_LAT_DEGREE = 111.045;
@@ -23,6 +24,18 @@ export interface NearbyFilters {
   /** Only spots priced for this vehicle. Absent means any, at its best rate. */
   vehicleType?: string;
   limit?: number;
+  /**
+   * A recurring search instead of a one-off stay: these weekdays, between
+   * these minutes, every week. Present means monthly.
+   *
+   * A spot qualifies only if it is open across the whole range on *every* one
+   * of these days -- a driveway free on Mondays is no use to somebody who
+   * needs it all week, and offering it would waste the trip rather than
+   * nearly work.
+   */
+  days?: number[];
+  startMinute?: number;
+  endMinute?: number;
 }
 
 export interface NearbySpot {
@@ -80,6 +93,33 @@ export async function nearby(filters: NearbyFilters): Promise<NearbySpot[]> {
   const { dayOfWeek, minute } = localDayAndMinute(at);
   const endMinute = minute + (filters.durationMinutes ?? 60);
 
+  const monthly = filters.days !== undefined && filters.days.length > 0;
+
+  /**
+   * The availability join is the filter, in both modes: a listing with no
+   * window covering what was asked for simply produces no rows.
+   *
+   * Monthly differs only in matching a set of weekdays at a fixed time of day
+   * rather than one weekday at one instant. The "on every day" part cannot
+   * live here -- a join can only say "at least one" -- so it is the HAVING
+   * below that counts the distinct days back.
+   */
+  const availabilityJoin = monthly
+    ? Prisma.sql`
+        AND ha."dayOfWeek" = ANY(${filters.days}::int[])
+        AND ha."startMinute" <= ${filters.startMinute ?? 0}
+        AND ha."endMinute" >= ${filters.endMinute ?? 1440}
+      `
+    : Prisma.sql`
+        AND ha."dayOfWeek" = ${dayOfWeek}
+        AND ha."startMinute" <= ${minute}
+        AND ha."endMinute" >= ${endMinute}
+      `;
+
+  const everyDayCovered = monthly
+    ? Prisma.sql`AND COUNT(DISTINCT ha."dayOfWeek") = ${filters.days!.length}`
+    : Prisma.empty;
+
   const latDelta = filters.radiusKm / KM_PER_LAT_DEGREE;
   const lngDelta =
     filters.radiusKm /
@@ -118,9 +158,7 @@ export async function nearby(filters: NearbyFilters): Promise<NearbySpot[]> {
     JOIN "HostAvailability" ha
       ON ha."listingId" = l."id"
      AND ha."isActive" = true
-     AND ha."dayOfWeek" = ${dayOfWeek}
-     AND ha."startMinute" <= ${minute}
-     AND ha."endMinute" >= ${endMinute}
+     ${availabilityJoin}
     -- Also a filter, not just a lookup: a spot with no rate for the vehicle
     -- the driver is in cannot be booked, so it should not be shown.
     JOIN "SpotPricing" sp
@@ -138,7 +176,69 @@ export async function nearby(filters: NearbyFilters): Promise<NearbySpot[]> {
       AND l."longitude" BETWEEN ${filters.longitude - lngDelta} AND ${filters.longitude + lngDelta}
     GROUP BY l."id"
     HAVING ${distance} <= ${filters.radiusKm}
+      ${everyDayCovered}
     ORDER BY "distanceKm" ASC
     LIMIT ${limit}
   `);
+}
+
+/**
+ * One spot, as a driver may see it before booking.
+ *
+ * The gates are the same three the search applies -- published, host
+ * verified, payout active -- and they are in the WHERE clause rather than
+ * checked after the read, so "not bookable" and "does not exist" answer
+ * identically. A listing id that leaked from somewhere should not confirm
+ * that a suspended spot is real.
+ *
+ * `accessInstructions` is deliberately absent. It is the gate code and the
+ * guard's name, and it is worth money: anyone who could read it here would
+ * have no reason to book. It arrives with the booking, once paid.
+ */
+export async function getPublic(listingId: string) {
+  const spot = await prisma.listing.findFirst({
+    where: {
+      id: listingId,
+      listingType: "INDEPENDENT_SPOT",
+      status: { in: ["PUBLISHED", "ONGOING"] },
+      hostProfile: {
+        verificationStatus: "ACTIVE",
+        payoutKycStatus: "ACTIVATED",
+      },
+    },
+    select: {
+      id: true,
+      name: true,
+      venueName: true,
+      spaceType: true,
+      addressLine: true,
+      city: true,
+      state: true,
+      pincode: true,
+      latitude: true,
+      longitude: true,
+      photos: {
+        select: { id: true, url: true, position: true },
+        orderBy: { position: "asc" },
+      },
+      pricing: { select: { id: true, vehicleType: true, pricePerHour: true } },
+      availability: {
+        where: { isActive: true },
+        select: {
+          id: true,
+          dayOfWeek: true,
+          startMinute: true,
+          endMinute: true,
+          isActive: true,
+        },
+        orderBy: [{ dayOfWeek: "asc" }, { startMinute: "asc" }],
+      },
+    },
+  });
+
+  if (!spot) {
+    throw notFound("Spot not found");
+  }
+
+  return spot;
 }

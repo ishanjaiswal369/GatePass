@@ -1,37 +1,42 @@
-import { Redirect, router } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
-import {
-  ActivityIndicator,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
-import { ApiError, bookingsApi, eventsApi, spotsApi } from "@/api";
+import { Redirect, router, useFocusEffect } from "expo-router";
+import { useCallback, useRef, useState } from "react";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ApiError, bookingsApi, eventsApi } from "@/api";
 import {
   ActivePassCard,
   BottomNav,
+  Button,
   ErrorNotice,
   EventListItem,
   HomeHeader,
-  LocationPrompt,
   PhoneFrame,
   SegmentedControl,
-  SpotListItem,
   type NavKey,
   RestoringScreen,
 } from "@/components/ui";
-import { useDriverLocation } from "@/hooks/useDriverLocation";
+import { BookParkingForm } from "@/features/search/BookParkingForm";
 import { useSession } from "@/providers/SessionProvider";
-import { colors, space } from "@/theme";
-import type { BookingRow, EventFeedItem, NearbySpot } from "@/types/api.types";
+import { toParams, type SearchCriteria } from "@/lib/searchCriteria";
+import { colors, radius, space, type } from "@/theme";
+import type { BookingRow, EventFeedItem } from "@/types/api.types";
 
-type Tab = "events" | "nearby";
+/**
+ * Two questions a driver arrives with, and nothing else.
+ *
+ * "Am I parked?" -- the pass they need at the gate, right now. And "where do
+ * I park?" -- a search, not a feed: hourly or monthly, somewhere, between some
+ * times. The old screen led with a browsable list of events, which answered
+ * neither and buried the pass behind a tab.
+ *
+ * The Bookings tab keeps the full history. This screen only ever shows the
+ * booking a driver is on, because that is the one they need without scrolling.
+ */
+
+type Tab = "parked" | "book";
 
 const TABS = [
-  { value: "events" as const, label: "Events" },
-  { value: "nearby" as const, label: "Nearby" },
+  { value: "parked" as const, label: "Already parked" },
+  { value: "book" as const, label: "Book parking" },
 ];
 
 function passWhen(eventDate: string | null): string {
@@ -51,255 +56,137 @@ function passWhen(eventDate: string | null): string {
 
 export default function HomeScreen() {
   const { token, user, isRestoring } = useSession();
-  const [tab, setTab] = useState<Tab>("events");
-  const [query, setQuery] = useState("");
 
-  const [events, setEvents] = useState<EventFeedItem[] | null>(null);
+  const [tab, setTab] = useState<Tab>("book");
   const [pass, setPass] = useState<BookingRow | null>(null);
-  const [spots, setSpots] = useState<NearbySpot[] | null>(null);
+  const [passLoaded, setPassLoaded] = useState(false);
+  const [events, setEvents] = useState<EventFeedItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [locationNote, setLocationNote] = useState<string | null>(null);
-
-  const {
-    status: locationStatus,
-    requestLocation,
-    setManualCoords,
-  } = useDriverLocation();
 
   /**
-   * Three parallel calls rather than one aggregate endpoint: the feed is
-   * shared and cacheable while the pass is per-user and must be fresh, and the
-   * pass failing should not blank out discovery.
+   * A driver who is already parked lands on their pass, but only until they
+   * say otherwise. Switching tabs by hand sets this, so the answer arriving
+   * late cannot pull the screen out from under someone already reading the
+   * other one.
    */
-  useEffect(() => {
-    if (!token) return;
+  const chosenByHand = useRef(false);
 
-    let cancelled = false;
+  const chooseTab = (next: Tab) => {
+    chosenByHand.current = true;
+    setTab(next);
+  };
 
-    eventsApi
-      .list(token, { limit: 20 })
-      .then((page) => {
-        if (!cancelled) setEvents(page.items);
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setEvents([]);
-          setError(
-            err instanceof ApiError ? err.message : "Could not load events"
-          );
-        }
-      });
-
-    bookingsApi
-      .active(token)
-      .then((result) => {
-        if (!cancelled) setPass(result.booking);
-      })
-      // A missing pass is the normal state of this screen, so a failure here
-      // stays silent rather than pushing an error banner over the feed.
-      .catch(() => undefined);
-
-    return () => {
-      cancelled = true;
-    };
-  }, [token]);
-
-  const search = useCallback(async () => {
-    if (!token) return;
-
-    try {
-      const page = await eventsApi.list(token, {
-        q: query.trim() || undefined,
-        limit: 20,
-      });
-      setEvents(page.items);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not search");
-    }
-  }, [token, query]);
-
-  const loadSpots = useCallback(
-    async (at: { latitude: number; longitude: number }) => {
+  /**
+   * On focus rather than on mount: this screen stays mounted under the
+   * booking flow and the pass screen, so a booking made and paid for would
+   * otherwise not appear until the app restarted.
+   */
+  useFocusEffect(
+    useCallback(() => {
       if (!token) return;
 
-      try {
-        const result = await spotsApi.nearby(token, { ...at, radiusKm: 5 });
-        setSpots(result.spots);
-        setLocationNote(null);
-      } catch (err) {
-        setSpots([]);
-        setLocationNote(
-          err instanceof ApiError ? err.message : "Could not load spots"
-        );
-      }
-    },
-    [token]
+      let cancelled = false;
+
+      bookingsApi
+        .active(token)
+        .then(({ booking }) => {
+          if (cancelled) return;
+          setPass(booking);
+          if (booking && !chosenByHand.current) setTab("parked");
+        })
+        // No pass is the normal state of this screen, so a failure here stays
+        // quiet rather than pushing a banner over the search form.
+        .catch(() => undefined)
+        .finally(() => {
+          if (!cancelled) setPassLoaded(true);
+        });
+
+      eventsApi
+        .list(token, { limit: 5 })
+        .then((page) => {
+          if (!cancelled) setEvents(page.items);
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          setEvents([]);
+          setError(err instanceof ApiError ? err.message : "Could not load events");
+        });
+
+      return () => {
+        cancelled = true;
+      };
+    }, [token])
   );
 
-  const enableLocation = useCallback(async () => {
-    const next = await requestLocation();
-    if (next) {
-      await loadSpots(next);
-    } else {
-      setLocationNote(
-        "Location is off. You can still search an area by name above."
-      );
-    }
-  }, [requestLocation, loadSpots]);
-
-  const enterAreaManually = useCallback(async () => {
-    if (!token) return;
-
-    const area = query.trim();
-    if (!area) {
-      setLocationNote("Type an area in the search box first.");
-      return;
-    }
-
-    try {
-      const { results } = await spotsApi.geocode(token, area);
-      const first = results[0];
-
-      if (!first) {
-        setLocationNote(`No place found for "${area}".`);
-        return;
-      }
-
-      // The typed area *is* the driver's position for this search, so it has
-      // to reach the hook. Without this the lookup and the fetch both
-      // succeed and nothing renders: the tab shows its list only once a
-      // position is known, which left "location denied, type an area
-      // instead" as a fallback that quietly led nowhere.
-      setManualCoords({
-        latitude: first.latitude,
-        longitude: first.longitude,
-      });
-
-      await loadSpots({ latitude: first.latitude, longitude: first.longitude });
-    } catch (err) {
-      setLocationNote(
-        err instanceof ApiError && err.status === 503
-          ? "Area search is not set up yet. Use location instead."
-          : "Could not look that area up."
-      );
-    }
-  }, [token, query, loadSpots, setManualCoords]);
-
-  const navigate = useCallback((key: NavKey) => {
+  const navigate = (key: NavKey) => {
     if (key === "bookings") router.push("/bookings");
     if (key === "host") router.push("/host");
     if (key === "profile") router.push("/account");
-  }, []);
+  };
 
-  // After every hook, so hook order never changes between renders.
-  if (isRestoring) {
-    return <RestoringScreen />;
-  }
+  const runSearch = (criteria: SearchCriteria) =>
+    router.push({ pathname: "/spots/results", params: toParams(criteria) });
 
-  if (!token) {
-    return <Redirect href="/" />;
-  }
+  if (isRestoring) return <RestoringScreen />;
+  if (!token) return <Redirect href="/" />;
 
   const initial = (user?.firstName ?? user?.email ?? "?").charAt(0).toUpperCase();
-  const showSpots = locationStatus === "granted" && spots !== null;
 
   return (
     <PhoneFrame>
       <View style={s.screen}>
         <HomeHeader
           initial={initial}
-          placeholder={
-            tab === "events" ? "Search events or venues" : "Search an area"
+          headline={
+            tab === "parked" ? "Your parking right now" : "Where are you headed?"
           }
-          query={query}
-          onChangeQuery={setQuery}
-          onSubmitQuery={tab === "events" ? search : enterAreaManually}
           onPressProfile={() => router.push("/account")}
         />
 
         <View style={s.tabs}>
-          <SegmentedControl segments={TABS} value={tab} onChange={setTab} />
+          <SegmentedControl segments={TABS} value={tab} onChange={chooseTab} />
         </View>
 
-        {tab === "events" ? (
-          <ScrollView contentContainerStyle={s.body}>
-            {error ? <ErrorNotice message={error} /> : null}
+        <ScrollView
+          contentContainerStyle={s.body}
+          keyboardShouldPersistTaps="handled"
+        >
+          {tab === "parked" ? (
+            <ParkedPanel
+              pass={pass}
+              loaded={passLoaded}
+              onBook={() => chooseTab("book")}
+            />
+          ) : (
+            <>
+              <BookParkingForm token={token} onSearch={runSearch} />
 
-            {pass ? (
-              <ActivePassCard
-                eventName={pass.parkingCapacity.listing.name}
-                venueName={pass.parkingCapacity.listing.venueName}
-                gate={pass.parkingCapacity.gate}
-                vehicleType={pass.parkingCapacity.vehicleType}
-                when={passWhen(pass.parkingCapacity.listing.eventDate)}
-                onShowPass={() => router.push(`/pass/${pass.id}`)}
-              />
-            ) : null}
-
-            <View style={s.sectionHead}>
-              <Text style={s.sectionTitle}>UPCOMING NEAR YOU</Text>
-              <Pressable onPress={() => router.push("/bookings")} accessibilityRole="button">
-                <Text style={s.seeAll}>See all</Text>
-              </Pressable>
-            </View>
-
-            {events === null ? (
-              <ActivityIndicator color={colors.ink} style={s.loading} />
-            ) : events.length === 0 ? (
-              <Text style={s.empty}>
-                No events on sale right now. Pull the search box for a venue you
-                know.
-              </Text>
-            ) : (
-              <View style={s.list}>
-                {events.map((event) => (
-                  <EventListItem
-                    key={event.id}
-                    name={event.name}
-                    venueName={event.venueName}
-                    eventDate={event.eventDate}
-                    minPrice={event.minPrice}
-                    spotsLeft={event.spotsLeft}
-                    vehicleTypes={event.vehicleTypes}
-                    onPress={() => router.push(`/event/${event.id}`)}
-                  />
-                ))}
-              </View>
-            )}
-          </ScrollView>
-        ) : showSpots ? (
-          <ScrollView contentContainerStyle={s.body}>
-            {locationNote ? <ErrorNotice message={locationNote} /> : null}
-            {spots.length === 0 ? (
-              <Text style={s.empty}>
-                No spots available around here right now. Hosts are still coming
-                online.
-              </Text>
-            ) : (
-              <View style={s.list}>
-                {spots.map((spot) => (
-                  <SpotListItem
-                    key={spot.id}
-                    name={spot.name}
-                    city={spot.city}
-                    distanceKm={spot.distanceKm}
-                    pricePerHour={spot.pricePerHour}
-                    availableUntilMinute={spot.availableUntilMinute}
-                    onPress={() => router.push(`/event/${spot.id}`)}
-                  />
-                ))}
-              </View>
-            )}
-          </ScrollView>
-        ) : (
-          <LocationPrompt
-            onEnableLocation={enableLocation}
-            onEnterArea={enterAreaManually}
-            busy={locationStatus === "asking"}
-            note={locationNote}
-          />
-        )}
+              {/* Event parking is a different product -- a dated slot at a
+                  venue, not somebody's driveway by the hour -- so it sits
+                  under the search rather than competing with it. It stays
+                  because it is currently the only flow a driver can book end
+                  to end. */}
+              {events && events.length > 0 ? (
+                <View style={s.events}>
+                  {error ? <ErrorNotice message={error} /> : null}
+                  <Text style={s.sectionTitle}>PARKING FOR AN EVENT</Text>
+                  {events.map((event) => (
+                    <EventListItem
+                      key={event.id}
+                      name={event.name}
+                      venueName={event.venueName}
+                      eventDate={event.eventDate}
+                      minPrice={event.minPrice}
+                      spotsLeft={event.spotsLeft}
+                      vehicleTypes={event.vehicleTypes}
+                      onPress={() => router.push(`/event/${event.id}`)}
+                    />
+                  ))}
+                </View>
+              ) : null}
+            </>
+          )}
+        </ScrollView>
 
         <BottomNav active="home" onNavigate={navigate} />
       </View>
@@ -307,29 +194,87 @@ export default function HomeScreen() {
   );
 }
 
+/**
+ * The booking a driver is on. One, not a list: the Bookings tab owns the
+ * history, and a driver at a gate is looking for a QR code, not a record.
+ */
+function ParkedPanel({
+  pass,
+  loaded,
+  onBook,
+}: {
+  pass: BookingRow | null;
+  loaded: boolean;
+  onBook: () => void;
+}) {
+  if (!loaded) {
+    return <ActivityIndicator color={colors.ink} style={s.loading} />;
+  }
+
+  if (!pass) {
+    return (
+      <View style={s.empty}>
+        <Text style={s.emptyTitle}>You are not parked right now</Text>
+        <Text style={s.emptyBody}>
+          Once you book a spot, your pass appears here — ready to show at the
+          gate.
+        </Text>
+        <Button label="Book parking" onPress={onBook} />
+        <Pressable
+          onPress={() => router.push("/bookings")}
+          accessibilityRole="button"
+          style={s.linkHit}
+        >
+          <Text style={s.link}>See past bookings</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  const listing = pass.parkingCapacity.listing;
+
+  return (
+    <>
+      <ActivePassCard
+        eventName={listing.name}
+        venueName={listing.venueName}
+        gate={pass.parkingCapacity.gate}
+        vehicleType={pass.parkingCapacity.vehicleType}
+        when={passWhen(listing.eventDate)}
+        onShowPass={() => router.push(`/pass/${pass.id}`)}
+      />
+
+      <Pressable
+        onPress={() => router.push("/bookings")}
+        accessibilityRole="button"
+        style={s.linkHit}
+      >
+        <Text style={s.link}>See all bookings</Text>
+      </Pressable>
+    </>
+  );
+}
+
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.surface },
   tabs: { paddingHorizontal: 20, paddingTop: space.lg, paddingBottom: 14 },
   body: { paddingHorizontal: 20, paddingBottom: 20, gap: 18 },
-  sectionHead: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    minHeight: 24,
-  },
+  loading: { paddingVertical: space.xxl },
+  events: { gap: space.md, paddingTop: space.sm },
   sectionTitle: {
     fontSize: 12,
     fontWeight: "700",
     letterSpacing: 1.2,
     color: colors.inkMuted,
   },
-  seeAll: { fontSize: 13, fontWeight: "700", color: colors.ink },
-  list: { gap: space.md },
-  loading: { paddingVertical: space.xl },
   empty: {
-    fontSize: 14,
-    color: colors.inkMuted,
-    lineHeight: 21,
-    paddingVertical: space.sm,
+    gap: space.md,
+    backgroundColor: colors.canvas,
+    borderRadius: radius.md,
+    padding: space.xl,
   },
+  emptyTitle: { fontSize: 17, fontWeight: "700", color: colors.ink },
+  emptyBody: { fontSize: 14, lineHeight: 21, color: colors.inkMuted },
+  linkHit: { minHeight: 44, justifyContent: "center", alignItems: "center" },
+  link: { ...type.label, color: colors.ink, textDecorationLine: "underline" },
 });
