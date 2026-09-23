@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { authApi } from "@/api";
+import { clearDraft } from "@/features/search/searchDraft";
 import { clearSession, loadSession, saveSession } from "@/lib/tokenStore";
 import type { AuthUser } from "@/types/api.types";
 
@@ -82,6 +83,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setToken(null);
     setUserState(null);
     void clearSession();
+    // Where this person was looking to park is theirs, not the next sign-in's.
+    void clearDraft();
   }, []);
 
   const value = useMemo<SessionValue>(

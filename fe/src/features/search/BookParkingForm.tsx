@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import {
   Button,
@@ -27,6 +27,13 @@ import {
 } from "@/lib/searchCriteria";
 import { colors, radius, space, type } from "@/theme";
 import { LocationField } from "./LocationField";
+import {
+  freshen,
+  loadDraft,
+  peekDraft,
+  saveDraft,
+  type SearchDraft,
+} from "./searchDraft";
 
 /**
  * What the driver is looking for.
@@ -80,41 +87,119 @@ export function BookParkingForm({
   token: string | null;
   onSearch: (criteria: SearchCriteria) => void;
 }) {
-  const [mode, setMode] = useState<SearchMode>("hourly");
-  const [place, setPlace] = useState<SearchPlace | null>(null);
-
   const now = useMemo(() => new Date(), []);
   const days = useMemo(() => dayOptions(MAX_DAYS_AHEAD), []);
 
-  // Hourly. Defaults to the next quarter hour, for two hours -- the shape of
+  // Hourly defaults to the next quarter hour, for two hours -- the shape of
   // almost every hourly booking, so most drivers change nothing here.
   //
   // The end is derived as an instant and read back, rather than clamped to
   // the end of the day: at 23:45 clamping produced a fifteen-minute stay,
   // which is a valid booking and not remotely what was meant.
-  const defaultStart = useMemo(
-    () => atMinute(toDateKey(now), nextStepMinute(now, DRIVER_STEP_MINUTES)),
-    [now]
-  );
-  const defaultEnd = useMemo(
-    () => new Date(defaultStart.getTime() + 2 * 60 * 60_000),
-    [defaultStart]
-  );
+  const defaults = useMemo((): SearchDraft => {
+    const start = atMinute(toDateKey(now), nextStepMinute(now, DRIVER_STEP_MINUTES));
+    const end = new Date(start.getTime() + 2 * 60 * 60_000);
 
-  const [fromDate, setFromDate] = useState(toDateKey(defaultStart));
-  const [fromMinute, setFromMinute] = useState(
-    defaultStart.getHours() * 60 + defaultStart.getMinutes()
-  );
-  const [toDate, setToDate] = useState(toDateKey(defaultEnd));
-  const [toMinute, setToMinute] = useState(
-    defaultEnd.getHours() * 60 + defaultEnd.getMinutes()
-  );
+    return {
+      mode: "hourly",
+      place: null,
+      fromDate: toDateKey(start),
+      fromMinute: start.getHours() * 60 + start.getMinutes(),
+      toDate: toDateKey(end),
+      toMinute: end.getHours() * 60 + end.getMinutes(),
+      monthlyDays: WEEKDAYS,
+      startDate: toDateKey(addDays(now, 1)),
+      startMinute: 9 * 60,
+      endMinute: 18 * 60,
+    };
+  }, [now]);
 
-  // Monthly.
-  const [monthlyDays, setMonthlyDays] = useState<number[]>(WEEKDAYS);
-  const [startDate, setStartDate] = useState(toDateKey(addDays(now, 1)));
-  const [startMinute, setStartMinute] = useState(9 * 60);
-  const [endMinute, setEndMinute] = useState(18 * 60);
+  // Whatever the driver last had here, if this launch has seen it. Read
+  // synchronously so a remount -- a tab switch, a trip to Bookings and back --
+  // opens on their draft rather than flashing the defaults first.
+  const [initial] = useState(() => {
+    const held = peekDraft();
+    return held ? freshen(held, defaults, now) : defaults;
+  });
+
+  const [mode, setMode] = useState<SearchMode>(initial.mode);
+  const [place, setPlace] = useState<SearchPlace | null>(initial.place);
+
+  const [fromDate, setFromDate] = useState(initial.fromDate);
+  const [fromMinute, setFromMinute] = useState(initial.fromMinute);
+  const [toDate, setToDate] = useState(initial.toDate);
+  const [toMinute, setToMinute] = useState(initial.toMinute);
+
+  const [monthlyDays, setMonthlyDays] = useState<number[]>(initial.monthlyDays);
+  const [startDate, setStartDate] = useState(initial.startDate);
+  const [startMinute, setStartMinute] = useState(initial.startMinute);
+  const [endMinute, setEndMinute] = useState(initial.endMinute);
+
+  /**
+   * Whether the stored draft has been taken into account. Until it has,
+   * nothing is saved: writing this screen's defaults first would overwrite
+   * the very draft a reload is supposed to bring back.
+   */
+  const [ready, setReady] = useState(() => peekDraft() !== null);
+
+  useEffect(() => {
+    if (ready) return;
+
+    let cancelled = false;
+
+    void loadDraft().then((stored) => {
+      if (cancelled) return;
+
+      if (stored) {
+        const d = freshen(stored, defaults, now);
+        setMode(d.mode);
+        setPlace(d.place);
+        setFromDate(d.fromDate);
+        setFromMinute(d.fromMinute);
+        setToDate(d.toDate);
+        setToMinute(d.toMinute);
+        setMonthlyDays(d.monthlyDays);
+        setStartDate(d.startDate);
+        setStartMinute(d.startMinute);
+        setEndMinute(d.endMinute);
+      }
+
+      setReady(true);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, defaults, now]);
+
+  useEffect(() => {
+    if (!ready) return;
+
+    saveDraft({
+      mode,
+      place,
+      fromDate,
+      fromMinute,
+      toDate,
+      toMinute,
+      monthlyDays,
+      startDate,
+      startMinute,
+      endMinute,
+    });
+  }, [
+    ready,
+    mode,
+    place,
+    fromDate,
+    fromMinute,
+    toDate,
+    toMinute,
+    monthlyDays,
+    startDate,
+    startMinute,
+    endMinute,
+  ]);
 
   const from = atMinute(fromDate, fromMinute);
   const to = atMinute(toDate, toMinute);
