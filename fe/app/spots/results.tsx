@@ -7,7 +7,7 @@ import {
   ErrorNotice,
   PhoneFrame,
   RestoringScreen,
-  SectionHeader,
+  ScreenHeader,
   SpotListItem,
 } from "@/components/ui";
 import { useSession } from "@/providers/SessionProvider";
@@ -95,8 +95,9 @@ export default function SpotResultsScreen() {
   return (
     <PhoneFrame>
       <View style={s.screen}>
-        <SectionHeader
+        <ScreenHeader
           title={criteria.place.label}
+          titleLines={2}
           sub={describeCriteria(criteria)}
           onBack={() => (router.canGoBack() ? router.back() : router.replace("/home"))}
         />
@@ -144,6 +145,7 @@ export default function SpotResultsScreen() {
                   city={spot.city}
                   distanceKm={spot.distanceKm}
                   pricePerHour={spot.pricePerHour}
+                  vehicleTypes={spot.vehicleTypes}
                   availableUntilMinute={spot.availableUntilMinute}
                   // The criteria travel on: the detail screen needs the hours
                   // to hand the checkout, and a driver who lands there from a

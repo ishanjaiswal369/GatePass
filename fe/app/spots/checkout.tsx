@@ -9,7 +9,7 @@ import {
   PhoneFrame,
   PickerField,
   RestoringScreen,
-  SectionHeader,
+  ScreenHeader,
   type SheetOption,
 } from "@/components/ui";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
@@ -166,7 +166,7 @@ export default function SpotCheckoutScreen() {
   return (
     <PhoneFrame>
       <View style={s.screen}>
-        <SectionHeader title="Review your booking" sub={spot?.name} onBack={back} />
+        <ScreenHeader title="Review your booking" sub={spot?.name} onBack={back} />
 
         <ScrollView contentContainerStyle={s.body}>
           {loadError ? <ErrorNotice message={loadError} /> : null}
@@ -290,7 +290,7 @@ function HeldBooking({
   return (
     <PhoneFrame>
       <View style={s.screen}>
-        <SectionHeader title="Held for you" sub={spotName} />
+        <ScreenHeader title="Held for you" sub={spotName} />
 
         <ScrollView contentContainerStyle={s.body}>
           <View style={s.card}>

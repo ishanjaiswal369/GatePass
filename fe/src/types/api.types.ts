@@ -180,7 +180,9 @@ export interface NearbySpot {
   latitude: number;
   longitude: number;
   distanceKm: number;
+  /** The cheapest of the spot's rates. */
   pricePerHour: number;
+  vehicleTypes: VehicleType[];
   availableUntilMinute: number;
 }
 

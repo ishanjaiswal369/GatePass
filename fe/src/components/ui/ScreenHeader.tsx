@@ -19,9 +19,16 @@ export function ScreenHeader({
   initial,
   onBack,
   leading,
+  titleLines,
 }: {
   title: string;
   sub?: string | null;
+  /**
+   * Caps the title, for one that comes from outside the app -- a geocoded
+   * address can run to three lines at this size and push the screen's actual
+   * content below the fold.
+   */
+  titleLines?: number;
   /** Renders the avatar disc instead of a back button, for a root screen. */
   initial?: string;
   onBack?: () => void;
@@ -57,7 +64,9 @@ export function ScreenHeader({
       </View>
 
       <View style={s.copy}>
-        <Text style={s.title}>{title}</Text>
+        <Text style={s.title} numberOfLines={titleLines}>
+          {title}
+        </Text>
         {sub ? <Text style={s.sub}>{sub}</Text> : null}
       </View>
     </View>

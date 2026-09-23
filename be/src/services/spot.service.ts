@@ -46,7 +46,10 @@ export interface NearbySpot {
   latitude: number;
   longitude: number;
   distanceKm: number;
+  /** The cheapest of the spot's rates -- "from", when there is more than one. */
   pricePerHour: number;
+  /** Which vehicles it prices, so a car driver can tell a bike stand from a list. */
+  vehicleTypes: string[];
   availableUntilMinute: number;
 }
 
@@ -148,6 +151,9 @@ export async function nearby(filters: NearbyFilters): Promise<NearbySpot[]> {
       l."longitude"::float8 AS "longitude",
       ${distance} AS "distanceKm",
       MIN(sp."pricePerHour")::float8 AS "pricePerHour",
+      -- DISTINCT because the availability join repeats each rate once per
+      -- matching window.
+      ARRAY_AGG(DISTINCT sp."vehicleType" ORDER BY sp."vehicleType") AS "vehicleTypes",
       MAX(ha."endMinute")::int AS "availableUntilMinute"
     FROM "Listing" l
     JOIN "HostProfile" hp ON hp."id" = l."hostProfileId"

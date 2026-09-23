@@ -9,7 +9,7 @@ import {
   ErrorNotice,
   PhoneFrame,
   RestoringScreen,
-  SectionHeader,
+  ScreenHeader,
   formatMinute,
 } from "@/components/ui";
 import { useSession } from "@/providers/SessionProvider";
@@ -78,8 +78,9 @@ export default function SpotDetailScreen() {
   return (
     <PhoneFrame>
       <View style={s.screen}>
-        <SectionHeader
+        <ScreenHeader
           title={spot?.name ?? "Parking spot"}
+          titleLines={2}
           sub={spot ? spaceTypeLabel(spot.spaceType) : undefined}
           onBack={() => (router.canGoBack() ? router.back() : router.replace("/home"))}
         />
@@ -122,12 +123,8 @@ export default function SpotDetailScreen() {
                 {spot.availability.length === 0 ? (
                   <Text style={s.muted}>No hours published.</Text>
                 ) : (
-                  spot.availability.map((window) => (
-                    <DataRow
-                      key={window.id}
-                      label={DAY_LABELS[window.dayOfWeek]}
-                      value={describeWindow(window)}
-                    />
+                  groupByHours(spot.availability).map((row) => (
+                    <DataRow key={row.label} label={row.label} value={row.hours} />
                   ))
                 )}
               </View>
@@ -184,6 +181,56 @@ export default function SpotDetailScreen() {
       </View>
     </PhoneFrame>
   );
+}
+
+/** Monday first: how a week is read here, and how a host thinks of one. */
+const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0];
+
+/**
+ * The week as a few rows rather than seven.
+ *
+ * A spot open 7am-10pm every day is one fact, and listing it seven times
+ * pushed the Book button a screen further down. Days with the same hours are
+ * merged when they sit next to each other in the week, so a spot with longer
+ * Saturdays still reads "Mon - Fri" then "Sat" then "Sun" -- never a
+ * "Mon, Wed" that makes a driver check which days were skipped. A day with no
+ * window is closed and simply absent, as it was before.
+ */
+function groupByHours(
+  windows: AvailabilityWindow[]
+): { label: string; hours: string }[] {
+  const hoursOn = (day: number) =>
+    windows
+      .filter((window) => window.dayOfWeek === day)
+      .sort((a, b) => a.startMinute - b.startMinute)
+      .map(describeWindow)
+      .join(", ");
+
+  const runs: { days: number[]; hours: string }[] = [];
+
+  for (const day of WEEK_ORDER) {
+    const hours = hoursOn(day);
+    const last = runs.at(-1);
+    const previousDay = last?.days.at(-1);
+    const adjacent =
+      previousDay !== undefined &&
+      WEEK_ORDER.indexOf(day) === WEEK_ORDER.indexOf(previousDay) + 1;
+
+    if (!hours) continue;
+
+    if (last && adjacent && last.hours === hours) last.days.push(day);
+    else runs.push({ days: [day], hours });
+  }
+
+  return runs.map(({ days, hours }) => ({
+    label:
+      days.length === 7
+        ? "Every day"
+        : days.length === 1
+          ? DAY_LABELS[days[0]]
+          : `${DAY_LABELS[days[0]]} – ${DAY_LABELS[days.at(-1)!]}`,
+    hours,
+  }));
 }
 
 function describeWindow(window: AvailabilityWindow): string {

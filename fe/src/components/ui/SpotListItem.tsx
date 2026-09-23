@@ -1,4 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { VEHICLE_TYPES, type VehicleType } from "@/constants/enums";
+import { formatRupees } from "@/lib/money";
 import { colors, radius } from "@/theme";
 
 function formatUntil(minute: number) {
@@ -11,11 +13,28 @@ function formatUntil(minute: number) {
   return `${display}:${String(mins).padStart(2, "0")} ${suffix}`;
 }
 
+const VEHICLE_LABELS: Record<VehicleType, string> = {
+  CAR: "Car",
+  BIKE: "Bike",
+  OTHER: "Other",
+};
+
+/**
+ * One host spot in a search result.
+ *
+ * The same anatomy as EventListItem -- ink tile, name, where, then a tag and
+ * a price -- so the two kinds of parking read as one list. The tag says which
+ * vehicles the spot takes, because the price alone is the cheapest rate: a
+ * spot quoting "₹10/hour" for bikes would otherwise look like a bargain to a
+ * car driver who is charged ₹30 at checkout. "from" appears only when there is
+ * more than one rate for it to be the lowest of.
+ */
 export function SpotListItem({
   name,
   city,
   distanceKm,
   pricePerHour,
+  vehicleTypes,
   availableUntilMinute,
   onPress,
 }: {
@@ -23,11 +42,24 @@ export function SpotListItem({
   city: string;
   distanceKm: number;
   pricePerHour: number;
+  vehicleTypes: VehicleType[];
   availableUntilMinute: number;
   onPress: () => void;
 }) {
+  // In the app's own order (car first), not the database's alphabetical one.
+  const tag = [...vehicleTypes]
+    .sort((a, b) => VEHICLE_TYPES.indexOf(a) - VEHICLE_TYPES.indexOf(b))
+    .map((type) => VEHICLE_LABELS[type] ?? type)
+    .join(" & ");
+  const price = `${vehicleTypes.length > 1 ? "from " : ""}${formatRupees(pricePerHour)}/hour`;
+
   return (
-    <Pressable onPress={onPress} accessibilityRole="button" style={s.row}>
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${name}, ${distanceKm.toFixed(1)} kilometres away, ${price}`}
+      style={({ pressed }) => [s.row, pressed && s.pressed]}
+    >
       <View style={s.distance}>
         <Text style={s.distanceValue}>{distanceKm.toFixed(1)}</Text>
         <Text style={s.distanceUnit}>KM</Text>
@@ -40,7 +72,10 @@ export function SpotListItem({
         <Text style={s.meta} numberOfLines={1}>
           {city} · until {formatUntil(availableUntilMinute)}
         </Text>
-        <Text style={s.price}>₹{Math.round(pricePerHour)}/hour</Text>
+        <View style={s.footer}>
+          {tag ? <Text style={s.tag}>{tag}</Text> : null}
+          <Text style={s.price}>{price}</Text>
+        </View>
       </View>
     </Pressable>
   );
@@ -55,7 +90,9 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.lg - 8,
+    backgroundColor: colors.surface,
   },
+  pressed: { backgroundColor: colors.canvas },
   distance: {
     width: 62,
     height: 62,
@@ -74,5 +111,18 @@ const s = StyleSheet.create({
   body: { flexGrow: 1, flexShrink: 1, gap: 5 },
   name: { fontSize: 15, fontWeight: "600", color: colors.ink },
   meta: { fontSize: 13, color: "#4b5563" },
+  footer: { flexDirection: "row", alignItems: "center", gap: 7 },
+  // Same chip as EventListItem's plain tag.
+  tag: {
+    height: 20,
+    lineHeight: 20,
+    paddingHorizontal: 7,
+    borderRadius: 5,
+    overflow: "hidden",
+    fontSize: 11,
+    fontWeight: "700",
+    backgroundColor: colors.canvas,
+    color: "#374151",
+  },
   price: { fontSize: 13, fontWeight: "700", color: colors.ink },
 });
