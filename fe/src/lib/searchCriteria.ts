@@ -52,7 +52,11 @@ export interface MonthlyCriteria {
   startDate: string;
   startMinute: number;
   endMinute: number;
+  /** How long the reservation runs: 1, 3, 6 or 12 months, paid up front. */
+  months: number;
 }
+
+export const MONTH_CHOICES = [1, 3, 6, 12];
 
 export type SearchCriteria = HourlyCriteria | MonthlyCriteria;
 
@@ -127,6 +131,7 @@ export function toParams(criteria: SearchCriteria): Record<string, string> {
     startDate: criteria.startDate,
     startMinute: String(criteria.startMinute),
     endMinute: String(criteria.endMinute),
+    months: String(criteria.months),
   };
 }
 
@@ -177,7 +182,18 @@ export function fromParams(
       return null;
     }
 
-    return { mode: "monthly", place, days, startDate, startMinute, endMinute };
+    // Older links carry no duration; a month is the least surprising reading.
+    const months = Number(read("months"));
+
+    return {
+      mode: "monthly",
+      place,
+      days,
+      startDate,
+      startMinute,
+      endMinute,
+      months: MONTH_CHOICES.includes(months) ? months : 1,
+    };
   }
 
   const from = read("from");
@@ -231,5 +247,5 @@ export function describeCriteria(criteria: SearchCriteria): string {
         ? "Mon–Fri"
         : criteria.days.map((day) => names[day]).join(", ");
 
-  return `${pattern}, from ${dayLabel(fromDateKey(criteria.startDate))}`;
+  return `${pattern}, from ${dayLabel(fromDateKey(criteria.startDate))} · ${criteria.months} ${criteria.months === 1 ? "month" : "months"}`;
 }

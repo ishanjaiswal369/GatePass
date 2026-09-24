@@ -9,7 +9,10 @@ export function formatRupees(amount: number | string): string {
   const value = Number(amount);
   if (!Number.isFinite(value)) return "—";
 
-  return `₹${value.toFixed(2).replace(/\.00$/, "")}`;
+  // Indian grouping: ₹12,236 and ₹1,00,000, the way prices are read here.
+  const [rupees, paise] = value.toFixed(2).split(".");
+  const grouped = Number(rupees).toLocaleString("en-IN");
+  return `₹${grouped}${paise === "00" ? "" : `.${paise}`}`;
 }
 
 /**

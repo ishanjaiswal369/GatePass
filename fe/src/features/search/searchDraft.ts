@@ -36,6 +36,7 @@ export interface SearchDraft {
   startDate: string;
   startMinute: number;
   endMinute: number;
+  months: number;
 }
 
 let cached: SearchDraft | null = null;
@@ -132,6 +133,7 @@ export function freshen(
         : defaults.startDate,
     startMinute: draft.startMinute,
     endMinute: draft.endMinute,
+    months: [1, 3, 6, 12].includes(draft.months) ? draft.months : defaults.months,
   };
 }
 
@@ -177,5 +179,6 @@ function readShape(value: unknown): SearchDraft | null {
     return null;
   }
 
-  return value as SearchDraft;
+  // Drafts saved before the monthly duration existed have none.
+  return { months: 1, ...(value as Omit<SearchDraft, "months">) } as SearchDraft;
 }

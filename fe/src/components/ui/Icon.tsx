@@ -262,3 +262,30 @@ export function PlusIcon({ size = 18, color = colors.ink }: IconProps) {
     </Svg>
   );
 }
+
+/** Saved or not: filled red when saved, an outline otherwise. */
+export function HeartIcon({ size = 20, color, filled }: IconProps & { filled?: boolean }) {
+  const stroke = color ?? (filled ? "#b91c1c" : colors.ink);
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M12 20s-7-4.4-9-9a4.5 4.5 0 0 1 9-3 4.5 4.5 0 0 1 9 3c-2 4.6-9 9-9 9z"
+        stroke={stroke}
+        strokeWidth={2}
+        strokeLinejoin="round"
+        fill={filled ? stroke : "none"}
+      />
+    </Svg>
+  );
+}
+
+export function SlidersIcon({ size = 16, color = colors.ink }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1" stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Circle cx={15} cy={6} r={2} stroke={color} strokeWidth={2} />
+      <Circle cx={9} cy={12} r={2} stroke={color} strokeWidth={2} />
+      <Circle cx={17} cy={18} r={2} stroke={color} strokeWidth={2} />
+    </Svg>
+  );
+}

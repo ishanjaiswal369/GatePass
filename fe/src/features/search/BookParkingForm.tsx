@@ -14,10 +14,12 @@ import {
   MAX_DAYS_AHEAD,
   MAX_STAY_DAYS,
   MIN_STAY_MINUTES,
+  MONTH_CHOICES,
   WEEKDAYS,
   addDays,
   atMinute,
   dayLabel,
+  fromDateKey,
   nextStepMinute,
   toDateKey,
   type DayPattern,
@@ -111,6 +113,7 @@ export function BookParkingForm({
       startDate: toDateKey(addDays(now, 1)),
       startMinute: 9 * 60,
       endMinute: 18 * 60,
+      months: 3,
     };
   }, [now]);
 
@@ -134,6 +137,7 @@ export function BookParkingForm({
   const [startDate, setStartDate] = useState(initial.startDate);
   const [startMinute, setStartMinute] = useState(initial.startMinute);
   const [endMinute, setEndMinute] = useState(initial.endMinute);
+  const [months, setMonths] = useState(initial.months);
 
   /**
    * Whether the stored draft has been taken into account. Until it has,
@@ -162,6 +166,7 @@ export function BookParkingForm({
         setStartDate(d.startDate);
         setStartMinute(d.startMinute);
         setEndMinute(d.endMinute);
+        setMonths(d.months);
       }
 
       setReady(true);
@@ -186,6 +191,7 @@ export function BookParkingForm({
       startDate,
       startMinute,
       endMinute,
+      months,
     });
   }, [
     ready,
@@ -199,14 +205,22 @@ export function BookParkingForm({
     startDate,
     startMinute,
     endMinute,
+    months,
   ]);
 
   const from = atMinute(fromDate, fromMinute);
   const to = atMinute(toDate, toMinute);
   const stayMinutes = (to.getTime() - from.getTime()) / 60_000;
 
+  // Leaving on a later day is a choice the driver makes, not a guess.
+  const multiDay = toDate !== fromDate;
+
   const hourlyProblem =
-    stayMinutes < MIN_STAY_MINUTES
+    stayMinutes <= 0
+      ? multiDay
+        ? "You're leaving before you arrive."
+        : 'The end time has to be after the start. Leaving the next day? Choose "Leaving on a later day".'
+      : stayMinutes < MIN_STAY_MINUTES
       ? `Minimum stay is ${MIN_STAY_MINUTES} minutes.`
       : stayMinutes > MAX_STAY_DAYS * 24 * 60
         ? `For longer than ${MAX_STAY_DAYS} days, try Monthly.`
@@ -235,6 +249,7 @@ export function BookParkingForm({
             startDate,
             startMinute,
             endMinute,
+            months,
           }
     );
   };
@@ -266,45 +281,54 @@ export function BookParkingForm({
         <View style={s.card}>
           <Text style={s.cardHeading}>When</Text>
 
+          <PickerField
+            label="Date"
+            title="Parking on"
+            value={fromDate}
+            options={days}
+            onChange={(next) => {
+              setFromDate(next);
+              // A same-day stay follows the date; a later-day stay keeps its
+              // end date unless the start overtakes it.
+              if (!multiDay) setToDate(next);
+              else if (next >= toDate) setToDate(toDateKey(addDays(fromDateKey(next), 1)));
+            }}
+          />
+
           <View style={s.row}>
             <PickerField
-              label="Arriving"
-              title="Arriving on"
-              value={fromDate}
-              options={days}
-              onChange={(next) => {
-                setFromDate(next);
-                // Leaving before arriving is not a stay. The end follows the
-                // start rather than being refused, which is what a driver
-                // moving their booking a day later means anyway.
-                if (next > toDate) setToDate(next);
-              }}
-            />
-            <PickerField
-              label="At"
+              label="Start"
               title="Arriving at"
               value={fromMinute}
               options={minuteOptions(0, 24 * 60 - DRIVER_STEP_MINUTES, DRIVER_STEP_MINUTES)}
               onChange={setFromMinute}
             />
-          </View>
-
-          <View style={s.row}>
             <PickerField
-              label="Leaving"
-              title="Leaving on"
-              value={toDate}
-              options={days.filter((day) => day.value >= fromDate)}
-              onChange={setToDate}
-            />
-            <PickerField
-              label="At"
+              label="End"
               title="Leaving at"
               value={toMinute}
               options={minuteOptions(DRIVER_STEP_MINUTES, 24 * 60, DRIVER_STEP_MINUTES)}
               onChange={setToMinute}
             />
           </View>
+
+          {multiDay ? (
+            <PickerField
+              label="Leaving on"
+              value={toDate}
+              options={days.filter((day) => day.value > fromDate)}
+              onChange={setToDate}
+            />
+          ) : null}
+
+          <Pressable
+            onPress={() => setToDate(multiDay ? fromDate : toDateKey(addDays(fromDateKey(fromDate), 1)))}
+            accessibilityRole="switch"
+            accessibilityState={{ checked: multiDay }}
+            style={s.laterDay}
+          >
+            <Text style={s.laterDayText}>{multiDay ? "Leaving the same day" : "Leaving on a later day?"}</Text>
+          </Pressable>
 
           {problem ? null : <Text style={s.summary}>{describeStay(stayMinutes)}</Text>}
         </View>
@@ -358,6 +382,27 @@ export function BookParkingForm({
             />
           </View>
 
+          <Text style={s.fieldLabel}>Duration</Text>
+          <View style={s.months}>
+            {MONTH_CHOICES.map((count) => {
+              const on = months === count;
+              return (
+                <Pressable
+                  key={count}
+                  onPress={() => setMonths(count)}
+                  accessibilityRole="radio"
+                  accessibilityState={{ checked: on }}
+                  style={[s.month, on && s.monthOn]}
+                >
+                  <Text style={[s.monthText, on && s.monthTextOn]}>
+                    {count} {count === 1 ? "Month" : "Months"}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <Text style={s.fine}>Paid once for the whole term. It doesn't renew on its own.</Text>
+
           <View style={s.row}>
             <PickerField
               label="From"
@@ -388,7 +433,7 @@ export function BookParkingForm({
       )}
 
       <Button
-        label="Show parking spaces"
+        label={mode === "hourly" ? "Find Parking" : "Find Monthly Parking"}
         size="lg"
         disabled={!canSearch}
         onPress={search}
@@ -416,6 +461,23 @@ function describeStay(minutes: number): string {
 
 const s = StyleSheet.create({
   wrap: { gap: space.lg },
+  laterDay: { minHeight: 40, justifyContent: "center", alignSelf: "flex-start" },
+  laterDayText: { fontSize: 14, fontWeight: "600", color: colors.ink, textDecorationLine: "underline" },
+  fieldLabel: { ...type.label, color: colors.ink },
+  months: { flexDirection: "row", gap: space.sm },
+  month: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  monthOn: { backgroundColor: colors.ink, borderColor: colors.ink },
+  monthText: { fontSize: 13, fontWeight: "600", color: colors.ink },
+  monthTextOn: { color: colors.onInk },
+  fine: { fontSize: 12, color: colors.inkMuted },
   card: {
     gap: space.md,
     backgroundColor: colors.surface,

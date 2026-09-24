@@ -1,8 +1,12 @@
+import type { Amenity, VehicleType } from "@/constants/enums";
 import type {
   GeocodeResult,
   PlaceSuggestion,
   NearbySpot,
   PublicSpot,
+  SavedSpot,
+  SpaceType,
+  StayQuote,
 } from "@/types/api.types";
 import { request } from "./client";
 
@@ -24,6 +28,13 @@ export const nearby = (
     days?: number[];
     startMinute?: number;
     endMinute?: number;
+    /** Prices the cards for this vehicle, and hides spots that don't take it. */
+    vehicleType?: VehicleType;
+    amenities?: Amenity[];
+    spaceTypes?: SpaceType[];
+    maxPricePerHour?: number;
+    open24x7?: boolean;
+    sort?: "distance" | "price";
   }
 ) => {
   const params = new URLSearchParams({
@@ -41,6 +52,12 @@ export const nearby = (
     params.set("startMinute", String(input.startMinute));
     params.set("endMinute", String(input.endMinute));
   }
+  if (input.vehicleType) params.set("vehicleType", input.vehicleType);
+  if (input.amenities?.length) params.set("amenities", input.amenities.join(","));
+  if (input.spaceTypes?.length) params.set("spaceTypes", input.spaceTypes.join(","));
+  if (input.maxPricePerHour !== undefined) params.set("maxPricePerHour", String(input.maxPricePerHour));
+  if (input.open24x7) params.set("open24x7", "true");
+  if (input.sort) params.set("sort", input.sort);
 
   return request<{ spots: NearbySpot[] }>(`/spots/nearby?${params}`, { token });
 };
@@ -117,3 +134,24 @@ export const placeDetails = (
  */
 export const getById = (token: string, id: string) =>
   request<PublicSpot>(`/spots/${id}`, { token });
+
+/**
+ * The price of one stay, and whether it can be had -- from the same function
+ * the booking charges with, so the checkout never shows an estimate.
+ */
+export const quote = (
+  token: string,
+  id: string,
+  input: { vehicleType: VehicleType; startsAt: string; endsAt: string }
+) =>
+  request<StayQuote>(`/spots/${id}/quote?${new URLSearchParams(input)}`, { token });
+
+export const saved = (token: string) =>
+  request<{ spots: SavedSpot[] }>("/favorites", { token });
+
+/** Idempotent both ways: a double tap on the heart lands in the same state. */
+export const save = (token: string, id: string) =>
+  request<{ saved: true }>(`/favorites/${id}`, { method: "PUT", token });
+
+export const unsave = (token: string, id: string) =>
+  request<{ saved: false }>(`/favorites/${id}`, { method: "DELETE", token });

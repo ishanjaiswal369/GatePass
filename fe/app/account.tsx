@@ -157,6 +157,11 @@ export default function AccountScreen() {
               onPress={() => router.push("/account/vehicles")}
             />
             <SettingsRow
+              label="Saved parking"
+              value="Spaces you've saved for later"
+              onPress={() => router.push("/account/saved")}
+            />
+            <SettingsRow
               label="Address"
               value={formatAddress(address)}
               onPress={() => router.push("/account/address")}

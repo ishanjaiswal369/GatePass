@@ -57,6 +57,20 @@ export const PAYMENT_STATUSES = [
 ] as const;
 export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
 
+/** Mirrors be/src/constants/enums/amenity.ts. "24/7 access" is derived, not stored. */
+export const AMENITIES = [
+  "CCTV",
+  "SECURITY_GUARD",
+  "COVERED",
+  "EV_CHARGING",
+  "WELL_LIT",
+  "WASHROOM",
+] as const;
+export type Amenity = (typeof AMENITIES)[number];
+
+export const VEHICLE_SIZES = ["HATCHBACK", "SEDAN", "SUV", "VAN"] as const;
+export type VehicleSize = (typeof VEHICLE_SIZES)[number];
+
 /** Where a refund stands; separate from the booking it belongs to. */
 export const REFUND_STATUSES = ["REFUND_PENDING", "REFUNDED", "FAILED"] as const;
 export type RefundStatus = (typeof REFUND_STATUSES)[number];

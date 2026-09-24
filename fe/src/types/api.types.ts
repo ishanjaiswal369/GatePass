@@ -4,12 +4,14 @@
  */
 
 import type {
+  Amenity,
   BookingStatus,
   ListingStatus,
   ListingType,
   PaymentStatus,
   RefundStatus,
   Role,
+  VehicleSize,
   VehicleType,
   VerificationStatus,
 } from "@/constants/enums";
@@ -140,7 +142,10 @@ export interface BookingListing {
 export interface BookingRow {
   id: string;
   quantity: number;
+  /** The parking; the driver pays this plus the platform fee and its GST. */
   amount: string;
+  platformFee: string;
+  taxAmount: string;
   status: BookingStatus;
   vehicleNumber: string;
   vehicleType: VehicleType | null;
@@ -263,7 +268,15 @@ export interface NearbySpot {
   distanceKm: number;
   /** The cheapest of the spot's rates. */
   pricePerHour: number;
+  pricePerDay: number | null;
+  pricePerMonth: number | null;
+  /** The searched stay at the cheapest rate, as a decimal string; null on a monthly search. */
+  stayTotal: string | null;
   vehicleTypes: VehicleType[];
+  amenities: Amenity[];
+  /** Open all day, every day -- derived from the hours by the API. */
+  open24x7: boolean;
+  saved: boolean;
   availableUntilMinute: number;
 }
 
@@ -368,7 +381,8 @@ export type SpotListingStatus =
   | "CANCELLED"
   | "SUSPENDED";
 
-export type SpaceType = "DRIVEWAY" | "GARAGE" | "CAR_PARK";
+/** CAR_PARK reads as "Private lot". Covered or open is the COVERED amenity, not a type. */
+export type SpaceType = "DRIVEWAY" | "GARAGE" | "CAR_PARK" | "OTHER";
 
 /** Mirrors the gateway. Only ACTIVATED can receive money. */
 export type PayoutKycStatus =
@@ -395,9 +409,46 @@ export interface PublicSpot {
   pincode: string | null;
   latitude: string | null;
   longitude: string | null;
+  amenities: Amenity[];
+  maxVehicleHeightCm: number | null;
+  maxVehicleSize: VehicleSize | null;
+  /** Which gate, public before booking. The detailed instructions are not. */
+  entryPoint: string | null;
   photos: SpotPhoto[];
   pricing: SpotPricingRow[];
   availability: AvailabilityWindow[];
+  open24x7: boolean;
+  /** A first name and an initial: enough to recognise at the gate, not to find. */
+  host: { displayName: string; since: number | null };
+  saved: boolean;
+}
+
+/** The checkout's price for one stay, from the function the booking charges with. */
+export interface StayQuote {
+  available: boolean;
+  reason: string | null;
+  minutes: number;
+  basis: "HOURLY" | "DAILY" | null;
+  hourlyAmount: string | null;
+  parking: string;
+  platformFee: string;
+  taxAmount: string;
+  total: string;
+}
+
+export interface SavedSpot {
+  savedAt: string;
+  id: string;
+  name: string;
+  city: string | null;
+  addressLine: string | null;
+  spaceType: SpaceType | null;
+  amenities: Amenity[];
+  coverPhotoUrl: string | null;
+  pricePerHour: number | null;
+  pricePerDay: number | null;
+  /** False once the spot stops taking bookings; it stays in the list, marked. */
+  bookable: boolean;
 }
 
 export interface SpotPhoto {
@@ -410,6 +461,8 @@ export interface SpotPricingRow {
   id: string;
   vehicleType: VehicleType;
   pricePerHour: string;
+  pricePerDay: string | null;
+  pricePerMonth: string | null;
 }
 
 export interface SpotListing {

@@ -66,3 +66,44 @@ export function metresPerPixel(latitude: number, zoom: number): number {
     (EQUATOR_METRES * Math.cos((latitude * Math.PI) / 180)) / worldSize(zoom)
   );
 }
+
+/**
+ * Where a point sits on a map image centred on `centre`, as a pixel offset
+ * from the image's middle -- the inverse of `offsetByPixels`, for drawing
+ * pins onto a static map.
+ */
+export function pixelOffset(
+  centre: { latitude: number; longitude: number },
+  point: { latitude: number; longitude: number },
+  zoom: number
+): { dx: number; dy: number } {
+  const size = worldSize(zoom);
+  let dLng = point.longitude - centre.longitude;
+  if (dLng > 180) dLng -= 360;
+  if (dLng < -180) dLng += 360;
+
+  return {
+    dx: (dLng / 360) * size,
+    dy: (latitudeToWorldY(point.latitude) - latitudeToWorldY(centre.latitude)) * size,
+  };
+}
+
+/**
+ * The deepest zoom at which every point fits inside a frame around the
+ * centre, with some room at the edges so a pin's label isn't clipped.
+ */
+export function zoomToFit(
+  centre: { latitude: number; longitude: number },
+  points: { latitude: number; longitude: number }[],
+  frame: { width: number; height: number },
+  bounds: { min: number; max: number }
+): number {
+  for (let zoom = bounds.max; zoom > bounds.min; zoom -= 1) {
+    const fits = points.every((point) => {
+      const { dx, dy } = pixelOffset(centre, point, zoom);
+      return Math.abs(dx) < frame.width / 2 - 36 && Math.abs(dy) < frame.height / 2 - 28;
+    });
+    if (fits) return zoom;
+  }
+  return bounds.min;
+}

@@ -39,9 +39,9 @@ const reverseQuery = z.object({
 const staticMapQuery = z.object({
   latitude: z.coerce.number().min(-90).max(90),
   longitude: z.coerce.number().min(-180).max(180),
-  // 21 is Google's deepest; below 15 a driveway is not distinguishable, which
-  // is the only thing this image is for.
-  zoom: z.coerce.number().int().min(15).max(21).default(18),
+  // 21 is Google's deepest. 11 frames a whole search area (~15 km) for the
+  // results map; the pin picker asks for 16+, where a driveway is visible.
+  zoom: z.coerce.number().int().min(11).max(21).default(18),
   // Bounded because the caller picks them and each pixel is billed upstream.
   width: z.coerce.number().int().min(100).max(640).default(400),
   height: z.coerce.number().int().min(100).max(640).default(260),
