@@ -10,6 +10,7 @@
     "prisma:generate": "prisma generate --schema prisma/schema",
     "prisma:migrate": "prisma migrate dev --schema prisma/schema",
     "prisma:deploy": "prisma migrate deploy --schema prisma/schema",
+    "db:push": "prisma db push --schema prisma/schema",
     "seed:spots": "node --import tsx/esm scripts/seed-spots.ts"
   },
   "dependencies": {

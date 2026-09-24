@@ -13,4 +13,7 @@ model Payment {
   booking             Booking       @relation(fields: [bookingId], references: [id])
   creator             User?         @relation("PaymentCreatedBy", fields: [createdBy], references: [id])
   updater             User?         @relation("PaymentUpdatedBy", fields: [updatedBy], references: [id])
+
+  @@index([createdBy])
+  @@index([updatedBy])
 }

@@ -55,8 +55,8 @@ model Listing {
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
-  organizer     Organizer?    @relation(fields: [organizerId], references: [id])
-  hostProfile   HostProfile?  @relation("ListingHost", fields: [hostProfileId], references: [id])
+  organizer     Organizer?    @relation(fields: [organizerId], references: [id], onDelete: Restrict)
+  hostProfile   HostProfile?  @relation("ListingHost", fields: [hostProfileId], references: [id], onDelete: Restrict)
   creator       User?         @relation("ListingCreatedBy", fields: [createdBy], references: [id])
   updater       User?         @relation("ListingUpdatedBy", fields: [updatedBy], references: [id])
   reviewer      User?         @relation("ListingReviewedBy", fields: [reviewedBy], references: [id])
@@ -67,6 +67,15 @@ model Listing {
   /// Host-spot bookings, which claim a stretch of this listing's time rather
   /// than a slot from a ParkingCapacity. Empty on event listings.
   spotBookings  Booking[]
+
+  @@index([organizerId])
+  @@index([hostProfileId])
+  @@index([listingType, status])
+  @@index([status, eventDate])
+  @@index([status, submittedAt])
+  @@index([latitude, longitude])
+  @@index([createdBy])
+  @@index([updatedBy])
 }
 
 model ParkingCapacity {
@@ -101,7 +110,7 @@ model SpotPricing {
   vehicleType   String
   pricePerHour  Decimal
   createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  updatedAt     DateTime @default(now()) @updatedAt
 
   listing       Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
 

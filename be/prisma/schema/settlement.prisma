@@ -16,11 +16,16 @@ model Settlement {
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
 
-  organizer         Organizer?          @relation(fields: [organizerId], references: [id])
-  hostProfile       HostProfile?        @relation(fields: [hostProfileId], references: [id])
+  organizer         Organizer?          @relation(fields: [organizerId], references: [id], onDelete: Restrict)
+  hostProfile       HostProfile?        @relation(fields: [hostProfileId], references: [id], onDelete: Restrict)
   items             SettlementItem[]
   creator           User?               @relation("SettlementCreatedBy", fields: [createdBy], references: [id])
   updater           User?               @relation("SettlementUpdatedBy", fields: [updatedBy], references: [id])
+
+  @@index([organizerId])
+  @@index([hostProfileId])
+  @@index([createdBy])
+  @@index([updatedBy])
 }
 
 model SettlementItem {

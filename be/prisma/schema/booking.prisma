@@ -34,8 +34,8 @@ model Booking {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
-  parkingCapacity ParkingCapacity? @relation(fields: [parkingCapacityId], references: [id])
-  listing         Listing?        @relation(fields: [listingId], references: [id])
+  parkingCapacity ParkingCapacity? @relation(fields: [parkingCapacityId], references: [id], onDelete: Restrict)
+  listing         Listing?        @relation(fields: [listingId], references: [id], onDelete: Restrict)
   driver          User            @relation(fields: [driverId], references: [id])
   payment         Payment?
   settlementItems SettlementItem[]
@@ -43,4 +43,11 @@ model Booking {
   updater         User?           @relation("BookingUpdatedBy", fields: [updatedBy], references: [id])
 
   @@index([listingId, startsAt])
+  // Created by migration SQL before `db push` was the workflow; declared so a
+  // push does not drop them.
+  @@index([driverId])
+  @@index([driverId, status])
+  @@index([parkingCapacityId])
+  @@index([createdBy])
+  @@index([updatedBy])
 }
