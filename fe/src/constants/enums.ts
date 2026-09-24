@@ -57,6 +57,10 @@ export const PAYMENT_STATUSES = [
 ] as const;
 export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
 
+/** Where a refund stands; separate from the booking it belongs to. */
+export const REFUND_STATUSES = ["REFUND_PENDING", "REFUNDED", "FAILED"] as const;
+export type RefundStatus = (typeof REFUND_STATUSES)[number];
+
 export const LISTING_STATUSES = [
   "DRAFT",
   "PUBLISHED",

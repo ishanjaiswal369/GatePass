@@ -108,8 +108,9 @@ function priceFor(terms: SpotTerms, minutes: number): Prisma.Decimal {
   return terms.pricePerHour.mul(minutes).div(60).toDecimalPlaces(2);
 }
 
+/** "6:00 PM" at the venue -- the same shape the app prints times in. */
 function clock(date: Date): string {
-  return date.toLocaleTimeString("en-IN", {
+  return date.toLocaleTimeString("en-US", {
     timeZone: "Asia/Kolkata",
     hour: "numeric",
     minute: "2-digit",

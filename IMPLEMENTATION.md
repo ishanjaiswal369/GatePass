@@ -909,21 +909,27 @@ Also missing:
   `spots/checkout`, which picks a saved vehicle, prices the stay and calls
   `POST /spot-bookings` -- but it stops at a `PENDING` hold, and the screen
   says so rather than implying a pass.
-- **Nothing reaches `COMPLETED`.** A stay that has ended stays `PENDING` or
-  `CONFIRMED` forever: no job, no scan and no host action moves it on. Reviews
-  are blocked on this, since "was this spot as described" is only a fair
-  question once the booking is over.
+- **Booking lifecycle (built).** Bookings list as Upcoming / Active / Past,
+  each carrying a derived `phase`. ACTIVE is never stored — the overlap
+  EXCLUDE covers PENDING and CONFIRMED only, so a stored ACTIVE would let a
+  parked car's remaining hours be resold. `COMPLETED` is written lazily when a
+  driver's list is read. Cancellation quotes and applies one policy
+  (`be/src/config/pricing.ts`); refunds are their own table. Extra time is a
+  PENDING child booking (`extendsBookingId`) so it is held while being paid
+  for. Design: `specs/driver-journey_design.md`.
 - **`/spots/nearby` does not subtract existing bookings.** It matches a search
   against the host's *availability* only, so a spot whose hours are already
   taken still comes back as a result. The driver finds out at checkout, from
   the 409 the `EXCLUDE` constraint produces. Honest, but late:
   `booking.service.bookedRanges` exists to fix this and has no route yet.
-- **`getActiveForDriver` cannot see a spot booking.** It filters through
-  `parkingCapacity`, which a spot booking does not have, so one would never
-  surface as the home screen's active pass. Unreachable today -- it also
-  requires `CONFIRMED`, and no spot booking can reach that without payments --
-  but it needs fixing before they can, together with a decision about which
-  booking wins when a driver holds both shapes at once.
+- **Payments are not wired.** The app's pay UI goes through one seam,
+  `fe/src/lib/payments.ts`, which answers NOT_CONFIGURED until Cashfree is
+  connected there and on the API. A booking becomes CONFIRMED from the
+  gateway's webhook on the API, never from the app. Until then every booking
+  stops at a PENDING hold; later states are tested by setting data directly.
+- **Schema changes use `npm run db:push`, not migrations.** The schema now
+  declares every index and FK rule the migrations created, so a push is exact.
+  A baseline migration must be generated before any production deploy.
 - **Dead columns.** `User.gstNumber` and `User.bankAccountId` are no longer
   read or written anywhere: `Organizer` and `HostProfile` carry those now.
   They are still in the schema and should be dropped.

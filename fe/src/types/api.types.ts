@@ -7,6 +7,8 @@ import type {
   BookingStatus,
   ListingStatus,
   ListingType,
+  PaymentStatus,
+  RefundStatus,
   Role,
   VehicleType,
   VerificationStatus,
@@ -118,6 +120,9 @@ export interface BookingListing {
   venueName: string;
   addressLine?: string | null;
   city?: string | null;
+  /** Decimal strings; only a host spot has them. Used for directions. */
+  latitude?: string | null;
+  longitude?: string | null;
   eventDate: string | null;
   listingType: ListingType;
   status: ListingStatus;
@@ -146,10 +151,24 @@ export interface BookingRow {
    * booked.
    */
   holdExpiresAt: string | null;
+  /**
+   * Where the booking is in its life, worked out by the API from the stored
+   * status and the clock. ACTIVE is never stored -- see BookingPhase.
+   */
+  phase: BookingPhase;
+  /** When the driver has to leave: the end of the last paid extension. */
+  effectiveEndsAt: string | null;
+  cancelledAt: string | null;
   createdAt: string;
   startsAt: string | null;
   endsAt: string | null;
   listing: BookingListing | null;
+  /** Whether money arrived. Separate from the booking's own status. */
+  payment: { status: PaymentStatus; amount: string } | null;
+  /** Money on its way back after a cancellation. */
+  refund: BookingRefund | null;
+  /** Extra time bought on this stay, paid or awaiting payment. */
+  extensions: BookingExtension[];
   parkingCapacity: {
     id: string;
     vehicleType: VehicleType;
@@ -157,6 +176,65 @@ export interface BookingRow {
     price: string;
     listing: BookingListing;
   } | null;
+}
+
+export type BookingPhase =
+  | "PENDING"
+  | "EXPIRED"
+  | "UPCOMING"
+  | "ACTIVE"
+  | "COMPLETED"
+  | "CANCELLED";
+
+export interface BookingRefund {
+  amount: string;
+  status: RefundStatus;
+  /** FULL, LATE: which rule of the cancellation policy set the amount. */
+  policy: string;
+  reference: string | null;
+  createdAt: string;
+  processedAt: string | null;
+}
+
+export interface BookingExtension {
+  id: string;
+  status: BookingStatus;
+  startsAt: string;
+  endsAt: string;
+  amount: string;
+  holdExpiresAt: string | null;
+}
+
+/**
+ * One booking, as its owner reads it. `access` is null until the booking is
+ * paid: instructions for getting in are worth money.
+ */
+export interface BookingDetail extends BookingRow {
+  access: { accessInstructions: string | null } | null;
+}
+
+export interface CancellationQuote {
+  cancellable: boolean;
+  reason: string | null;
+  rule: "FULL" | "LATE" | "NOTHING_PAID" | null;
+  refundAmount: string;
+  paidAmount: string;
+  freeUntil: string | null;
+}
+
+export interface ExtensionOption {
+  minutes: number;
+  endsAt: string;
+  amount: string;
+  available: boolean;
+  reason: string | null;
+}
+
+export interface ExtensionOptions {
+  currentEndsAt: string;
+  pending: { id: string; endsAt: string; amount: string; holdExpiresAt: string } | null;
+  unavailableAfter: string | null;
+  options: ExtensionOption[];
 }
 
 export interface GatePassResult {

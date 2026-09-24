@@ -207,3 +207,58 @@ export function UserIcon({ size = 17, color = colors.inkMuted }: IconProps) {
     </Svg>
   );
 }
+
+/** Directions: the arrow maps apps use for "navigate here". */
+export function NavigateIcon({ size = 18, color = colors.ink }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M3 11l18-8-8 18-2-8z" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
+export function CarIcon({ size = 18, color = colors.ink }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M5 16v-5l1.8-4.2A2 2 0 0 1 8.6 5.5h6.8a2 2 0 0 1 1.8 1.3L19 11v5" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M5 16h14v2.5h-3V16M8 18.5H5V16" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      <Circle cx={8} cy={13} r={1} fill={color} />
+      <Circle cx={16} cy={13} r={1} fill={color} />
+    </Svg>
+  );
+}
+
+export function KeyIcon({ size = 18, color = colors.ink }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Circle cx={8} cy={15} r={4} stroke={color} strokeWidth={2} />
+      <Path d="M11 12 20 3M16 7l3 3" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
+export function AlertIcon({ size = 18, color = colors.danger }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M12 3 2 20h20z" stroke={color} strokeWidth={2} strokeLinejoin="round" />
+      <Path d="M12 10v4M12 17h.01" stroke={color} strokeWidth={2} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+export function WalletIcon({ size = 18, color = colors.ink }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Rect x={3} y={6} width={18} height={13} rx={2} stroke={color} strokeWidth={2} />
+      <Path d="M3 10h18M16 15h2" stroke={color} strokeWidth={2} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+export function PlusIcon({ size = 18, color = colors.ink }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M12 5v14M5 12h14" stroke={color} strokeWidth={2} strokeLinecap="round" />
+    </Svg>
+  );
+}

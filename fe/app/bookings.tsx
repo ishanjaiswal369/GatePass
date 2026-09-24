@@ -1,66 +1,108 @@
-import { Redirect, router } from "expo-router";
-import { useEffect, useState } from "react";
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Redirect, router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useCallback, useState } from "react";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { ApiError, bookingsApi } from "@/api";
 import {
   BottomNav,
-  Card,
-  DataRow,
+  Button,
+  CalendarIcon,
+  CarIcon,
+  CheckIcon,
+  EmptyState,
   ErrorNotice,
   PhoneFrame,
-  SegmentedControl,
-  type NavKey,
   RestoringScreen,
+  type NavKey,
 } from "@/components/ui";
+import { BookingCard } from "@/features/bookings/BookingCard";
+import { ParkedCard } from "@/features/bookings/ParkedCard";
+import { useNow } from "@/features/bookings/useNow";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
-import {
-  bookingListing,
-  bookingWhen,
-  holdMinutesLeft,
-  isSpotBooking,
-} from "@/lib/booking";
-import { formatRupees } from "@/lib/money";
 import { useSession } from "@/providers/SessionProvider";
-import { colors, space, type } from "@/theme";
+import { colors, space } from "@/theme";
 import type { BookingRow } from "@/types/api.types";
 
-type Scope = "upcoming" | "past";
+type Scope = "upcoming" | "active" | "past";
 
-const SCOPES = [
-  { value: "upcoming" as const, label: "Upcoming" },
-  { value: "past" as const, label: "Past" },
+const TABS: { key: Scope; label: string }[] = [
+  { key: "upcoming", label: "Upcoming" },
+  { key: "active", label: "Active" },
+  { key: "past", label: "Past" },
 ];
 
+function isScope(value: unknown): value is Scope {
+  return value === "upcoming" || value === "active" || value === "past";
+}
+
+/**
+ * Every booking, in three places by where it is in its life.
+ *
+ * Active is its own tab, not a badge on Upcoming: a driver standing at a gate
+ * needs their running stay without reading past tomorrow's. The tab lives in
+ * the URL so another screen can send a driver straight to it.
+ */
 export default function BookingsScreen() {
   const { token, isRestoring } = useSession();
   const insets = useScreenInsets();
-  const [scope, setScope] = useState<Scope>("upcoming");
+  const params = useLocalSearchParams<{ tab?: string }>();
+  const now = useNow();
+
+  const [scope, setScope] = useState<Scope>(isScope(params.tab) ? params.tab : "upcoming");
   const [rows, setRows] = useState<BookingRow[] | null>(null);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [parkedNow, setParkedNow] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!token) return;
+  const load = useCallback(
+    async (which: Scope) => {
+      if (!token) return;
+      setRows(null);
+      setError(null);
 
-    let cancelled = false;
-    setRows(null);
-
-    bookingsApi
-      .list(token, scope)
-      .then((page) => {
-        if (!cancelled) setRows(page.items);
-      })
-      .catch((err) => {
-        if (cancelled) return;
+      try {
+        const [page, active] = await Promise.all([
+          bookingsApi.list(token, which),
+          bookingsApi.active(token),
+        ]);
+        setRows(page.items);
+        setCursor(page.nextCursor);
+        setParkedNow(active.booking !== null);
+      } catch (err) {
         setRows([]);
-        setError(
-          err instanceof ApiError ? err.message : "Could not load bookings"
-        );
-      });
+        setError(err instanceof ApiError ? err.message : "Could not load your bookings.");
+      }
+    },
+    [token]
+  );
 
-    return () => {
-      cancelled = true;
-    };
-  }, [token, scope]);
+  // On focus, not mount: a booking cancelled or extended on another screen
+  // has to show here the moment the driver comes back.
+  useFocusEffect(
+    useCallback(() => {
+      void load(scope);
+    }, [load, scope])
+  );
+
+  const loadMore = async () => {
+    if (!token || !cursor || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const page = await bookingsApi.list(token, scope, cursor);
+      setRows((current) => [...(current ?? []), ...page.items]);
+      setCursor(page.nextCursor);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not load more bookings.");
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  const choose = (next: Scope) => {
+    if (next === scope) return;
+    setScope(next);
+    router.setParams({ tab: next });
+  };
 
   const navigate = (key: NavKey) => {
     if (key === "home") router.push("/home");
@@ -68,20 +110,33 @@ export default function BookingsScreen() {
     if (key === "profile") router.push("/account");
   };
 
-  if (isRestoring) {
-    return <RestoringScreen />;
-  }
-
-  if (!token) {
-    return <Redirect href="/" />;
-  }
+  if (isRestoring) return <RestoringScreen />;
+  if (!token) return <Redirect href="/" />;
 
   return (
     <PhoneFrame>
       <View style={s.screen}>
-        <View style={[s.head, { paddingTop: insets.top + 32 }]}>
-          <Text style={s.title}>Bookings</Text>
-          <SegmentedControl segments={SCOPES} value={scope} onChange={setScope} />
+        <View style={[s.head, { paddingTop: insets.top + 28 }]}>
+          <Text style={s.title} accessibilityRole="header">
+            Bookings
+          </Text>
+          <View style={s.tabs} accessibilityRole="tablist">
+            {TABS.map((tab) => {
+              const on = tab.key === scope;
+              return (
+                <Pressable
+                  key={tab.key}
+                  onPress={() => choose(tab.key)}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: on }}
+                  style={[s.tab, on && s.tabOn]}
+                >
+                  {tab.key === "active" && parkedNow ? <View style={s.liveDot} /> : null}
+                  <Text style={[s.tabText, on && s.tabTextOn]}>{tab.label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
         </View>
 
         <ScrollView contentContainerStyle={s.body}>
@@ -90,45 +145,26 @@ export default function BookingsScreen() {
           {rows === null ? (
             <ActivityIndicator color={colors.ink} style={s.loading} />
           ) : rows.length === 0 ? (
-            <Text style={s.empty}>
-              {scope === "upcoming"
-                ? "Nothing booked yet. Events on the home screen are the place to start."
-                : "No past bookings."}
-            </Text>
+            <Empty scope={scope} failed={error !== null} onRetry={() => void load(scope)} />
           ) : (
-            rows.map((row) => {
-              const heldFor = holdMinutesLeft(row);
+            <>
+              {rows.map((row) =>
+                row.phase === "ACTIVE" ? (
+                  <ParkedCard key={row.id} row={row} now={now} />
+                ) : (
+                  <BookingCard key={row.id} row={row} now={now} />
+                )
+              )}
 
-              return (
-                <Card key={row.id} heading={bookingListing(row)?.name ?? "Booking"}>
-                  <DataRow
-                    label="Where"
-                    value={bookingListing(row)?.venueName ?? "—"}
-                  />
-                  <DataRow label="When" value={bookingWhen(row)} />
-                  <DataRow label="Vehicle" value={row.vehicleNumber} />
-                  {/* A host spot is one space, so "how many" is only a question
-                      an event booking answers. */}
-                  {isSpotBooking(row) ? null : (
-                    <DataRow label="Spots" value={String(row.quantity)} />
-                  )}
-                  <DataRow label="Amount" value={formatRupees(row.amount)} />
-                  <DataRow label="Status" value={row.status} />
-
-                  {/* PENDING on a spot is a hold with a deadline, not a booking
-                      waiting its turn, and this list is where a driver comes
-                      looking for it. The bare status word would read as
-                      "nearly there" right up until it silently lapsed. */}
-                  {heldFor === null ? null : (
-                    <Text style={s.hold}>
-                      {heldFor === 0
-                        ? "This hold has lapsed. The hours are back on sale."
-                        : `Held for about ${heldFor} more ${heldFor === 1 ? "minute" : "minutes"}. An unpaid hold lapses on its own.`}
-                    </Text>
-                  )}
-                </Card>
-              );
-            })
+              {cursor ? (
+                <Button
+                  label={loadingMore ? "Loading…" : "Show more"}
+                  variant="ghost"
+                  busy={loadingMore}
+                  onPress={() => void loadMore()}
+                />
+              ) : null}
+            </>
           )}
         </ScrollView>
 
@@ -138,17 +174,64 @@ export default function BookingsScreen() {
   );
 }
 
+function Empty({ scope, failed, onRetry }: { scope: Scope; failed: boolean; onRetry: () => void }) {
+  if (failed) {
+    return (
+      <EmptyState icon={<CalendarIcon size={28} color={colors.ink} />} title="Something went wrong.">
+        <Button label="Retry" onPress={onRetry} />
+      </EmptyState>
+    );
+  }
+
+  if (scope === "upcoming") {
+    return (
+      <EmptyState
+        icon={<CalendarIcon size={28} color={colors.ink} />}
+        title="No upcoming parking"
+        body="Find a parking space near your destination."
+      >
+        <Button label="Find Parking" onPress={() => router.push("/home")} />
+      </EmptyState>
+    );
+  }
+
+  if (scope === "active") {
+    return (
+      <EmptyState
+        icon={<CarIcon size={28} color={colors.ink} />}
+        title="You're not currently parked."
+        body="When a booking starts, it shows up here with directions and your access instructions."
+      />
+    );
+  }
+
+  return (
+    <EmptyState
+      icon={<CheckIcon size={28} color={colors.ink} />}
+      title="No completed bookings yet."
+      body="Bookings you've finished or cancelled show up here."
+    />
+  );
+}
+
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.surface },
-  head: { paddingHorizontal: 20, paddingBottom: space.lg, gap: space.lg },
+  head: { paddingHorizontal: 20, paddingBottom: space.md, gap: space.lg },
   title: { fontSize: 27, fontWeight: "700", color: colors.ink, letterSpacing: -0.5 },
-  body: { paddingHorizontal: 20, paddingBottom: 20, gap: space.md },
-  loading: { paddingVertical: space.xl },
-  empty: { fontSize: 14, color: colors.inkMuted, lineHeight: 21 },
-  hold: {
-    ...type.caption,
-    lineHeight: 18,
-    color: colors.accentInk,
-    paddingTop: space.sm,
+  tabs: { flexDirection: "row", gap: 4, backgroundColor: colors.canvas, borderRadius: 10, padding: 4 },
+  tab: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 6,
   },
+  tabOn: { backgroundColor: colors.surface },
+  tabText: { fontSize: 14, fontWeight: "600", color: colors.inkMuted },
+  tabTextOn: { color: colors.ink },
+  liveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#16a34a" },
+  body: { paddingHorizontal: 20, paddingTop: space.sm, paddingBottom: 24, gap: space.md },
+  loading: { paddingVertical: space.xxl },
 });

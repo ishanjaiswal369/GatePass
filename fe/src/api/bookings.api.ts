@@ -1,5 +1,8 @@
 import type {
+  BookingDetail,
   BookingRow,
+  CancellationQuote,
+  ExtensionOptions,
   GatePassResult,
   Page,
   VehicleType,
@@ -8,7 +11,7 @@ import { request } from "./client";
 
 export const list = (
   token: string,
-  scope: "upcoming" | "past" = "upcoming",
+  scope: "upcoming" | "active" | "past" = "upcoming",
   cursor?: string
 ) =>
   request<Page<BookingRow>>(
@@ -16,7 +19,7 @@ export const list = (
     { token }
   );
 
-/** 200 with `booking: null` is the normal "no pass yet" answer, not an error. */
+/** 200 with `booking: null` is the normal "not parked" answer, not an error. */
 export const active = (token: string) =>
   request<{ booking: BookingRow | null }>("/bookings/active", { token });
 
@@ -57,3 +60,39 @@ export const createSpotBooking = (
     idempotencyKey: string;
   }
 ) => request<BookingRow>("/spot-bookings", { method: "POST", body: input, token });
+
+/** One booking; `access` is filled in only once it is paid. */
+export const get = (token: string, bookingId: string) =>
+  request<BookingDetail>(`/bookings/${bookingId}`, { token });
+
+/**
+ * What cancelling now would give back. Asked before the driver commits, and
+ * computed by the same policy the cancellation itself applies.
+ */
+export const cancellation = (token: string, bookingId: string) =>
+  request<CancellationQuote>(`/bookings/${bookingId}/cancellation`, { token });
+
+/** Safe to repeat: a second call returns the already-cancelled booking. */
+export const cancel = (token: string, bookingId: string, reason?: string) =>
+  request<BookingDetail>(`/bookings/${bookingId}/cancel`, {
+    method: "POST",
+    body: reason ? { reason } : {},
+    token,
+  });
+
+export const extensionOptions = (token: string, bookingId: string) =>
+  request<ExtensionOptions>(`/bookings/${bookingId}/extensions`, { token });
+
+/**
+ * Holds extra time on a running stay, for the driver to pay for. As with a
+ * booking, the key is generated once per attempt and reused on retry.
+ */
+export const createExtension = (
+  token: string,
+  bookingId: string,
+  input: { minutes: number; idempotencyKey: string }
+) =>
+  request<{ extensionId: string; booking: BookingDetail }>(
+    `/bookings/${bookingId}/extensions`,
+    { method: "POST", body: input, token }
+  );
