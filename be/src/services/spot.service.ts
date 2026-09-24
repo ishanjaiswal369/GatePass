@@ -1,17 +1,13 @@
 import { Prisma } from "@prisma/client";
-import { notFound } from "../lib/errors.js";
+import { badRequest, notFound } from "../lib/errors.js";
 import { prisma } from "../lib/prisma.js";
+import { cheapestStay, driverFees, stayPrice } from "../lib/stay-price.js";
+import { daySegments, windowsCover } from "../lib/venue-time.js";
 
 const KM_PER_LAT_DEGREE = 111.045;
 
-/**
- * Every venue and every host in this product is in one country, so a window
- * stored as "18:00 on a Tuesday" means 18:00 IST. Hard-coding it is honest for
- * a single-market app and cheaper than a per-listing timezone column that
- * would be the same value on every row; it becomes wrong the day the product
- * crosses a timezone, which is the point to revisit it.
- */
-const VENUE_TIME_ZONE = "Asia/Kolkata";
+/** How many candidates the SQL returns before the per-day check narrows them. */
+const CANDIDATE_CAP = 60;
 
 export interface NearbyFilters {
   latitude: number;
@@ -19,7 +15,7 @@ export interface NearbyFilters {
   radiusKm: number;
   /** When the driver needs the spot. Defaults to now. */
   at?: Date;
-  /** How long for, in minutes. Used to require the window covers the stay. */
+  /** How long for, in minutes. The spot has to be open, and free, for all of it. */
   durationMinutes?: number;
   /** Only spots priced for this vehicle. Absent means any, at its best rate. */
   vehicleType?: string;
@@ -29,13 +25,19 @@ export interface NearbyFilters {
    * these minutes, every week. Present means monthly.
    *
    * A spot qualifies only if it is open across the whole range on *every* one
-   * of these days -- a driveway free on Mondays is no use to somebody who
-   * needs it all week, and offering it would waste the trip rather than
-   * nearly work.
+   * of these days, and offers a monthly price.
    */
   days?: number[];
   startMinute?: number;
   endMinute?: number;
+  /** Every one of these must be offered. */
+  amenities?: string[];
+  /** Any of these. */
+  spaceTypes?: string[];
+  maxPricePerHour?: number;
+  /** Open every day, all day. */
+  open24x7?: boolean;
+  sort?: "distance" | "price";
 }
 
 export interface NearbySpot {
@@ -43,7 +45,7 @@ export interface NearbySpot {
   name: string;
   venueName: string;
   city: string;
-  /** DRIVEWAY / GARAGE / CAR_PARK. */
+  /** DRIVEWAY / GARAGE / CAR_PARK / OTHER. */
   spaceType: string | null;
   /** The first photo in the host's order, or null when there is none. */
   coverPhotoUrl: string | null;
@@ -52,65 +54,48 @@ export interface NearbySpot {
   distanceKm: number;
   /** The cheapest of the spot's rates -- "from", when there is more than one. */
   pricePerHour: number;
+  pricePerDay: number | null;
+  pricePerMonth: number | null;
+  /** What this stay costs at the cheapest rate; null on a monthly search. */
+  stayTotal: string | null;
   /** Which vehicles it prices, so a car driver can tell a bike stand from a list. */
   vehicleTypes: string[];
+  amenities: string[];
+  /** Open all day, every day -- derived from the hours, never stored. */
+  open24x7: boolean;
+  /** Whether the driver searching has saved it. */
+  saved: boolean;
   availableUntilMinute: number;
 }
 
-/**
- * Local day-of-week and minute-of-day for an instant.
- *
- * Derived through Intl rather than the server's own clock: a container running
- * in UTC would otherwise report Monday 22:30 as the wrong day entirely for
- * anything after 18:30 IST, which silently hides every evening window.
- */
-function localDayAndMinute(at: Date): { dayOfWeek: number; minute: number } {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: VENUE_TIME_ZONE,
-    weekday: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).formatToParts(at);
-
-  const lookup = (type: string) =>
-    parts.find((part) => part.type === type)?.value ?? "";
-
-  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  // Intl can return "24" for midnight with hour12: false.
-  const hour = Number(lookup("hour")) % 24;
-
-  return {
-    dayOfWeek: Math.max(days.indexOf(lookup("weekday")), 0),
-    minute: hour * 60 + Number(lookup("minute")),
-  };
-}
+/** Published, host verified, payout active: the gates every driver read applies. */
+const BOOKABLE_SPOT = {
+  listingType: "INDEPENDENT_SPOT",
+  status: { in: ["PUBLISHED", "ONGOING"] },
+  hostProfile: { verificationStatus: "ACTIVE", payoutKycStatus: "ACTIVATED" },
+} satisfies Prisma.ListingWhereInput;
 
 /**
- * Host spots bookable around a point at a given time.
+ * Host spots bookable around a point, for a given stay.
  *
- * Ordered by distance and capped, with no cursor: a radius search is a short,
- * position-dependent list, and a cursor over a distance that changes as the
- * driver walks would be a cursor over a moving target. Narrowing the radius is
- * the way to refine it.
+ * Two passes. SQL narrows by place, the gates, the filters, the first day of
+ * the stay and -- new -- whether the hours are already taken, so a spot that
+ * somebody else has booked no longer appears only to fail at checkout. Then
+ * each candidate's opening hours are checked across every day the stay
+ * touches, which a single SQL join over one weekday cannot express for a stay
+ * that runs past midnight.
+ *
+ * Ordered by distance (or price) and capped, with no cursor: a radius search
+ * is a short, position-dependent list.
  */
-export async function nearby(filters: NearbyFilters): Promise<NearbySpot[]> {
-  const at = filters.at ?? new Date();
+export async function nearby(filters: NearbyFilters, viewerId: string): Promise<NearbySpot[]> {
   const limit = filters.limit ?? 20;
-  const { dayOfWeek, minute } = localDayAndMinute(at);
-  const endMinute = minute + (filters.durationMinutes ?? 60);
-
   const monthly = filters.days !== undefined && filters.days.length > 0;
+  const start = filters.at ?? new Date();
+  const minutes = filters.durationMinutes ?? 60;
+  const end = new Date(start.getTime() + minutes * 60_000);
+  const first = daySegments(start, end)[0];
 
-  /**
-   * The availability join is the filter, in both modes: a listing with no
-   * window covering what was asked for simply produces no rows.
-   *
-   * Monthly differs only in matching a set of weekdays at a fixed time of day
-   * rather than one weekday at one instant. The "on every day" part cannot
-   * live here -- a join can only say "at least one" -- so it is the HAVING
-   * below that counts the distinct days back.
-   */
   const availabilityJoin = monthly
     ? Prisma.sql`
         AND ha."dayOfWeek" = ANY(${filters.days}::int[])
@@ -118,24 +103,54 @@ export async function nearby(filters: NearbyFilters): Promise<NearbySpot[]> {
         AND ha."endMinute" >= ${filters.endMinute ?? 1440}
       `
     : Prisma.sql`
-        AND ha."dayOfWeek" = ${dayOfWeek}
-        AND ha."startMinute" <= ${minute}
-        AND ha."endMinute" >= ${endMinute}
+        AND ha."dayOfWeek" = ${first.dayOfWeek}
+        AND ha."startMinute" <= ${first.startMinute}
+        AND ha."endMinute" >= ${first.endMinute}
       `;
 
   const everyDayCovered = monthly
     ? Prisma.sql`AND COUNT(DISTINCT ha."dayOfWeek") = ${filters.days!.length}`
     : Prisma.empty;
 
+  // Somebody else's paid booking, or a hold still being paid for, over any
+  // part of this stay. The same statuses the overlap guard protects.
+  const notTaken = monthly
+    ? Prisma.empty
+    : Prisma.sql`
+        AND NOT EXISTS (
+          SELECT 1 FROM "Booking" b
+          WHERE b."listingId" = l."id"
+            AND tsrange(b."startsAt", b."endsAt") && tsrange(${start}::timestamp, ${end}::timestamp)
+            AND (b."status" = 'CONFIRMED' OR (b."status" = 'PENDING' AND b."holdExpiresAt" > now()))
+        )
+      `;
+
   const latDelta = filters.radiusKm / KM_PER_LAT_DEGREE;
   const lngDelta =
     filters.radiusKm /
-    (KM_PER_LAT_DEGREE *
-      Math.max(Math.cos((filters.latitude * Math.PI) / 180), 0.01));
+    (KM_PER_LAT_DEGREE * Math.max(Math.cos((filters.latitude * Math.PI) / 180), 0.01));
 
-  const vehicleTypeFilter = filters.vehicleType
-    ? Prisma.sql`AND sp."vehicleType" = ${filters.vehicleType}`
-    : Prisma.empty;
+  const pricingFilter = Prisma.sql`
+    ${filters.vehicleType ? Prisma.sql`AND sp."vehicleType" = ${filters.vehicleType}` : Prisma.empty}
+    ${monthly ? Prisma.sql`AND sp."pricePerMonth" IS NOT NULL` : Prisma.empty}
+  `;
+
+  const open24x7 = Prisma.sql`(
+    SELECT COUNT(DISTINCT h."dayOfWeek") FROM "HostAvailability" h
+    WHERE h."listingId" = l."id" AND h."isActive" = true
+      AND h."startMinute" = 0 AND h."endMinute" >= 1440
+  ) = 7`;
+
+  const listingFilters = Prisma.sql`
+    ${filters.amenities?.length ? Prisma.sql`AND l."amenities" @> ${filters.amenities}::text[]` : Prisma.empty}
+    ${filters.spaceTypes?.length ? Prisma.sql`AND l."spaceType" = ANY(${filters.spaceTypes}::text[])` : Prisma.empty}
+    ${filters.open24x7 ? Prisma.sql`AND ${open24x7}` : Prisma.empty}
+  `;
+
+  const priceCap =
+    filters.maxPricePerHour !== undefined
+      ? Prisma.sql`AND MIN(sp."pricePerHour") <= ${filters.maxPricePerHour}`
+      : Prisma.empty;
 
   const distance = Prisma.sql`
     6371 * acos(LEAST(1, GREATEST(-1,
@@ -145,13 +160,14 @@ export async function nearby(filters: NearbyFilters): Promise<NearbySpot[]> {
     )))
   `;
 
-  return prisma.$queryRaw<NearbySpot[]>(Prisma.sql`
+  const rows = await prisma.$queryRaw<Omit<NearbySpot, "stayTotal">[]>(Prisma.sql`
     SELECT
       l."id",
       l."name",
       l."venueName",
       l."city",
       l."spaceType",
+      l."amenities",
       -- A correlated subquery rather than a join: a join would multiply the
       -- rows the aggregates below run over, once per photo.
       (
@@ -164,67 +180,100 @@ export async function nearby(filters: NearbyFilters): Promise<NearbySpot[]> {
       l."longitude"::float8 AS "longitude",
       ${distance} AS "distanceKm",
       MIN(sp."pricePerHour")::float8 AS "pricePerHour",
+      MIN(sp."pricePerDay")::float8 AS "pricePerDay",
+      MIN(sp."pricePerMonth")::float8 AS "pricePerMonth",
       -- DISTINCT because the availability join repeats each rate once per
       -- matching window.
       ARRAY_AGG(DISTINCT sp."vehicleType" ORDER BY sp."vehicleType") AS "vehicleTypes",
-      MAX(ha."endMinute")::int AS "availableUntilMinute"
+      MAX(ha."endMinute")::int AS "availableUntilMinute",
+      ${open24x7} AS "open24x7",
+      EXISTS (
+        SELECT 1 FROM "Favorite" f WHERE f."listingId" = l."id" AND f."userId" = ${viewerId}
+      ) AS "saved"
     FROM "Listing" l
     JOIN "HostProfile" hp ON hp."id" = l."hostProfileId"
-    -- The join itself is the availability filter: a listing with no active
-    -- window covering the requested time simply produces no rows. Scoped to
-    -- the listing, not the host -- a host with several spots schedules each
-    -- one separately.
+    -- The join is the availability filter: a listing with no active window
+    -- covering the requested time produces no rows.
     JOIN "HostAvailability" ha
       ON ha."listingId" = l."id"
      AND ha."isActive" = true
      ${availabilityJoin}
-    -- Also a filter, not just a lookup: a spot with no rate for the vehicle
-    -- the driver is in cannot be booked, so it should not be shown.
+    -- Also a filter: a spot with no rate for the driver's vehicle cannot be
+    -- booked, so it is not shown.
     JOIN "SpotPricing" sp
       ON sp."listingId" = l."id"
-     ${vehicleTypeFilter}
+     ${pricingFilter}
     WHERE l."listingType" = 'INDEPENDENT_SPOT'
       AND l."status" = 'PUBLISHED'
       AND hp."verificationStatus" = 'ACTIVE'
-      -- Checked here as well as at publication time. A host whose payout
-      -- account is later suspended must stop taking bookings immediately;
-      -- relying on the status column alone would keep selling a spot whose
-      -- host can no longer be paid.
+      -- Checked here as well as at publication: a host whose payout account
+      -- is later suspended must stop taking bookings immediately.
       AND hp."payoutKycStatus" = 'ACTIVATED'
       AND l."latitude" BETWEEN ${filters.latitude - latDelta} AND ${filters.latitude + latDelta}
       AND l."longitude" BETWEEN ${filters.longitude - lngDelta} AND ${filters.longitude + lngDelta}
+      ${listingFilters}
+      ${notTaken}
     GROUP BY l."id"
     HAVING ${distance} <= ${filters.radiusKm}
       ${everyDayCovered}
+      ${priceCap}
     ORDER BY "distanceKm" ASC
-    LIMIT ${limit}
+    LIMIT ${CANDIDATE_CAP}
   `);
+
+  if (rows.length === 0) return [];
+
+  // Second pass: opening hours over every day of the stay, and the full price.
+  const terms = await prisma.listing.findMany({
+    where: { id: { in: rows.map((row) => row.id) } },
+    select: {
+      id: true,
+      availability: {
+        where: { isActive: true },
+        select: { dayOfWeek: true, startMinute: true, endMinute: true },
+      },
+      pricing: { select: { vehicleType: true, pricePerHour: true, pricePerDay: true } },
+    },
+  });
+  const byId = new Map(terms.map((term) => [term.id, term]));
+
+  const spots: NearbySpot[] = [];
+  for (const row of rows) {
+    const term = byId.get(row.id);
+    if (!term) continue;
+
+    if (!monthly && !windowsCover(term.availability, start, end)) continue;
+
+    const rates = term.pricing.filter((rate) => !filters.vehicleType || rate.vehicleType === filters.vehicleType);
+    const total = monthly ? null : cheapestStay(rates, minutes);
+
+    spots.push({ ...row, stayTotal: total ? total.toString() : null });
+  }
+
+  if (filters.sort === "price") {
+    const key = (spot: NearbySpot) =>
+      monthly ? spot.pricePerMonth ?? Infinity : Number(spot.stayTotal ?? spot.pricePerHour);
+    spots.sort((a, b) => key(a) - key(b) || a.distanceKm - b.distanceKm);
+  }
+
+  return spots.slice(0, limit);
 }
 
 /**
  * One spot, as a driver may see it before booking.
  *
- * The gates are the same three the search applies -- published, host
- * verified, payout active -- and they are in the WHERE clause rather than
- * checked after the read, so "not bookable" and "does not exist" answer
- * identically. A listing id that leaked from somewhere should not confirm
- * that a suspended spot is real.
+ * The gates are the ones the search applies, in the WHERE clause, so "not
+ * bookable" and "does not exist" answer identically.
  *
- * `accessInstructions` is deliberately absent. It is the gate code and the
- * guard's name, and it is worth money: anyone who could read it here would
- * have no reason to book. It arrives with the booking, once paid.
+ * `accessInstructions` is deliberately absent: it is the gate code and the
+ * guard's name, worth money, and arrives with a paid booking. The entry point
+ * ("Main gate, Karve Road") is public, because a driver needs it to decide.
+ * The host is a first name and an initial -- enough to recognise them at the
+ * gate, not enough to find them.
  */
-export async function getPublic(listingId: string) {
+export async function getPublic(listingId: string, viewerId: string) {
   const spot = await prisma.listing.findFirst({
-    where: {
-      id: listingId,
-      listingType: "INDEPENDENT_SPOT",
-      status: { in: ["PUBLISHED", "ONGOING"] },
-      hostProfile: {
-        verificationStatus: "ACTIVE",
-        payoutKycStatus: "ACTIVATED",
-      },
-    },
+    where: { id: listingId, ...BOOKABLE_SPOT },
     select: {
       id: true,
       name: true,
@@ -236,22 +285,26 @@ export async function getPublic(listingId: string) {
       pincode: true,
       latitude: true,
       longitude: true,
+      amenities: true,
+      maxVehicleHeightCm: true,
+      maxVehicleSize: true,
+      entryPoint: true,
       photos: {
         select: { id: true, url: true, position: true },
         orderBy: { position: "asc" },
       },
-      pricing: { select: { id: true, vehicleType: true, pricePerHour: true } },
+      pricing: {
+        select: { id: true, vehicleType: true, pricePerHour: true, pricePerDay: true, pricePerMonth: true },
+      },
       availability: {
         where: { isActive: true },
-        select: {
-          id: true,
-          dayOfWeek: true,
-          startMinute: true,
-          endMinute: true,
-          isActive: true,
-        },
+        select: { id: true, dayOfWeek: true, startMinute: true, endMinute: true, isActive: true },
         orderBy: [{ dayOfWeek: "asc" }, { startMinute: "asc" }],
       },
+      hostProfile: {
+        select: { createdAt: true, user: { select: { firstName: true, lastName: true } } },
+      },
+      favorites: { where: { userId: viewerId }, select: { id: true } },
     },
   });
 
@@ -259,5 +312,83 @@ export async function getPublic(listingId: string) {
     throw notFound("Spot not found");
   }
 
-  return spot;
+  const { hostProfile, favorites, ...rest } = spot;
+  const first = hostProfile?.user.firstName?.trim();
+  const initial = hostProfile?.user.lastName?.trim().charAt(0);
+
+  return {
+    ...rest,
+    open24x7:
+      new Set(
+        spot.availability.filter((w) => w.startMinute === 0 && w.endMinute >= 1440).map((w) => w.dayOfWeek)
+      ).size === 7,
+    host: {
+      displayName: first ? `${first}${initial ? ` ${initial.toUpperCase()}.` : ""}` : "GatePass host",
+      since: hostProfile?.createdAt.getFullYear() ?? null,
+    },
+    saved: favorites.length > 0,
+  };
+}
+
+/**
+ * What this stay would cost, and whether it can be had -- asked by the
+ * checkout before the driver commits. The same price function the booking
+ * will charge with, over the same rows, so the quote is the charge.
+ */
+export async function quote(
+  listingId: string,
+  input: { vehicleType: string; startsAt: Date; endsAt: Date }
+) {
+  const spot = await prisma.listing.findFirst({
+    where: { id: listingId, ...BOOKABLE_SPOT },
+    select: {
+      availability: {
+        where: { isActive: true },
+        select: { dayOfWeek: true, startMinute: true, endMinute: true },
+      },
+      pricing: { select: { vehicleType: true, pricePerHour: true, pricePerDay: true } },
+    },
+  });
+
+  if (!spot) throw notFound("Spot not found");
+
+  const minutes = Math.round((input.endsAt.getTime() - input.startsAt.getTime()) / 60_000);
+  if (minutes <= 0) throw badRequest("The stay has to end after it starts");
+
+  const rate = spot.pricing.find((row) => row.vehicleType === input.vehicleType);
+  const { platformFee, taxAmount } = driverFees();
+
+  let reason: string | null = null;
+  if (!rate) {
+    reason = "This space doesn't take that vehicle.";
+  } else if (!windowsCover(spot.availability, input.startsAt, input.endsAt)) {
+    reason = "The space isn't open for all of those hours.";
+  } else {
+    const taken = await prisma.booking.findFirst({
+      where: {
+        listingId,
+        startsAt: { lt: input.endsAt },
+        endsAt: { gt: input.startsAt },
+        OR: [{ status: "CONFIRMED" }, { status: "PENDING", holdExpiresAt: { gt: new Date() } }],
+      },
+      select: { id: true },
+    });
+    if (taken) reason = "Those hours have just been booked. Try a different time.";
+  }
+
+  const price = rate ? stayPrice(rate, minutes) : null;
+  const parking = price?.amount ?? new Prisma.Decimal(0);
+
+  return {
+    available: reason === null,
+    reason,
+    minutes,
+    basis: price?.basis ?? null,
+    /** What the stay would cost on the hourly rate alone, to show the saving. */
+    hourlyAmount: rate ? rate.pricePerHour.mul(minutes).div(60).toDecimalPlaces(2).toString() : null,
+    parking: parking.toString(),
+    platformFee: platformFee.toString(),
+    taxAmount: taxAmount.toString(),
+    total: parking.add(platformFee).add(taxAmount).toString(),
+  };
 }

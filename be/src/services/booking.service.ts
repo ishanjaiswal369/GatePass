@@ -8,6 +8,7 @@ import {
   encodeCursor,
 } from "../lib/pagination.js";
 import { prisma } from "../lib/prisma.js";
+import { driverFees, stayPrice } from "../lib/stay-price.js";
 import { windowsCover } from "../lib/venue-time.js";
 import * as passService from "./pass.service.js";
 
@@ -54,6 +55,8 @@ const bookingView = {
   id: true,
   quantity: true,
   amount: true,
+  platformFee: true,
+  taxAmount: true,
   status: true,
   vehicleNumber: true,
   // Only a host-spot booking carries these. `vehicleType` is on the booking
@@ -670,7 +673,7 @@ export async function createSpotBooking(
         },
         select: {
           id: true,
-          pricing: { select: { vehicleType: true, pricePerHour: true } },
+          pricing: { select: { vehicleType: true, pricePerHour: true, pricePerDay: true } },
           availability: {
             where: { isActive: true },
             select: { dayOfWeek: true, startMinute: true, endMinute: true },
@@ -703,10 +706,11 @@ export async function createSpotBooking(
         (input.endsAt.getTime() - input.startsAt.getTime()) / 60_000
       );
 
-      // Billed by the minute against the hourly rate, rounded to the rupee.
-      // Rounding up a part hour would make a 61-minute stay cost two hours,
-      // which reads as a penalty for being five minutes late back.
-      const amount = rate.pricePerHour.mul(minutes).div(60).toDecimalPlaces(2);
+      // The same price the checkout quoted: the cheaper of hourly and daily,
+      // by the minute. Plus GatePass's fee and its GST, fixed now so a later
+      // change to the fee never reprices a booking already made.
+      const { amount } = stayPrice(rate, minutes);
+      const { platformFee, taxAmount } = driverFees();
 
       const created = await tx.booking.create({
         data: {
@@ -719,6 +723,8 @@ export async function createSpotBooking(
           vehicleType: input.vehicleType,
           quantity: 1,
           amount,
+          platformFee,
+          taxAmount,
           idempotencyKey: input.idempotencyKey,
           qrToken: generateQrToken(),
           createdBy: driverId,

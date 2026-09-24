@@ -55,6 +55,12 @@ interface Window {
   to: number;
 }
 
+interface Rate {
+  hour: number;
+  day?: number;
+  month?: number;
+}
+
 interface SeedSpot {
   /** Fixed, so a re-run updates rather than duplicates. */
   id: string;
@@ -64,9 +70,14 @@ interface SeedSpot {
   /** Where it sits relative to the centre. */
   km: number;
   bearingDeg: number;
-  rates: { CAR?: number; BIKE?: number };
+  /** Per vehicle: hourly, and optionally daily and monthly. */
+  rates: { CAR?: Rate; BIKE?: Rate };
   hours: Window[];
   access: string;
+  entry: string;
+  amenities: string[];
+  maxHeightCm?: number;
+  maxSize?: "HATCHBACK" | "SEDAN" | "SUV" | "VAN";
   /** A file in scripts/seed-photos, or none to show the no-photo card. */
   photo?: string;
 }
@@ -80,9 +91,13 @@ const SPOTS: SeedSpot[] = [
     addressLine: "House 14, lane behind SBI main branch, Bara Chauraha",
     km: 0.4,
     bearingDeg: 0,
-    rates: { CAR: 30, BIKE: 10 },
+    rates: { CAR: { hour: 30, day: 180, month: 3200 }, BIKE: { hour: 10, day: 60, month: 1000 } },
     hours: [{ days: EVERY_DAY, from: h(7), to: h(22) }],
     access: "Blue gate. Ring the bell once; the latch lifts from inside.",
+    entry: "Blue gate on the lane behind SBI",
+    amenities: ["CCTV", "WELL_LIT"],
+    maxHeightCm: 213,
+    maxSize: "SUV",
   },
   {
     id: "5eed0000-0000-4000-8000-000000000002",
@@ -92,9 +107,13 @@ const SPOTS: SeedSpot[] = [
     addressLine: "Plot 7, second lane, Ab Nagar",
     km: 0.9,
     bearingDeg: 90,
-    rates: { CAR: 40 },
+    rates: { CAR: { hour: 40, day: 250, month: 4000 } },
     hours: [{ days: MON_TO_SAT, from: h(8), to: h(20) }],
     access: "Shutter is left half-open during listed hours. Duck under, park nose-in.",
+    entry: "Shutter on the second lane, Ab Nagar",
+    amenities: ["COVERED", "CCTV", "SECURITY_GUARD"],
+    maxHeightCm: 200,
+    maxSize: "SEDAN",
   },
   {
     id: "5eed0000-0000-4000-8000-000000000003",
@@ -104,9 +123,13 @@ const SPOTS: SeedSpot[] = [
     addressLine: "Shanti Residency, basement bay 12",
     km: 1.5,
     bearingDeg: 225,
-    rates: { CAR: 20, BIKE: 8 },
+    rates: { CAR: { hour: 20, day: 150, month: 2500 }, BIKE: { hour: 8, day: 50 } },
     hours: [{ days: EVERY_DAY, from: 0, to: h(24) }],
     access: "Tell the guard you are parking in bay 12. It is marked in yellow.",
+    entry: "Main gate, Shanti Residency",
+    amenities: ["COVERED", "SECURITY_GUARD", "CCTV", "WELL_LIT"],
+    maxHeightCm: 210,
+    maxSize: "SUV",
   },
   {
     id: "5eed0000-0000-4000-8000-000000000004",
@@ -115,12 +138,16 @@ const SPOTS: SeedSpot[] = [
     addressLine: "Basement, Gupta Complex, station road",
     km: 2.2,
     bearingDeg: 315,
-    rates: { CAR: 25 },
+    rates: { CAR: { hour: 25, month: 3000 } },
     hours: [
       { days: WEEKDAYS, from: h(18), to: h(24) },
       { days: WEEKEND, from: 0, to: h(24) },
     ],
     access: "Use the ramp on the left. The office bays are free after 6pm.",
+    entry: "Ramp on the left, Gupta Complex",
+    amenities: ["COVERED", "SECURITY_GUARD", "EV_CHARGING"],
+    maxHeightCm: 220,
+    maxSize: "SUV",
   },
   {
     id: "5eed0000-0000-4000-8000-000000000005",
@@ -130,9 +157,11 @@ const SPOTS: SeedSpot[] = [
     addressLine: "Shop 3 forecourt, main market road",
     km: 3.0,
     bearingDeg: 180,
-    rates: { BIKE: 5 },
+    rates: { BIKE: { hour: 5, day: 30 } },
     hours: [{ days: EVERY_DAY, from: h(9), to: h(21) }],
     access: "Park against the left wall. Chain is optional; the shop is staffed.",
+    entry: "Shop 3 forecourt, main market road",
+    amenities: ["WELL_LIT"],
   },
   {
     id: "5eed0000-0000-4000-8000-000000000006",
@@ -142,9 +171,12 @@ const SPOTS: SeedSpot[] = [
     addressLine: "C-21, Awas Vikas colony",
     km: 4.3,
     bearingDeg: 70,
-    rates: { CAR: 15 },
+    rates: { CAR: { hour: 15, day: 100, month: 1800 } },
     hours: [{ days: WEEKDAYS, from: h(9), to: h(18) }],
     access: "Colony guard has your booking. Show the name on it at the barrier.",
+    entry: "Colony barrier, Awas Vikas",
+    amenities: ["SECURITY_GUARD"],
+    maxSize: "VAN",
   },
   {
     id: "5eed0000-0000-4000-8000-000000000007",
@@ -153,9 +185,12 @@ const SPOTS: SeedSpot[] = [
     addressLine: "Farmhouse 2, Lucknow road",
     km: 8.5,
     bearingDeg: 20,
-    rates: { CAR: 10 },
+    rates: { CAR: { hour: 10, day: 80, month: 1500 } },
     hours: [{ days: EVERY_DAY, from: 0, to: h(24) }],
     access: "Second gate after the petrol pump. Open ground, park anywhere.",
+    entry: "Second gate after the petrol pump",
+    amenities: ["WELL_LIT", "WASHROOM"],
+    maxSize: "VAN",
   },
 ];
 
@@ -242,6 +277,10 @@ async function main() {
       latitude: at.latitude,
       longitude: at.longitude,
       accessInstructions: spot.access,
+      entryPoint: spot.entry,
+      amenities: spot.amenities,
+      maxVehicleHeightCm: spot.maxHeightCm ?? null,
+      maxVehicleSize: spot.maxSize ?? null,
       warrantyAcceptedAt: now,
       submittedAt: now,
       docApprovedAt: now,
@@ -258,10 +297,12 @@ async function main() {
       }),
       prisma.spotPricing.deleteMany({ where: { listingId: spot.id } }),
       prisma.spotPricing.createMany({
-        data: Object.entries(spot.rates).map(([vehicleType, pricePerHour]) => ({
+        data: Object.entries(spot.rates).map(([vehicleType, rate]) => ({
           listingId: spot.id,
           vehicleType,
-          pricePerHour,
+          pricePerHour: rate.hour,
+          pricePerDay: rate.day ?? null,
+          pricePerMonth: rate.month ?? null,
         })),
       }),
       prisma.hostAvailability.deleteMany({ where: { listingId: spot.id } }),
@@ -280,7 +321,7 @@ async function main() {
     await seedPhoto(spot);
 
     const rates = Object.entries(spot.rates)
-      .map(([type, price]) => `${type} ₹${price}/h`)
+      .map(([type, rate]) => `${type} ₹${rate.hour}/h${rate.day ? ` ₹${rate.day}/day` : ""}`)
       .join(", ");
     console.log(`  ${spot.km.toFixed(1).padStart(4)} km  ${spot.name}  (${rates})`);
   }

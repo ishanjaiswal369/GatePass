@@ -28,6 +28,13 @@ export {
 } from "./payment-status.js";
 
 export {
+  AMENITIES,
+  VEHICLE_SIZES,
+  type Amenity,
+  type VehicleSize,
+} from "./amenity.js";
+
+export {
   REFUND_STATUSES,
   DEFAULT_REFUND_STATUS,
   type RefundStatus,

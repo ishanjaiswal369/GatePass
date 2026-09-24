@@ -4,7 +4,11 @@
  * ON_STREET is deliberately absent: a host cannot warrant exclusive use of
  * public kerbside, so listing one would sell something the host does not own.
  */
-export const SPACE_TYPES = ["DRIVEWAY", "GARAGE", "CAR_PARK"] as const;
+/**
+ * CAR_PARK reads as "Private lot" in the app. Covered or open is not a type
+ * -- a covered driveway is still a driveway -- it is the COVERED amenity.
+ */
+export const SPACE_TYPES = ["DRIVEWAY", "GARAGE", "CAR_PARK", "OTHER"] as const;
 
 export type SpaceType = (typeof SPACE_TYPES)[number];
 

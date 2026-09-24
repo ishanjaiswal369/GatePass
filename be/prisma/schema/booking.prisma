@@ -29,7 +29,12 @@ model Booking {
   /// answers this through its ParkingCapacity.
   vehicleType     String?
   quantity        Int
+  /// The parking itself -- the host's supply, what their share comes from.
   amount          Decimal
+  /// GatePass's fee to the driver and the GST on it, fixed when the booking
+  /// is made (config/pricing.ts). The driver pays amount + both.
+  platformFee     Decimal       @default(0)
+  taxAmount       Decimal       @default(0)
   status          String        @default("PENDING")
   /// When the driver cancelled, and why if they said. The refund tracker
   /// counts from here; `updatedAt` moves on every later change.

@@ -28,6 +28,19 @@ model Listing {
   /// Kept from the address autocomplete so a re-geocode can be matched back
   /// to the same place instead of drifting to a new pin.
   googlePlaceId String?
+  /// What the space offers: CCTV, SECURITY_GUARD, COVERED, EV_CHARGING,
+  /// WELL_LIT, WASHROOM (constants/enums/amenity.ts). Only what is always
+  /// true -- drivers filter on these. "24/7 access" is not one: it is derived
+  /// from the opening hours, so it can never contradict them.
+  amenities     String[]      @default([])
+  /// The largest vehicle that fits, and the clearance: shown before booking
+  /// so a driver with an SUV doesn't find out at the gate.
+  maxVehicleHeightCm Int?
+  /// HATCHBACK / SEDAN / SUV / VAN.
+  maxVehicleSize String?
+  /// Which gate or entrance, public before booking. The detailed
+  /// instructions below are not.
+  entryPoint    String?
   /// How the driver actually gets in: gate code, guard's name, which bell.
   /// Free text on purpose -- a yes/no "is there a gate" tells a driver
   /// standing outside at 9pm nothing useful.
@@ -67,6 +80,7 @@ model Listing {
   /// Host-spot bookings, which claim a stretch of this listing's time rather
   /// than a slot from a ParkingCapacity. Empty on event listings.
   spotBookings  Booking[]
+  favorites     Favorite[]
 
   @@index([organizerId])
   @@index([hostProfileId])
@@ -109,6 +123,11 @@ model SpotPricing {
   listingId     String
   vehicleType   String
   pricePerHour  Decimal
+  /// Optional ways to rent the same space. A stay is charged the cheaper of
+  /// hourly and daily; null means the host doesn't offer that model.
+  pricePerDay   Decimal?
+  /// Paid up front for a whole month (monthly reservations).
+  pricePerMonth Decimal?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @default(now()) @updatedAt
 
@@ -134,4 +153,19 @@ model SpotPhoto {
   listing    Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
 
   @@index([listingId, position])
+}
+
+/// A spot a driver saved for later. One row per (driver, spot); saving twice
+/// is a no-op, not a duplicate.
+model Favorite {
+  id        String   @id @default(uuid())
+  userId    String
+  listingId String
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, listingId])
+  @@index([listingId])
 }

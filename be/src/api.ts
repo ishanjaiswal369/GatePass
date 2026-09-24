@@ -165,6 +165,25 @@ export function registerApi(app: App): void {
     driver,
     request(spotRequests.getById, spotController.getById)
   );
+  // The checkout's price, from the same function the booking charges with.
+  app.get(
+    "/spots/:id/quote",
+    driver,
+    request(spotRequests.quote, spotController.quote)
+  );
+  // Saved spots. PUT/DELETE rather than POST so both are idempotent: a heart
+  // is the control people tap twice.
+  app.get("/favorites", driver, spotController.favorites);
+  app.put(
+    "/favorites/:id",
+    driver,
+    request(spotRequests.favorite, spotController.save)
+  );
+  app.delete(
+    "/favorites/:id",
+    driver,
+    request(spotRequests.favorite, spotController.unsave)
+  );
   app.get(
     "/geocode",
     driver,

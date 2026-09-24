@@ -24,6 +24,7 @@ model User {
 
   hostProfile     HostProfile?
   vehicles        Vehicle[]
+  favorites       Favorite[]
   address         UserAddress?
   organizerMemberships OrganizerMember[]
   bookings        Booking[]
