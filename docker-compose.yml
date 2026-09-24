@@ -29,6 +29,10 @@ services:
       - "3000:3000"
     volumes:
       - ./be/logs:/app/logs
+      # Local storage writes photos and ownership documents here. Without the
+      # mount they lived in the container's own layer, and every
+      # `up --build` replaced the container and 404'd every upload.
+      - ./be/uploads:/app/uploads
     depends_on:
       db:
         condition: service_healthy
