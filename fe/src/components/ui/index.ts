@@ -35,6 +35,7 @@ export { HeaderAction } from "./HeaderAction";
 export { HomeHeader } from "./HomeHeader";
 export { LocationPrompt } from "./LocationPrompt";
 export { DevCodeNotice, ErrorNotice } from "./Notice";
+export { SpotCover } from "./SpotCover";
 export { SpotListItem } from "./SpotListItem";
 export { PhoneFrame } from "./PhoneFrame";
 export { RestoringScreen } from "./RestoringScreen";

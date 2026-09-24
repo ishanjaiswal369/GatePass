@@ -19,8 +19,24 @@
  * All of it belongs to one seed host with no password and an address that
  * receives no mail, so nobody can sign in as them -- and the seeded spots
  * stay out of any real account's Host tab.
+ *
+ * Five of the seven get a cover image from scripts/seed-photos, copied into
+ * local storage the way an upload would land. They are illustrations labelled
+ * "Placeholder image", not photographs pretending to be these places. Two are
+ * left without one on purpose, so the no-photo card is on screen as well.
  */
+import "dotenv/config";
+import { copyFile, mkdir, rm } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { prisma } from "../src/lib/prisma.js";
+
+const PHOTO_SOURCE = path.join(path.dirname(fileURLToPath(import.meta.url)), "seed-photos");
+// The same two settings LocalStorageProvider reads, with its defaults, so a
+// seeded photo sits exactly where an uploaded one would and is served by the
+// same route.
+const STORAGE_DIR = process.env.STORAGE_LOCAL_DIR ?? "uploads";
+const STORAGE_BASE_URL = process.env.STORAGE_PUBLIC_BASE_URL ?? "http://localhost:3000/uploads";
 
 const CENTRE = { latitude: 26.544690259350563, longitude: 80.48458390470928 };
 
@@ -51,11 +67,14 @@ interface SeedSpot {
   rates: { CAR?: number; BIKE?: number };
   hours: Window[];
   access: string;
+  /** A file in scripts/seed-photos, or none to show the no-photo card. */
+  photo?: string;
 }
 
 const SPOTS: SeedSpot[] = [
   {
     id: "5eed0000-0000-4000-8000-000000000001",
+    photo: "driveway.jpg",
     name: "Driveway behind the SBI branch",
     spaceType: "DRIVEWAY",
     addressLine: "House 14, lane behind SBI main branch, Bara Chauraha",
@@ -67,6 +86,7 @@ const SPOTS: SeedSpot[] = [
   },
   {
     id: "5eed0000-0000-4000-8000-000000000002",
+    photo: "garage.jpg",
     name: "Covered garage, Ab Nagar",
     spaceType: "GARAGE",
     addressLine: "Plot 7, second lane, Ab Nagar",
@@ -78,6 +98,7 @@ const SPOTS: SeedSpot[] = [
   },
   {
     id: "5eed0000-0000-4000-8000-000000000003",
+    photo: "carpark.jpg",
     name: "Apartment car park bay 12",
     spaceType: "CAR_PARK",
     addressLine: "Shanti Residency, basement bay 12",
@@ -103,6 +124,7 @@ const SPOTS: SeedSpot[] = [
   },
   {
     id: "5eed0000-0000-4000-8000-000000000005",
+    photo: "market.jpg",
     name: "Bike stand by the market",
     spaceType: "DRIVEWAY",
     addressLine: "Shop 3 forecourt, main market road",
@@ -114,6 +136,7 @@ const SPOTS: SeedSpot[] = [
   },
   {
     id: "5eed0000-0000-4000-8000-000000000006",
+    photo: "colony.jpg",
     name: "Gated driveway, residential colony",
     spaceType: "DRIVEWAY",
     addressLine: "C-21, Awas Vikas colony",
@@ -146,6 +169,33 @@ function offset(km: number, bearingDeg: number) {
     latitude: CENTRE.latitude + (km * Math.cos(rad)) / kmPerDegLat,
     longitude: CENTRE.longitude + (km * Math.sin(rad)) / kmPerDegLng,
   };
+}
+
+/**
+ * Replaces the spot's photos with its one seeded cover, or with none.
+ *
+ * The file is written under a fixed name, so a re-run overwrites it rather
+ * than leaving the previous run's copy behind to be served by nothing.
+ */
+async function seedPhoto(spot: SeedSpot): Promise<void> {
+  const key = `spot-photos/${spot.id}`;
+  const directory = path.resolve(STORAGE_DIR, key);
+
+  await prisma.spotPhoto.deleteMany({ where: { listingId: spot.id } });
+  await rm(directory, { recursive: true, force: true });
+
+  if (!spot.photo) return;
+
+  await mkdir(directory, { recursive: true });
+  await copyFile(path.join(PHOTO_SOURCE, spot.photo), path.join(directory, "seed-cover.jpg"));
+
+  await prisma.spotPhoto.create({
+    data: {
+      listingId: spot.id,
+      url: `${STORAGE_BASE_URL}/${key}/seed-cover.jpg`,
+      position: 0,
+    },
+  });
 }
 
 async function main() {
@@ -226,6 +276,8 @@ async function main() {
         ),
       }),
     ]);
+
+    await seedPhoto(spot);
 
     const rates = Object.entries(spot.rates)
       .map(([type, price]) => `${type} ₹${price}/h`)

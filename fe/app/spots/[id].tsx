@@ -1,6 +1,6 @@
 import { Redirect, router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from "react-native";
 import { ApiError, spotsApi } from "@/api";
 import {
   ArrowRightIcon,
@@ -10,6 +10,7 @@ import {
   PhoneFrame,
   RestoringScreen,
   ScreenHeader,
+  SpotCover,
   formatMinute,
 } from "@/components/ui";
 import { useSession } from "@/providers/SessionProvider";
@@ -92,13 +93,7 @@ export default function SpotDetailScreen() {
             error ? null : <ActivityIndicator color={colors.ink} style={s.loading} />
           ) : (
             <>
-              {spot.photos.length > 0 ? (
-                <Image
-                  source={{ uri: spot.photos[0].url }}
-                  style={s.cover}
-                  resizeMode="cover"
-                />
-              ) : null}
+              <SpotCover url={spot.photos[0]?.url} style={s.cover} />
 
               {spot.pricing.length > 0 ? (
                 <View style={s.rates}>
@@ -242,12 +237,7 @@ const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.surface },
   body: { padding: 20, paddingTop: space.lg, gap: space.lg },
   loading: { paddingVertical: space.xxl },
-  cover: {
-    width: "100%",
-    aspectRatio: 16 / 9,
-    borderRadius: radius.md,
-    backgroundColor: colors.border,
-  },
+  cover: { borderRadius: radius.md },
   rates: { flexDirection: "row", gap: space.md },
   rate: {
     flex: 1,

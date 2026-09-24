@@ -43,6 +43,10 @@ export interface NearbySpot {
   name: string;
   venueName: string;
   city: string;
+  /** DRIVEWAY / GARAGE / CAR_PARK. */
+  spaceType: string | null;
+  /** The first photo in the host's order, or null when there is none. */
+  coverPhotoUrl: string | null;
   latitude: number;
   longitude: number;
   distanceKm: number;
@@ -147,6 +151,15 @@ export async function nearby(filters: NearbyFilters): Promise<NearbySpot[]> {
       l."name",
       l."venueName",
       l."city",
+      l."spaceType",
+      -- A correlated subquery rather than a join: a join would multiply the
+      -- rows the aggregates below run over, once per photo.
+      (
+        SELECT p."url" FROM "SpotPhoto" p
+        WHERE p."listingId" = l."id"
+        ORDER BY p."position" ASC, p."createdAt" ASC
+        LIMIT 1
+      ) AS "coverPhotoUrl",
       l."latitude"::float8 AS "latitude",
       l."longitude"::float8 AS "longitude",
       ${distance} AS "distanceKm",

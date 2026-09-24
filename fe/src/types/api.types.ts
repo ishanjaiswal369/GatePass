@@ -177,6 +177,9 @@ export interface NearbySpot {
   name: string;
   venueName: string;
   city: string;
+  spaceType: SpaceType | null;
+  /** The first photo in the host's order; null when the host added none. */
+  coverPhotoUrl: string | null;
   latitude: number;
   longitude: number;
   distanceKm: number;

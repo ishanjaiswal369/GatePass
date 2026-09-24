@@ -92,6 +92,13 @@ export default function SpotResultsScreen() {
   if (!token) return <Redirect href="/" />;
   if (!criteria) return <Redirect href="/home" />;
 
+  // A monthly search has no single stay to price, so its cards quote the
+  // hourly rate alone.
+  const stayMinutes =
+    criteria.mode === "hourly"
+      ? Math.round((Date.parse(criteria.to) - Date.parse(criteria.from)) / 60_000)
+      : undefined;
+
   return (
     <PhoneFrame>
       <View style={s.screen}>
@@ -143,10 +150,13 @@ export default function SpotResultsScreen() {
                   key={spot.id}
                   name={spot.name}
                   city={spot.city}
+                  spaceType={spot.spaceType}
+                  coverPhotoUrl={spot.coverPhotoUrl}
                   distanceKm={spot.distanceKm}
                   pricePerHour={spot.pricePerHour}
                   vehicleTypes={spot.vehicleTypes}
                   availableUntilMinute={spot.availableUntilMinute}
+                  stayMinutes={stayMinutes}
                   // The criteria travel on: the detail screen needs the hours
                   // to hand the checkout, and a driver who lands there from a
                   // shared link has not told anyone when they want to park.
@@ -168,7 +178,7 @@ export default function SpotResultsScreen() {
 
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.surface },
-  body: { padding: 20, paddingTop: space.lg, gap: space.md },
+  body: { padding: 20, paddingTop: space.lg, gap: space.lg },
   loading: { paddingVertical: space.xxl },
   count: { ...type.caption, color: colors.inkMuted },
   empty: {
