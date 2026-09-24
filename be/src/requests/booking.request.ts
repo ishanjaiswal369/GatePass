@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { VEHICLE_TYPES } from "../constants/enums/index.js";
+import { EXTENSION_STEPS } from "../config/pricing.js";
 import { MAX_PAGE_SIZE } from "../lib/pagination.js";
 import type { RequestInput, RequestSchemas } from "../lib/request.js";
 
@@ -55,7 +56,7 @@ const createSpotBookingBody = z
   );
 
 const listBookingsQuery = z.object({
-  scope: z.enum(["upcoming", "past"]).default("upcoming"),
+  scope: z.enum(["upcoming", "active", "past"]).default("upcoming"),
   cursor: z.string().optional(),
   limit: z.coerce.number().int().positive().max(MAX_PAGE_SIZE).optional(),
 });
@@ -64,12 +65,34 @@ const bookingIdParams = z.object({
   id: z.string().uuid(),
 });
 
+const cancelBookingBody = z
+  .object({
+    // Optional and free text; stored for the host and support, never shown
+    // to anyone else.
+    reason: z.string().trim().min(1).max(200).optional(),
+  })
+  .default({});
+
+const createExtensionBody = z.object({
+  minutes: z
+    .number()
+    .int()
+    .refine((value) => (EXTENSION_STEPS as readonly number[]).includes(value), {
+      message: `must be one of ${EXTENSION_STEPS.join(", ")}`,
+    }),
+  idempotencyKey: z.string().min(8).max(128),
+});
+
 export const bookingRequests = {
   list: { query: listBookingsQuery } satisfies RequestSchemas,
   create: { body: createBookingBody } satisfies RequestSchemas,
   createSpot: { body: createSpotBookingBody } satisfies RequestSchemas,
   getById: { params: bookingIdParams } satisfies RequestSchemas,
   pass: { params: bookingIdParams } satisfies RequestSchemas,
+  cancellation: { params: bookingIdParams } satisfies RequestSchemas,
+  cancel: { params: bookingIdParams, body: cancelBookingBody } satisfies RequestSchemas,
+  extensionOptions: { params: bookingIdParams } satisfies RequestSchemas,
+  createExtension: { params: bookingIdParams, body: createExtensionBody } satisfies RequestSchemas,
 };
 
 export type ListBookingsInput = RequestInput<typeof bookingRequests.list>;
@@ -79,3 +102,7 @@ export type CreateSpotBookingInput = RequestInput<
 >;
 export type GetBookingInput = RequestInput<typeof bookingRequests.getById>;
 export type BookingPassInput = RequestInput<typeof bookingRequests.pass>;
+export type CancellationInput = RequestInput<typeof bookingRequests.cancellation>;
+export type CancelBookingInput = RequestInput<typeof bookingRequests.cancel>;
+export type ExtensionOptionsInput = RequestInput<typeof bookingRequests.extensionOptions>;
+export type CreateExtensionInput = RequestInput<typeof bookingRequests.createExtension>;

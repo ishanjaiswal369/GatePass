@@ -17,3 +17,31 @@ model Payment {
   @@index([createdBy])
   @@index([updatedBy])
 }
+
+/// Money going back to a driver for a cancelled booking.
+///
+/// Its own table rather than more Booking statuses: a booking is CANCELLED
+/// the moment the driver cancels, while the refund is still on its way for
+/// days after. Folding both into one status would make "cancelled" and
+/// "refunded" mutually exclusive, when a refunded booking is both.
+///
+/// The amount is decided by the cancellation policy at the moment of
+/// cancelling and never recomputed. Moving it to REFUNDED is the payment
+/// integration's job.
+model Refund {
+  id          String    @id @default(uuid())
+  bookingId   String    @unique
+  amount      Decimal
+  status      String    @default("REFUND_PENDING")
+  /// The rule that set the amount, shown back to the driver.
+  policy      String
+  /// The gateway's reference once the refund is sent.
+  reference   String?
+  processedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  booking     Booking   @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+
+  @@index([status])
+}

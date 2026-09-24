@@ -95,3 +95,26 @@ export function daySegments(start: Date, end: Date): DaySegment[] {
 
   return segments;
 }
+
+export interface WeeklyWindow {
+  dayOfWeek: number;
+  startMinute: number;
+  endMinute: number;
+}
+
+/**
+ * Whether a stay sits entirely inside a spot's weekly opening hours.
+ *
+ * Every venue-local day the stay touches has to be covered by a window of its
+ * own; see `daySegments` for why an overnight stay is two questions.
+ */
+export function windowsCover(windows: WeeklyWindow[], start: Date, end: Date): boolean {
+  return daySegments(start, end).every((segment) =>
+    windows.some(
+      (window) =>
+        window.dayOfWeek === segment.dayOfWeek &&
+        window.startMinute <= segment.startMinute &&
+        window.endMinute >= segment.endMinute
+    )
+  );
+}

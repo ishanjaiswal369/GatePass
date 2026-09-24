@@ -1,11 +1,17 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type {
   BookingPassInput,
+  CancelBookingInput,
+  CancellationInput,
+  CreateExtensionInput,
+  ExtensionOptionsInput,
   CreateBookingInput,
   CreateSpotBookingInput,
   GetBookingInput,
   ListBookingsInput,
 } from "../requests/booking.request.js";
+import * as cancellationService from "../services/booking-cancellation.service.js";
+import * as extensionService from "../services/booking-extension.service.js";
 import * as bookingService from "../services/booking.service.js";
 
 export const bookingController = {
@@ -81,5 +87,25 @@ export const bookingController = {
     );
 
     return reply.code(replayed ? 200 : 201).send(booking);
+  },
+
+  /** What cancelling now would give back, before the driver commits to it. */
+  cancellation: async (input: CancellationInput, request: FastifyRequest, reply: FastifyReply) => {
+    return reply.send(await cancellationService.quote(input.params.id, request.user.userId));
+  },
+
+  cancel: async (input: CancelBookingInput, request: FastifyRequest, reply: FastifyReply) => {
+    return reply.send(
+      await cancellationService.cancel(input.params.id, request.user.userId, input.body.reason)
+    );
+  },
+
+  extensionOptions: async (input: ExtensionOptionsInput, request: FastifyRequest, reply: FastifyReply) => {
+    return reply.send(await extensionService.options(input.params.id, request.user.userId));
+  },
+
+  createExtension: async (input: CreateExtensionInput, request: FastifyRequest, reply: FastifyReply) => {
+    const result = await extensionService.create(input.params.id, request.user.userId, input.body);
+    return reply.code(201).send(result);
   },
 };

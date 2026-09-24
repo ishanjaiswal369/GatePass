@@ -8,7 +8,7 @@ import {
   encodeCursor,
 } from "../lib/pagination.js";
 import { prisma } from "../lib/prisma.js";
-import { daySegments } from "../lib/venue-time.js";
+import { windowsCover } from "../lib/venue-time.js";
 import * as passService from "./pass.service.js";
 
 export interface CreateBookingInput {
@@ -18,7 +18,7 @@ export interface CreateBookingInput {
   idempotencyKey: string;
 }
 
-export type BookingScope = "upcoming" | "past";
+export type BookingScope = "upcoming" | "active" | "past";
 
 /** Listing states a driver is allowed to book into. */
 const BOOKABLE_LISTING_STATUSES = ["PUBLISHED", "ONGOING"];
@@ -34,7 +34,7 @@ const PASS_GRACE_MS = 12 * 60 * 60 * 1000;
  * another driver's pass. It is the durable secret behind a pass; the short
  * lived token the app displays is derived from it in pass.service.
  */
-function generateQrToken(): string {
+export function generateQrToken(): string {
   return randomBytes(32).toString("base64url");
 }
 
@@ -46,6 +46,9 @@ function generateQrToken(): string {
  * carries its own plus the hours it covers. Exactly one side is ever
  * populated -- a DB CHECK enforces that -- so a reader picks whichever is
  * not null rather than branching on a type flag.
+ *
+ * Access instructions are deliberately NOT here. They are worth money and are
+ * released only on a paid booking, by `getForDriver`.
  */
 const bookingView = {
   id: true,
@@ -59,6 +62,7 @@ const bookingView = {
   // worse than one the driver can watch running out.
   vehicleType: true,
   holdExpiresAt: true,
+  cancelledAt: true,
   createdAt: true,
   startsAt: true,
   endsAt: true,
@@ -69,6 +73,8 @@ const bookingView = {
       venueName: true,
       addressLine: true,
       city: true,
+      latitude: true,
+      longitude: true,
       eventDate: true,
       listingType: true,
       status: true,
@@ -92,60 +98,199 @@ const bookingView = {
       },
     },
   },
+  // Money state, each on its own: whether it was paid, and whether any of it
+  // is on its way back. Only what the driver needs to read -- no gateway ids.
+  payment: { select: { status: true, amount: true } },
+  refund: {
+    select: {
+      amount: true,
+      status: true,
+      policy: true,
+      reference: true,
+      createdAt: true,
+      processedAt: true,
+    },
+  },
+  // Extra time bought on the same spot. Lapsed and cancelled attempts are
+  // left out: they never changed when the driver has to leave.
+  extensions: {
+    where: { status: { in: ["PENDING", "CONFIRMED"] } },
+    select: {
+      id: true,
+      status: true,
+      startsAt: true,
+      endsAt: true,
+      amount: true,
+      holdExpiresAt: true,
+    },
+    orderBy: { endsAt: "asc" },
+  },
 } satisfies Prisma.BookingSelect;
 
-type BookingView = Prisma.BookingGetPayload<{ select: typeof bookingView }>;
+type BookingRow = Prisma.BookingGetPayload<{ select: typeof bookingView }>;
 
 /** The same projection plus the owner, for checks that must not be returned. */
 const bookingViewWithOwner = { ...bookingView, driverId: true } satisfies Prisma.BookingSelect;
+
+/**
+ * Where a booking is in its life, as the driver sees it.
+ *
+ * Derived rather than stored. ACTIVE in particular cannot be a stored status:
+ * the EXCLUDE constraint that stops two drivers booking the same hours covers
+ * PENDING and CONFIRMED only, so a stored ACTIVE would take a parked car's
+ * booking out of it and let the rest of its hours be sold again.
+ */
+export type BookingPhase =
+  | "PENDING"
+  | "EXPIRED"
+  | "UPCOMING"
+  | "ACTIVE"
+  | "COMPLETED"
+  | "CANCELLED";
+
+export type BookingView = BookingRow & {
+  phase: BookingPhase;
+  /** When the driver actually has to leave: the end of the last paid extension. */
+  effectiveEndsAt: Date | null;
+};
+
+function effectiveEnd(row: Pick<BookingRow, "endsAt" | "extensions">): Date | null {
+  if (!row.endsAt) return null;
+
+  return row.extensions
+    .filter((extension) => extension.status === "CONFIRMED" && extension.endsAt)
+    .reduce<Date>(
+      (latest, extension) =>
+        extension.endsAt! > latest ? extension.endsAt! : latest,
+      row.endsAt
+    );
+}
+
+function phaseOf(row: BookingRow, now: Date): BookingPhase {
+  switch (row.status) {
+    case "CANCELLED":
+      return "CANCELLED";
+    case "COMPLETED":
+    case "NO_SHOW":
+      return "COMPLETED";
+    case "PENDING":
+      return row.holdExpiresAt && row.holdExpiresAt <= now ? "EXPIRED" : "PENDING";
+  }
+
+  // CONFIRMED: where it sits against the clock.
+  if (row.startsAt) {
+    const end = effectiveEnd(row)!;
+    if (now < row.startsAt) return "UPCOMING";
+    return now < end ? "ACTIVE" : "COMPLETED";
+  }
+
+  const eventDate = row.parkingCapacity?.listing.eventDate;
+  if (!eventDate || now < eventDate) return "UPCOMING";
+  return now.getTime() < eventDate.getTime() + PASS_GRACE_MS ? "ACTIVE" : "COMPLETED";
+}
+
+function present(row: BookingRow, now = new Date()): BookingView {
+  return { ...row, phase: phaseOf(row, now), effectiveEndsAt: effectiveEnd(row) };
+}
 
 function stripOwner(
   row: Prisma.BookingGetPayload<{ select: typeof bookingViewWithOwner }>
 ): BookingView {
   const { driverId: _driverId, ...view } = row;
-  return view;
+  return present(view);
 }
 
-function graceCutoff(): Date {
-  return new Date(Date.now() - PASS_GRACE_MS);
+function graceCutoff(now = new Date()): Date {
+  return new Date(now.getTime() - PASS_GRACE_MS);
 }
 
 /**
- * Bookings that still matter to the driver: not cancelled, and not yet over.
+ * A confirmed stay that is running right now.
  *
- * When a booking is over depends on which shape it is, so the two are asked
- * separately. An event booking is over a while after its event, and an
- * undated one never is. A host-spot booking is over when the hours it claimed
- * have passed -- no grace, because unlike a gate that may still want to see a
- * QR, a driveway is simply free again.
- *
- * The OR matters: a filter on `parkingCapacity` alone is a relation-exists
- * check, which no spot booking can satisfy, so every one of them fell through
- * to `pastWhere` and a driver found a stay they had just booked filed under
- * Past.
+ * A spot booking counts from its start until its last paid extension ends --
+ * hence the second branch, for a stay whose own end has passed but whose
+ * extension has not. An event booking counts from the event until the grace
+ * period after it, the window in which a late arrival still needs the pass.
  */
-function upcomingWhere(driverId: string): Prisma.BookingWhereInput {
+function runningWhere(now: Date): Prisma.BookingWhereInput {
   return {
-    driverId,
-    status: { in: ["PENDING", "CONFIRMED"] },
+    status: "CONFIRMED",
     OR: [
+      { startsAt: { lte: now }, endsAt: { gt: now } },
+      {
+        startsAt: { lte: now },
+        extensions: { some: { status: "CONFIRMED", endsAt: { gt: now } } },
+      },
       {
         parkingCapacity: {
-          listing: {
-            OR: [{ eventDate: null }, { eventDate: { gte: graceCutoff() } }],
-          },
+          listing: { eventDate: { lte: now, gte: graceCutoff(now) } },
         },
       },
-      { endsAt: { gte: new Date() } },
     ],
   };
 }
 
-function pastWhere(driverId: string): Prisma.BookingWhereInput {
+/**
+ * Not started yet: a hold still being paid for, or a confirmed booking whose
+ * time is ahead. An undated event booking never starts, so it stays here.
+ */
+function upcomingWhere(now: Date): Prisma.BookingWhereInput {
   return {
-    driverId,
-    NOT: upcomingWhere(driverId),
+    OR: [
+      {
+        status: "PENDING",
+        OR: [{ holdExpiresAt: null }, { holdExpiresAt: { gt: now } }],
+      },
+      { status: "CONFIRMED", startsAt: { gt: now } },
+      {
+        status: "CONFIRMED",
+        parkingCapacity: {
+          listing: { OR: [{ eventDate: null }, { eventDate: { gt: now } }] },
+        },
+      },
+    ],
   };
+}
+
+function scopeWhere(
+  driverId: string,
+  scope: BookingScope,
+  now: Date
+): Prisma.BookingWhereInput {
+  // An extension is part of the booking it extends, never a row of its own
+  // in the driver's lists.
+  const base = { driverId, extendsBookingId: null };
+
+  if (scope === "active") return { ...base, ...runningWhere(now) };
+  if (scope === "upcoming") return { ...base, ...upcomingWhere(now) };
+
+  // Everything else: finished, cancelled, or a hold that lapsed unpaid.
+  return {
+    ...base,
+    NOT: [upcomingWhere(now), runningWhere(now)],
+  };
+}
+
+/**
+ * Records that stays which have ended are over.
+ *
+ * Written the moment someone looks rather than by a scheduler -- the same
+ * trade expired holds make: the stored state is only read through these
+ * lists, so bringing it up to date just before reading is enough. Taking a
+ * finished stay out of the overlap guard is harmless, since its hours are in
+ * the past.
+ */
+async function completeEndedStays(driverId: string, now: Date): Promise<void> {
+  await prisma.booking.updateMany({
+    where: {
+      driverId,
+      status: "CONFIRMED",
+      endsAt: { lte: now },
+      // A stay still running on a paid extension is not over.
+      NOT: { extensions: { some: { status: "CONFIRMED", endsAt: { gt: now } } } },
+    },
+    data: { status: "COMPLETED" },
+  });
 }
 
 export async function listForDriver(
@@ -153,23 +298,27 @@ export async function listForDriver(
   options: { scope: BookingScope; cursor?: string; limit?: number }
 ): Promise<Page<BookingView>> {
   const limit = options.limit ?? DEFAULT_PAGE_SIZE;
+  const now = new Date();
 
-  const where =
-    options.scope === "upcoming" ? upcomingWhere(driverId) : pastWhere(driverId);
+  await completeEndedStays(driverId, now);
 
   // One extra row tells us whether another page exists without a second count
   // query.
   const rows = await prisma.booking.findMany({
-    where,
+    where: scopeWhere(driverId, options.scope, now),
     select: bookingView,
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    // Upcoming reads soonest first; the other two newest first.
+    orderBy:
+      options.scope === "upcoming"
+        ? [{ startsAt: "asc" }, { createdAt: "asc" }, { id: "asc" }]
+        : [{ createdAt: "desc" }, { id: "desc" }],
     take: limit + 1,
     ...(options.cursor
       ? { cursor: { id: decodeCursor(options.cursor, 1)[0] }, skip: 1 }
       : {}),
   });
 
-  const items = rows.slice(0, limit);
+  const items = rows.slice(0, limit).map((row) => present(row, now));
   const last = items.at(-1);
 
   return {
@@ -179,48 +328,62 @@ export async function listForDriver(
 }
 
 /**
- * The pass the home screen shows above discovery: the next booking the driver
- * can actually walk in with. PENDING is excluded -- an unpaid hold is not a
- * pass, and showing one would put a QR on screen that the gate rejects.
+ * The booking the driver is parked on right now, if any: what "Already
+ * parked" opens straight into. Only confirmed stays -- an unpaid hold is not
+ * a right to be in the space.
  */
 export async function getActiveForDriver(
   driverId: string
 ): Promise<BookingView | null> {
-  return prisma.booking.findFirst({
-    where: {
-      driverId,
-      status: "CONFIRMED",
-      parkingCapacity: {
-        listing: {
-          OR: [{ eventDate: null }, { eventDate: { gte: graceCutoff() } }],
-        },
-      },
-    },
+  const now = new Date();
+  const row = await prisma.booking.findFirst({
+    where: { driverId, extendsBookingId: null, ...runningWhere(now) },
     select: bookingView,
-    orderBy: [
-      { parkingCapacity: { listing: { eventDate: "asc" } } },
-      { createdAt: "asc" },
-    ],
+    orderBy: [{ startsAt: "asc" }, { createdAt: "asc" }],
   });
+
+  return row ? present(row, now) : null;
+}
+
+/**
+ * How to get into the space, released only once the driver has paid for it.
+ *
+ * Returned beside the booking rather than inside the shared projection, so
+ * no list or unpaid hold can carry it by accident.
+ */
+export interface BookingAccess {
+  accessInstructions: string | null;
 }
 
 export async function getForDriver(
   bookingId: string,
   driverId: string
-): Promise<BookingView> {
+): Promise<BookingView & { access: BookingAccess | null }> {
   const booking = await prisma.booking.findFirst({
     // driverId in the filter, not checked after the read: a "not yours" and a
     // "does not exist" must be indistinguishable, or booking ids become an
     // enumeration oracle.
     where: { id: bookingId, driverId },
-    select: bookingView,
+    select: { ...bookingView, listing: { select: { ...bookingView.listing.select, accessInstructions: true } } },
   });
 
   if (!booking) {
     throw notFound("Booking not found");
   }
 
-  return booking;
+  const { listing, ...rest } = booking;
+  const paid = booking.status === "CONFIRMED" || booking.status === "COMPLETED";
+
+  let publicListing: BookingRow["listing"] = null;
+  let access: BookingAccess | null = null;
+
+  if (listing) {
+    const { accessInstructions, ...shown } = listing;
+    publicListing = shown;
+    access = paid ? { accessInstructions } : null;
+  }
+
+  return { ...present({ ...rest, listing: publicListing }), access };
 }
 
 /**
@@ -310,7 +473,7 @@ export async function create(
         select: bookingView,
       });
 
-      return { booking: created, replayed: false };
+      return { booking: present(created), replayed: false };
     });
 
     return booking;
@@ -412,7 +575,7 @@ export interface CreateSpotBookingInput {
 }
 
 /** How long an unpaid booking keeps its hours. */
-const HOLD_MINUTES = 15;
+export const HOLD_MINUTES = 15;
 
 /**
  * Whether an error is the booking overlap constraint firing.
@@ -422,7 +585,7 @@ const HOLD_MINUTES = 15;
  * constraint name only in the text. Both are checked so renaming either one
  * does not silently turn a 409 back into a 500.
  */
-function isOverlapViolation(error: unknown): boolean {
+export function isOverlapViolation(error: unknown): boolean {
   if (
     !(error instanceof Prisma.PrismaClientUnknownRequestError) &&
     !(error instanceof Prisma.PrismaClientKnownRequestError)
@@ -447,7 +610,7 @@ function isOverlapViolation(error: unknown): boolean {
  * leaves the abandoned attempt visible instead of pretending it never
  * happened.
  */
-async function releaseExpiredHolds(
+export async function releaseExpiredHolds(
   tx: Prisma.TransactionClient,
   listingId: string
 ): Promise<void> {
@@ -530,17 +693,8 @@ export async function createSpotBooking(
       // Every venue-local day the stay touches has to be covered by a window
       // of its own. An overnight stay is two questions; asked as one range it
       // could never match, because a window ends at midnight.
-      for (const segment of daySegments(input.startsAt, input.endsAt)) {
-        const covered = spot.availability.some(
-          (window) =>
-            window.dayOfWeek === segment.dayOfWeek &&
-            window.startMinute <= segment.startMinute &&
-            window.endMinute >= segment.endMinute
-        );
-
-        if (!covered) {
-          throw badRequest("The spot is not open for all of those hours");
-        }
+      if (!windowsCover(spot.availability, input.startsAt, input.endsAt)) {
+        throw badRequest("The spot is not open for all of those hours");
       }
 
       await releaseExpiredHolds(tx, input.listingId);
@@ -573,7 +727,7 @@ export async function createSpotBooking(
         select: bookingView,
       });
 
-      return { booking: created, replayed: false };
+      return { booking: present(created), replayed: false };
     });
   } catch (error) {
     if (isOverlapViolation(error)) {

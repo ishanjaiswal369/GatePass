@@ -219,6 +219,30 @@ export function registerApi(app: App): void {
     driver,
     request(bookingRequests.create, bookingController.create)
   );
+  // Cancelling: the quote first, so the driver sees the refund before
+  // committing; the POST applies the same policy to the same row.
+  app.get(
+    "/bookings/:id/cancellation",
+    driver,
+    request(bookingRequests.cancellation, bookingController.cancellation)
+  );
+  app.post(
+    "/bookings/:id/cancel",
+    driver,
+    request(bookingRequests.cancel, bookingController.cancel)
+  );
+  // Extra time on a stay that is running: sold as a hold of its own, see
+  // booking-extension.service.
+  app.get(
+    "/bookings/:id/extensions",
+    driver,
+    request(bookingRequests.extensionOptions, bookingController.extensionOptions)
+  );
+  app.post(
+    "/bookings/:id/extensions",
+    driver,
+    request(bookingRequests.createExtension, bookingController.createExtension)
+  );
   // A host spot is booked by the hour against its own listing, not by the
   // slot against a ParkingCapacity -- see booking.service.createSpotBooking.
   app.post(

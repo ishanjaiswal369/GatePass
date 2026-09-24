@@ -18,6 +18,10 @@ model Booking {
   /// When an unpaid PENDING hold stops reserving the time. Swept on the next
   /// booking attempt for the same spot, so no scheduler is needed.
   holdExpiresAt   DateTime?
+  /// Set on an extension: extra time on the same spot, sold as a booking of
+  /// its own so the overlap guard holds it while it is paid for. Updating the
+  /// parent's `endsAt` instead would hand the time out before payment.
+  extendsBookingId String?
   driverId        String
   vehicleNumber   String
   /// Set on host-spot bookings, which choose a rate out of SpotPricing and
@@ -27,6 +31,10 @@ model Booking {
   quantity        Int
   amount          Decimal
   status          String        @default("PENDING")
+  /// When the driver cancelled, and why if they said. The refund tracker
+  /// counts from here; `updatedAt` moves on every later change.
+  cancelledAt     DateTime?
+  cancellationReason String?
   idempotencyKey  String        @unique
   qrToken         String        @unique
   createdBy       String?
@@ -38,7 +46,10 @@ model Booking {
   listing         Listing?        @relation(fields: [listingId], references: [id], onDelete: Restrict)
   driver          User            @relation(fields: [driverId], references: [id])
   payment         Payment?
+  refund          Refund?
   settlementItems SettlementItem[]
+  extendsBooking  Booking?        @relation("BookingExtensions", fields: [extendsBookingId], references: [id], onDelete: Restrict)
+  extensions      Booking[]       @relation("BookingExtensions")
   creator         User?           @relation("BookingCreatedBy", fields: [createdBy], references: [id])
   updater         User?           @relation("BookingUpdatedBy", fields: [updatedBy], references: [id])
 
@@ -47,6 +58,7 @@ model Booking {
   // push does not drop them.
   @@index([driverId])
   @@index([driverId, status])
+  @@index([extendsBookingId])
   @@index([parkingCapacityId])
   @@index([createdBy])
   @@index([updatedBy])

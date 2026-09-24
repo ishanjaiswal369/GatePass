@@ -28,6 +28,12 @@ export {
 } from "./payment-status.js";
 
 export {
+  REFUND_STATUSES,
+  DEFAULT_REFUND_STATUS,
+  type RefundStatus,
+} from "./refund-status.js";
+
+export {
   SETTLEMENT_STATUSES,
   DEFAULT_SETTLEMENT_STATUS,
   type SettlementStatus,
