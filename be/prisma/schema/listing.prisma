@@ -81,6 +81,7 @@ model Listing {
   /// than a slot from a ParkingCapacity. Empty on event listings.
   spotBookings  Booking[]
   favorites     Favorite[]
+  reviews       Review[]
 
   @@index([organizerId])
   @@index([hostProfileId])

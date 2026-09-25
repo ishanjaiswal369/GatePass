@@ -279,6 +279,21 @@ export function HeartIcon({ size = 20, color, filled }: IconProps & { filled?: b
   );
 }
 
+/** A five-point star, outlined or filled: ratings, shown and given. */
+export function StarIcon({ size = 16, color = colors.star, filled = true }: IconProps & { filled?: boolean }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="m12 2.8 2.8 5.8 6.3.9-4.6 4.4 1.1 6.3L12 17.2l-5.6 3 1.1-6.3-4.6-4.4 6.3-.9z"
+        stroke={filled ? color : colors.inkFaint}
+        strokeWidth={1.6}
+        strokeLinejoin="round"
+        fill={filled ? color : "none"}
+      />
+    </Svg>
+  );
+}
+
 export function SlidersIcon({ size = 16, color = colors.ink }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">

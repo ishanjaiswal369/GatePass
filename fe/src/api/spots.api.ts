@@ -4,8 +4,10 @@ import type {
   PlaceSuggestion,
   NearbySpot,
   PublicSpot,
+  RatingSummary,
   SavedSpot,
   SpaceType,
+  SpotReview,
   StayQuote,
 } from "@/types/api.types";
 import { request } from "./client";
@@ -155,3 +157,10 @@ export const save = (token: string, id: string) =>
 
 export const unsave = (token: string, id: string) =>
   request<{ saved: false }>(`/favorites/${id}`, { method: "DELETE", token });
+
+/** Every review of a spot, newest first. Only the first page carries the summary. */
+export const reviews = (token: string, id: string, cursor?: string) =>
+  request<{ items: SpotReview[]; nextCursor: string | null; summary: RatingSummary | null }>(
+    `/spots/${id}/reviews${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
+    { token }
+  );

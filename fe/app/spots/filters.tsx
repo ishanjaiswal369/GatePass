@@ -29,7 +29,8 @@ const FEATURES: Amenity[] = ["COVERED", "SECURITY_GUARD", "CCTV", "EV_CHARGING",
  * result goes back into the URL of the results screen already on the stack,
  * rather than stacking a second one.
  *
- * No rating filter yet: nothing is rated until reviews exist.
+ * No rating filter yet: ratings exist now (Phase 3), but a filter on a handful
+ * of reviews would hide good new spots -- revisit once reviews accumulate.
  */
 export default function FiltersScreen() {
   const { token, isRestoring } = useSession();

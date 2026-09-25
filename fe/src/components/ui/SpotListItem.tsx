@@ -5,6 +5,7 @@ import { colors, HIT_SLOP_MIN, radius, space } from "@/theme";
 import type { NearbySpot } from "@/types/api.types";
 import { Button } from "./Button";
 import { CheckIcon, HeartIcon, PinIcon } from "./Icon";
+import { RatingBadge } from "./RatingBadge";
 import { SpotCover } from "./SpotCover";
 
 function distanceLabel(km: number): string {
@@ -20,8 +21,8 @@ function distanceLabel(km: number): string {
  * space from another -- what kind, which amenities (three at most: the card
  * is for choosing, not reading), and what this stay costs in full.
  *
- * The rating slot says "New": nothing is rated until reviews exist, and
- * invented stars would be worse than none.
+ * The rating slot shows the average and how many reviews it rests on, or
+ * "New" until there is one.
  */
 export function SpotListItem({
   spot,
@@ -65,9 +66,7 @@ export function SpotListItem({
           <Text style={s.name} numberOfLines={1}>
             {spot.name}
           </Text>
-          <View style={s.rating} accessible accessibilityLabel="No reviews yet">
-            <Text style={s.ratingText}>New</Text>
-          </View>
+          <RatingBadge rating={spot.rating} count={spot.reviewCount} />
         </View>
 
         <Text style={s.meta} numberOfLines={1}>
@@ -159,8 +158,6 @@ const s = StyleSheet.create({
   body: { padding: 14, gap: 7 },
   titleRow: { flexDirection: "row", alignItems: "center", gap: space.sm },
   name: { flex: 1, fontSize: 16, fontWeight: "600", color: colors.ink },
-  rating: { paddingHorizontal: 8, height: 22, borderRadius: 6, backgroundColor: colors.canvas, justifyContent: "center" },
-  ratingText: { fontSize: 11, fontWeight: "700", color: "#374151" },
   meta: { fontSize: 13, color: colors.inkMuted },
   amenities: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 10 },
   amenity: { flexDirection: "row", alignItems: "center", gap: 4 },

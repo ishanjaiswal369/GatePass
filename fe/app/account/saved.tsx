@@ -8,6 +8,7 @@ import {
   ErrorNotice,
   HeartIcon,
   PhoneFrame,
+  RatingBadge,
   RestoringScreen,
   ScreenHeader,
   SpotCover,
@@ -109,9 +110,12 @@ export default function SavedParkingScreen() {
                         <HeartIcon filled />
                       </Pressable>
                     </View>
-                    <Text style={s.muted} numberOfLines={1}>
-                      {spaceLabel(spot.spaceType)} · {spot.city}
-                    </Text>
+                    <View style={s.metaRow}>
+                      <RatingBadge rating={spot.rating} count={spot.reviewCount} />
+                      <Text style={[s.muted, s.flexShrink]} numberOfLines={1}>
+                        {spaceLabel(spot.spaceType)} · {spot.city}
+                      </Text>
+                    </View>
                     {spot.pricePerHour !== null ? (
                       <Text style={s.price}>
                         {formatRupees(spot.pricePerHour)}/hr
@@ -139,6 +143,8 @@ export default function SavedParkingScreen() {
 }
 
 const s = StyleSheet.create({
+  metaRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  flexShrink: { flexShrink: 1 },
   screen: { flex: 1, backgroundColor: colors.surface },
   body: { padding: 20, gap: space.md, paddingBottom: 32 },
   loading: { paddingVertical: space.xxl },

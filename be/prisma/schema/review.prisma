@@ -1,0 +1,38 @@
+/// A driver's rating of a spot, after a paid stay there (Phase 3).
+///
+/// One-way: hosts do not reply and drivers are not rated. One per booking,
+/// and the unique `bookingId` is what enforces it -- two submits racing each
+/// other produce one row and a conflict, not two reviews.
+///
+/// `listingId` and `driverId` repeat what the booking already says. They are
+/// copied from the booking when the review is written, never taken from the
+/// request, so the spot's aggregates and "my reviews" read one table.
+///
+/// Every rating is 1-5. That range is checked by the request schema only: a
+/// CHECK constraint needs raw SQL, which `db push` does not manage.
+model Review {
+  id          String    @id @default(uuid())
+  bookingId   String    @unique
+  listingId   String
+  driverId    String
+  /// Overall, required.
+  rating      Int
+  /// Optional sub-ratings, each asked as its own question.
+  easyToFind  Int?
+  asDescribed Int?
+  access      Int?
+  comment     String?
+  /// Taken down by an admin. Kept rather than deleted so the booking still
+  /// reads as reviewed and cannot be reviewed again; every read filters it.
+  hiddenAt    DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  listing Listing @relation(fields: [listingId], references: [id], onDelete: Restrict)
+  driver  User    @relation(fields: [driverId], references: [id], onDelete: Restrict)
+
+  /// A spot's aggregates and its newest-first page.
+  @@index([listingId, hiddenAt, createdAt])
+  @@index([driverId])
+}

@@ -10,6 +10,8 @@ import {
   PhoneFrame,
   RestoringScreen,
   ScreenHeader,
+  StarIcon,
+  Stars,
   StatusChip,
   Timeline,
   type TimelineStep,
@@ -186,6 +188,23 @@ function Body({
         </View>
       ) : null}
 
+      {booking.canReview ? (
+        <View style={s.rate}>
+          <Text style={s.rateTitle}>How was your parking?</Text>
+          <Text style={s.rateBody}>Rate {listing?.name ?? "the space"} to help the next driver choose.</Text>
+          <Button
+            label="Rate Parking"
+            icon={<StarIcon size={16} color={colors.onPrimary} />}
+            onPress={() => router.push({ pathname: "/booking/[id]/review", params: { id: booking.id } })}
+          />
+        </View>
+      ) : booking.review ? (
+        <View style={[s.rate, s.rated]} accessible accessibilityLabel={`Review submitted: ${booking.review.rating} out of 5 stars`}>
+          <Text style={s.rateTitle}>Review submitted</Text>
+          <Stars value={booking.review.rating} size={16} />
+        </View>
+      ) : null}
+
       <Section title="STATUS">
         <Timeline steps={stepsFor(booking)} />
       </Section>
@@ -321,6 +340,10 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 const s = StyleSheet.create({
+  rate: { backgroundColor: colors.canvas, borderRadius: radius.md, padding: space.lg, gap: space.sm },
+  rated: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  rateTitle: { fontSize: 15, fontWeight: "700", color: colors.ink },
+  rateBody: { fontSize: 14, lineHeight: 20, color: colors.inkMuted },
   screen: { flex: 1, backgroundColor: colors.surface },
   body: { padding: 20, gap: space.lg, paddingBottom: 32 },
   loading: { paddingVertical: space.xxl },

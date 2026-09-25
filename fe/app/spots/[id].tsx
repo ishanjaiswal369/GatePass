@@ -15,11 +15,16 @@ import {
   LockIcon,
   PhoneFrame,
   PinIcon,
+  RatingBadge,
   RestoringScreen,
   ShieldIcon,
   SpotCover,
+  StarIcon,
 } from "@/components/ui";
 import type { VehicleType } from "@/constants/enums";
+import { reviewCountLabel } from "@/features/reviews/labels";
+import { RatingSummaryView } from "@/features/reviews/RatingSummaryView";
+import { ReviewItem } from "@/features/reviews/ReviewItem";
 import { useStaticMap } from "@/hooks/useStaticMap";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { distanceKm, distanceLabel } from "@/lib/geo";
@@ -107,6 +112,7 @@ export default function SpotDetailScreen() {
   if (!token) return <Redirect href="/" />;
 
   const back = () => (router.canGoBack() ? router.back() : router.replace("/home"));
+  const openReviews = () => id && router.push({ pathname: "/spots/reviews", params: { id } });
 
   if (!spot) {
     return (
@@ -183,12 +189,23 @@ export default function SpotDetailScreen() {
               <Text style={s.title} accessibilityRole="header">
                 {spot.name}
               </Text>
-              <View style={s.row}>
-                <View style={s.newChip}>
-                  <Text style={s.newText}>New</Text>
+              {spot.rating.count > 0 ? (
+                <Pressable
+                  onPress={openReviews}
+                  accessibilityRole="link"
+                  accessibilityLabel={`Rated ${spot.rating.average?.toFixed(1)} out of 5. See ${reviewCountLabel(spot.rating.count)}`}
+                  style={s.row}
+                >
+                  <StarIcon size={15} />
+                  <Text style={s.ratingValue}>{spot.rating.average?.toFixed(1)}</Text>
+                  <Text style={s.reviewsLink}>{reviewCountLabel(spot.rating.count)}</Text>
+                </Pressable>
+              ) : (
+                <View style={s.row}>
+                  <RatingBadge rating={null} count={0} />
+                  <Text style={s.muted}>No reviews yet</Text>
                 </View>
-                <Text style={s.muted}>No reviews yet</Text>
-              </View>
+              )}
               <View style={s.row}>
                 <PinIcon size={15} color={colors.inkMuted} />
                 <Text style={s.muted} numberOfLines={2}>
@@ -296,6 +313,22 @@ export default function SpotDetailScreen() {
               <Section title="LOCATION">
                 <LocationMap token={token} latitude={Number(spot.latitude)} longitude={Number(spot.longitude)} />
                 {address ? <Text style={s.address}>{address}</Text> : null}
+              </Section>
+            ) : null}
+
+            {spot.rating.count > 0 ? (
+              <Section title="REVIEWS">
+                <RatingSummaryView summary={spot.rating} />
+                <View>
+                  {spot.reviews.map((review) => (
+                    <ReviewItem key={review.id} review={review} />
+                  ))}
+                </View>
+                <Button
+                  label={spot.rating.count > spot.reviews.length ? `See all ${reviewCountLabel(spot.rating.count)}` : "See all reviews"}
+                  variant="ghost"
+                  onPress={openReviews}
+                />
               </Section>
             ) : null}
 
@@ -434,8 +467,8 @@ const s = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center", gap: 6 },
   flex: { flex: 1, gap: 2 },
   title: { fontSize: 23, fontWeight: "700", color: colors.ink, letterSpacing: -0.3 },
-  newChip: { paddingHorizontal: 8, height: 22, borderRadius: 6, backgroundColor: colors.canvas, justifyContent: "center" },
-  newText: { fontSize: 11, fontWeight: "700", color: "#374151" },
+  ratingValue: { fontSize: 14, fontWeight: "700", color: colors.ink },
+  reviewsLink: { fontSize: 14, color: colors.inkMuted, textDecorationLine: "underline" },
   muted: { fontSize: 14, color: colors.inkMuted, flexShrink: 1 },
   stay: {
     flexDirection: "row",

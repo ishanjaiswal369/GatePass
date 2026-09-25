@@ -5,6 +5,7 @@ import type {
   ExtensionOptions,
   GatePassResult,
   Page,
+  ReviewInput,
   VehicleType,
 } from "@/types/api.types";
 import { request } from "./client";
@@ -96,3 +97,14 @@ export const createExtension = (
     `/bookings/${bookingId}/extensions`,
     { method: "POST", body: input, token }
   );
+
+/**
+ * Rates the spot of a finished, paid stay. Once per booking: a second try is
+ * a 409, and so is a booking that was cancelled or never paid.
+ */
+export const review = (token: string, bookingId: string, input: ReviewInput) =>
+  request<{ id: string; rating: number; createdAt: string }>(`/bookings/${bookingId}/review`, {
+    method: "POST",
+    body: input,
+    token,
+  });

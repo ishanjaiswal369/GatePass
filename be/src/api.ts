@@ -10,6 +10,7 @@ import { hostController } from "./controllers/host.controller.js";
 import { hostPayoutController } from "./controllers/host-payout.controller.js";
 import { listingController } from "./controllers/listing.controller.js";
 import { paymentController } from "./controllers/payment.controller.js";
+import { reviewController } from "./controllers/review.controller.js";
 import { settlementController } from "./controllers/settlement.controller.js";
 import { spotController } from "./controllers/spot.controller.js";
 import { spotListingController } from "./controllers/spot-listing.controller.js";
@@ -32,6 +33,7 @@ import { hostRequests } from "./requests/host.request.js";
 import { hostPayoutRequests } from "./requests/host-payout.request.js";
 import { listingRequests } from "./requests/listing.request.js";
 import { paymentRequests } from "./requests/payment.request.js";
+import { reviewRequests } from "./requests/review.request.js";
 import { settlementRequests } from "./requests/settlement.request.js";
 import { spotRequests } from "./requests/spot.request.js";
 import { spotListingRequests } from "./requests/spot-listing.request.js";
@@ -171,6 +173,13 @@ export function registerApi(app: App): void {
     driver,
     request(spotRequests.quote, spotController.quote)
   );
+  // What drivers who parked there thought. Read behind the same gate as the
+  // spot; written only through a booking, below.
+  app.get(
+    "/spots/:id/reviews",
+    driver,
+    request(reviewRequests.listForSpot, reviewController.listForSpot)
+  );
   // Saved spots. PUT/DELETE rather than POST so both are idempotent: a heart
   // is the control people tap twice.
   app.get("/favorites", driver, spotController.favorites);
@@ -261,6 +270,12 @@ export function registerApi(app: App): void {
     "/bookings/:id/extensions",
     driver,
     request(bookingRequests.createExtension, bookingController.createExtension)
+  );
+  // Rating the spot after a paid stay: one per booking, see review.service.
+  app.post(
+    "/bookings/:id/review",
+    driver,
+    request(reviewRequests.create, reviewController.create)
   );
   // A host spot is booked by the hour against its own listing, not by the
   // slot against a ParkingCapacity -- see booking.service.createSpotBooking.

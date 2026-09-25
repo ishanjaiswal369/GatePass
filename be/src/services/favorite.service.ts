@@ -1,6 +1,7 @@
-import { Prisma } from "@prisma/client";
+import { BOOKABLE_SPOT } from "../lib/bookable-spot.js";
 import { notFound } from "../lib/errors.js";
 import { prisma } from "../lib/prisma.js";
+import * as reviewService from "./review.service.js";
 
 /**
  * Spots a driver saved for later.
@@ -9,12 +10,6 @@ import { prisma } from "../lib/prisma.js";
  * dropped response, lands in the same state instead of erroring -- because a
  * heart button is exactly the control people tap twice.
  */
-
-const BOOKABLE = {
-  listingType: "INDEPENDENT_SPOT",
-  status: { in: ["PUBLISHED", "ONGOING"] },
-  hostProfile: { verificationStatus: "ACTIVE", payoutKycStatus: "ACTIVATED" },
-} satisfies Prisma.ListingWhereInput;
 
 export async function list(userId: string) {
   const rows = await prisma.favorite.findMany({
@@ -39,6 +34,8 @@ export async function list(userId: string) {
     },
   });
 
+  const ratings = await reviewService.ratingsFor(rows.map((row) => row.listing.id));
+
   return rows.map(({ createdAt, listing }) => {
     const hours = listing.pricing.map((p) => Number(p.pricePerHour));
     const days = listing.pricing.flatMap((p) => (p.pricePerDay ? [Number(p.pricePerDay)] : []));
@@ -53,6 +50,8 @@ export async function list(userId: string) {
       coverPhotoUrl: listing.photos[0]?.url ?? null,
       pricePerHour: hours.length ? Math.min(...hours) : null,
       pricePerDay: days.length ? Math.min(...days) : null,
+      rating: ratings.get(listing.id)?.rating ?? null,
+      reviewCount: ratings.get(listing.id)?.reviewCount ?? 0,
       // A saved spot can stop taking bookings. It stays in the list, marked,
       // rather than vanishing without explanation.
       bookable:
@@ -65,7 +64,7 @@ export async function list(userId: string) {
 
 /** Only a spot a driver could book can be saved, so a guessed id learns nothing. */
 export async function save(userId: string, listingId: string): Promise<{ saved: true }> {
-  const spot = await prisma.listing.findFirst({ where: { id: listingId, ...BOOKABLE }, select: { id: true } });
+  const spot = await prisma.listing.findFirst({ where: { id: listingId, ...BOOKABLE_SPOT }, select: { id: true } });
   if (!spot) throw notFound("Spot not found");
 
   await prisma.favorite.upsert({

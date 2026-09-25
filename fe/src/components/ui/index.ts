@@ -35,6 +35,7 @@ export {
   SearchIcon,
   ShieldIcon,
   SlidersIcon,
+  StarIcon,
   TrashIcon,
   UserIcon,
   WalletIcon,
@@ -45,6 +46,7 @@ export { HomeHeader } from "./HomeHeader";
 export { LocationPrompt } from "./LocationPrompt";
 export { DevCodeNotice, ErrorNotice } from "./Notice";
 export { SpotCover } from "./SpotCover";
+export { RatingBadge, Stars } from "./RatingBadge";
 export { StatusChip, type ChipTone } from "./StatusChip";
 export { SpotListItem } from "./SpotListItem";
 export { PhoneFrame } from "./PhoneFrame";

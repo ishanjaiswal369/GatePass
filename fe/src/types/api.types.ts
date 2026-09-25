@@ -174,6 +174,10 @@ export interface BookingRow {
   refund: BookingRefund | null;
   /** Extra time bought on this stay, paid or awaiting payment. */
   extensions: BookingExtension[];
+  /** The driver's own rating of this stay, once given. */
+  review: { rating: number; createdAt: string } | null;
+  /** A paid, finished host-spot stay not yet rated: offer "Rate Parking". */
+  canReview: boolean;
   parkingCapacity: {
     id: string;
     vehicleType: VehicleType;
@@ -278,6 +282,9 @@ export interface NearbySpot {
   open24x7: boolean;
   saved: boolean;
   availableUntilMinute: number;
+  /** Average stars to one decimal; null until somebody has reviewed it. */
+  rating: number | null;
+  reviewCount: number;
 }
 
 /**
@@ -421,6 +428,41 @@ export interface PublicSpot {
   /** A first name and an initial: enough to recognise at the gate, not to find. */
   host: { displayName: string; since: number | null };
   saved: boolean;
+  rating: RatingSummary;
+  /** The newest three. The rest are on the all-reviews screen. */
+  reviews: SpotReview[];
+}
+
+export interface RatingSummary {
+  /** One decimal; null when nobody has rated the spot. */
+  average: number | null;
+  count: number;
+  /** 5 stars down to 1; sums to `count`. */
+  breakdown: { stars: number; count: number }[];
+  subRatings: Record<SubRatingKey, { average: number | null; count: number }>;
+}
+
+/** The optional questions under the overall stars. */
+export type SubRatingKey = "easyToFind" | "asDescribed" | "access";
+
+/** A review as other drivers see it: a first name and initial, never an id. */
+export interface SpotReview {
+  id: string;
+  rating: number;
+  easyToFind: number | null;
+  asDescribed: number | null;
+  access: number | null;
+  comment: string | null;
+  createdAt: string;
+  reviewer: string;
+}
+
+export interface ReviewInput {
+  rating: number;
+  easyToFind?: number;
+  asDescribed?: number;
+  access?: number;
+  comment?: string;
 }
 
 /** The checkout's price for one stay, from the function the booking charges with. */
@@ -449,6 +491,8 @@ export interface SavedSpot {
   pricePerDay: number | null;
   /** False once the spot stops taking bookings; it stays in the list, marked. */
   bookable: boolean;
+  rating: number | null;
+  reviewCount: number;
 }
 
 export interface SpotPhoto {

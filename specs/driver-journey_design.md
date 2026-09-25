@@ -138,3 +138,100 @@ picks one.
 5. An extension over hours already booked returns 409 and creates nothing. One
    outside the spot's opening hours is shown unavailable with its reason.
 6. Access instructions are absent from a `PENDING` booking's response.
+
+## Phase 3 in detail — reviews
+
+One-way: a driver rates a spot after a paid stay there. No host replies, no
+driver ratings, no editing. One review per booking.
+
+### Who may review
+
+A booking is reviewable when **all** of these hold, checked in one query on the
+API and mirrored as `canReview` on every booking the API returns:
+
+- it is the caller's (`driverId` in the WHERE, as everywhere);
+- it is a host-spot booking (`listingId` set) and not an extension
+  (`extendsBookingId` null) — an extension is part of the stay it extends;
+- `status = COMPLETED`, after the same lazy sweep the booking lists run, so a
+  stay that ended a minute ago does not have to be listed first. `NO_SHOW` and
+  `CANCELLED` are refused;
+- its `Payment.status = CAPTURED`. A hold that was never paid, or one refunded
+  in full, was not a stay;
+- it has no review yet.
+
+No time limit on reviewing — flagged as a product choice, not a rule.
+
+### Data
+
+`Review` (new table, `db push`):
+
+| Column | Notes |
+|---|---|
+| `bookingId` | **unique** — the one-per-booking rule is the database's, so two submits racing each other produce one row and a 409 |
+| `listingId`, `driverId` | copied from the booking inside the insert, never taken from the request |
+| `rating` | 1–5, required |
+| `easyToFind`, `asDescribed`, `access` | 1–5 each, optional |
+| `comment` | ≤ 500 chars, trimmed, empty → null |
+| `hiddenAt` | set by an admin to take a review down without deleting it; every read filters it out |
+
+Ranges are enforced by zod only: a CHECK constraint needs raw SQL, which
+`db push` cannot manage. Index `(listingId, hiddenAt, createdAt)` serves both
+the aggregates and the newest-first page.
+
+**Aggregates are computed on read**, not stored on `Listing`. A correlated
+subquery on the indexed `listingId` is cheap at this size and cannot drift.
+If search load ever needs it, a `ratingSum`/`ratingCount` pair updated in the
+review insert's transaction is the next step.
+
+### API
+
+| Route | Who | Notes |
+|---|---|---|
+| `POST /bookings/:id/review` | owner | `{ rating, easyToFind?, asDescribed?, access?, comment? }` → 201 with the review. 404 not found / not yours; 409 with the reason when not reviewable or already reviewed |
+| `GET /spots/:id/reviews?cursor&limit` | driver | `summary` (average, count, 5→1 breakdown, sub-rating averages with their own counts) + a newest-first page. Same bookable-spot gate as `GET /spots/:id` |
+| `GET /spots/:id` | driver | adds `rating` (the summary) and the three newest `reviews` |
+| `GET /spots/nearby`, `GET /favorites` | driver | add `rating` (1 dp, null when none) and `reviewCount` |
+| booking views | owner | add `review: { rating, createdAt } \| null` and `canReview` |
+
+A reviewer appears as a first name and last initial ("Rahul S."), the same
+rule the host's name follows. No user id, email or booking id is returned with
+a public review.
+
+### App
+
+- `BookingCard` (Past tab): **Rate Parking** when `canReview`; the stars and
+  "Review submitted" once reviewed.
+- `app/booking/[id]/review.tsx`: overall stars (required), three optional
+  sub-ratings, optional comment with a counter. Submitting replaces the form
+  with the *Review submitted* state. Opening it for a booking that is not
+  reviewable explains why instead of showing a form.
+- Search cards and spot detail: ★ 4.6 (12) instead of the *New* chip once a
+  spot has a review. Spot detail gets a rating section — average, 5→1 bars,
+  sub-rating averages, the three newest reviews — and *See all reviews*.
+- `app/spots/[id]/reviews.tsx`: the summary and every review, paged.
+
+### Security checklist (Phase 3)
+
+| Check | How |
+|---|---|
+| Auth | all routes under `driver` (`authenticate`) |
+| Authz | the review insert reads the booking with `id` **and** `driverId` in the WHERE; a not-yours id answers 404 like a missing one. `listingId` and `driverId` on the row come from that read, never from the body |
+| Eligibility | status + payment + no-extension + spot-booking in the same WHERE; the unique `bookingId` settles races |
+| Input | zod: uuid params; ratings are integers 1–5; comment trimmed, ≤ 500, control characters stripped; unknown keys rejected (`.strict()`) |
+| Output | public reviews carry display name, ratings, comment, date only; `hiddenAt` rows never leave the API |
+| Stored XSS | comments are rendered as React Native `<Text>`, never as HTML |
+| Rate limit | still none in the API (Phase 1 gap). One review per paid booking bounds it per account |
+
+### Acceptance criteria
+
+1. A COMPLETED booking with a CAPTURED payment can be reviewed once; the
+   second submit is 409 and no second row exists.
+2. CANCELLED, PENDING, CONFIRMED-upcoming, NO_SHOW, unpaid-COMPLETED and
+   extension bookings are refused with 409; another driver's booking is 404.
+3. A CONFIRMED paid stay whose end has passed is reviewable without being
+   listed first.
+4. Out-of-range or non-integer ratings, an over-long comment and unknown fields
+   are 400.
+5. A spot's search card and detail show the average and count once reviewed,
+   and *New* before; the breakdown sums to the count; a hidden review is in
+   neither.

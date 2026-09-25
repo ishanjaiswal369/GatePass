@@ -104,6 +104,11 @@ const bookingView = {
   // Money state, each on its own: whether it was paid, and whether any of it
   // is on its way back. Only what the driver needs to read -- no gateway ids.
   payment: { select: { status: true, amount: true } },
+  // The driver's own rating of the stay, once given. Only the stars and
+  // when: the words are theirs and are shown on the spot, not here.
+  review: { select: { rating: true, createdAt: true } },
+  // Read for `canReview` -- extra time is not a stay of its own.
+  extendsBookingId: true,
   refund: {
     select: {
       amount: true,
@@ -155,6 +160,8 @@ export type BookingView = BookingRow & {
   phase: BookingPhase;
   /** When the driver actually has to leave: the end of the last paid extension. */
   effectiveEndsAt: Date | null;
+  /** Whether "Rate Parking" should be offered: review.service's rule, mirrored. */
+  canReview: boolean;
 };
 
 function effectiveEnd(row: Pick<BookingRow, "endsAt" | "extensions">): Date | null {
@@ -192,8 +199,26 @@ function phaseOf(row: BookingRow, now: Date): BookingPhase {
   return now.getTime() < eventDate.getTime() + PASS_GRACE_MS ? "ACTIVE" : "COMPLETED";
 }
 
+/**
+ * A paid stay at a host spot, over, and not yet rated -- the rule
+ * review.service.create enforces. A CONFIRMED stay whose time has passed
+ * counts: the review request sweeps it to COMPLETED before checking, so the
+ * detail screen can offer the rating before any list has done the sweep.
+ */
+function canReview(row: BookingRow, phase: BookingPhase): boolean {
+  return (
+    row.listing !== null &&
+    row.extendsBookingId === null &&
+    row.review === null &&
+    row.payment?.status === "CAPTURED" &&
+    phase === "COMPLETED" &&
+    (row.status === "COMPLETED" || row.status === "CONFIRMED")
+  );
+}
+
 function present(row: BookingRow, now = new Date()): BookingView {
-  return { ...row, phase: phaseOf(row, now), effectiveEndsAt: effectiveEnd(row) };
+  const phase = phaseOf(row, now);
+  return { ...row, phase, effectiveEndsAt: effectiveEnd(row), canReview: canReview(row, phase) };
 }
 
 function stripOwner(
@@ -283,7 +308,7 @@ function scopeWhere(
  * finished stay out of the overlap guard is harmless, since its hours are in
  * the past.
  */
-async function completeEndedStays(driverId: string, now: Date): Promise<void> {
+export async function completeEndedStays(driverId: string, now: Date): Promise<void> {
   await prisma.booking.updateMany({
     where: {
       driverId,

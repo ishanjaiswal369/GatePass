@@ -1,8 +1,11 @@
 import { Prisma } from "@prisma/client";
+import { BOOKABLE_SPOT } from "../lib/bookable-spot.js";
+import { publicName } from "../lib/display-name.js";
 import { badRequest, notFound } from "../lib/errors.js";
 import { prisma } from "../lib/prisma.js";
 import { cheapestStay, driverFees, stayPrice } from "../lib/stay-price.js";
 import { daySegments, windowsCover } from "../lib/venue-time.js";
+import * as reviewService from "./review.service.js";
 
 const KM_PER_LAT_DEGREE = 111.045;
 
@@ -66,14 +69,10 @@ export interface NearbySpot {
   /** Whether the driver searching has saved it. */
   saved: boolean;
   availableUntilMinute: number;
+  /** Average stars, one decimal; null until somebody has reviewed it. */
+  rating: number | null;
+  reviewCount: number;
 }
-
-/** Published, host verified, payout active: the gates every driver read applies. */
-const BOOKABLE_SPOT = {
-  listingType: "INDEPENDENT_SPOT",
-  status: { in: ["PUBLISHED", "ONGOING"] },
-  hostProfile: { verificationStatus: "ACTIVE", payoutKycStatus: "ACTIVATED" },
-} satisfies Prisma.ListingWhereInput;
 
 /**
  * Host spots bookable around a point, for a given stay.
@@ -160,7 +159,7 @@ export async function nearby(filters: NearbyFilters, viewerId: string): Promise<
     )))
   `;
 
-  const rows = await prisma.$queryRaw<Omit<NearbySpot, "stayTotal">[]>(Prisma.sql`
+  const rows = await prisma.$queryRaw<Omit<NearbySpot, "stayTotal" | "rating" | "reviewCount">[]>(Prisma.sql`
     SELECT
       l."id",
       l."name",
@@ -236,6 +235,7 @@ export async function nearby(filters: NearbyFilters, viewerId: string): Promise<
     },
   });
   const byId = new Map(terms.map((term) => [term.id, term]));
+  const ratings = await reviewService.ratingsFor(rows.map((row) => row.id));
 
   const spots: NearbySpot[] = [];
   for (const row of rows) {
@@ -247,7 +247,13 @@ export async function nearby(filters: NearbyFilters, viewerId: string): Promise<
     const rates = term.pricing.filter((rate) => !filters.vehicleType || rate.vehicleType === filters.vehicleType);
     const total = monthly ? null : cheapestStay(rates, minutes);
 
-    spots.push({ ...row, stayTotal: total ? total.toString() : null });
+    const rated = ratings.get(row.id);
+    spots.push({
+      ...row,
+      stayTotal: total ? total.toString() : null,
+      rating: rated?.rating ?? null,
+      reviewCount: rated?.reviewCount ?? 0,
+    });
   }
 
   if (filters.sort === "price") {
@@ -313,8 +319,10 @@ export async function getPublic(listingId: string, viewerId: string) {
   }
 
   const { hostProfile, favorites, ...rest } = spot;
-  const first = hostProfile?.user.firstName?.trim();
-  const initial = hostProfile?.user.lastName?.trim().charAt(0);
+  const [rating, reviews] = await Promise.all([
+    reviewService.summaryFor(listingId),
+    reviewService.recentFor(listingId),
+  ]);
 
   return {
     ...rest,
@@ -323,10 +331,13 @@ export async function getPublic(listingId: string, viewerId: string) {
         spot.availability.filter((w) => w.startMinute === 0 && w.endMinute >= 1440).map((w) => w.dayOfWeek)
       ).size === 7,
     host: {
-      displayName: first ? `${first}${initial ? ` ${initial.toUpperCase()}.` : ""}` : "GatePass host",
+      displayName: publicName(hostProfile?.user.firstName, hostProfile?.user.lastName, "GatePass host"),
       since: hostProfile?.createdAt.getFullYear() ?? null,
     },
     saved: favorites.length > 0,
+    rating,
+    /** The newest few; the rest are a page away, at /spots/:id/reviews. */
+    reviews,
   };
 }
 

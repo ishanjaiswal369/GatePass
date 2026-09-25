@@ -5,9 +5,12 @@ import {
   Button,
   CalendarIcon,
   CarIcon,
+  CheckIcon,
   ClockIcon,
   NavigateIcon,
   PinIcon,
+  StarIcon,
+  Stars,
   StatusChip,
 } from "@/components/ui";
 import {
@@ -30,7 +33,7 @@ const GREEN = "#166534";
  *
  * What it offers depends on where the booking is in its life: directions
  * before a confirmed stay, a way to finish paying on a hold, the refund on a
- * cancellation. Everything else is on the detail screen, one tap away.
+ * cancellation, "Rate Parking" once a paid stay is over. Everything else is on the detail screen, one tap away.
  */
 export function BookingCard({ row, now }: { row: BookingRow; now: number }) {
   const listing = bookingListing(row);
@@ -74,7 +77,23 @@ export function BookingCard({ row, now }: { row: BookingRow; now: number }) {
             tone="success"
           />
         ) : null}
+        {row.review ? (
+          <View style={s.line} accessible accessibilityLabel={`Review submitted: ${row.review.rating} out of 5 stars`}>
+            <CheckIcon size={15} color={GREEN} />
+            <Text style={[s.lineText, s.success]}>Review submitted</Text>
+            <Stars value={row.review.rating} size={13} />
+          </View>
+        ) : null}
       </View>
+
+      {row.canReview ? (
+        <Button
+          label="Rate Parking"
+          variant="ghost"
+          icon={<StarIcon size={16} />}
+          onPress={() => router.push({ pathname: "/booking/[id]/review", params: { id: row.id } })}
+        />
+      ) : null}
 
       <View style={s.foot}>
         <Text style={s.amount}>{formatRupees(paid)}</Text>
