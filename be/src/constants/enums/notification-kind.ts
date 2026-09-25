@@ -9,6 +9,8 @@ export const NOTIFICATION_KINDS = {
   BOOKING_CANCELLED: null,
   STARTING_SOON: "startingSoon",
   ENDING_SOON: "endingSoon",
+  /** A monthly term with 7 days left. Same switch: it's "ending soon", just longer. */
+  MONTHLY_ENDING: "endingSoon",
   REFUND_STARTED: "refunds",
   REFUND_SENT: "refunds",
   REVIEW_REMINDER: "reviewReminders",

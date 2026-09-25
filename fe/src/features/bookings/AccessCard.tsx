@@ -10,7 +10,16 @@ import { colors, radius, space } from "@/theme";
  * cannot work out for themselves. Until the booking is paid the API does not
  * send the instructions, and the card says why instead of showing a blank.
  */
-export function AccessCard({ instructions, released }: { instructions: string | null; released: boolean }) {
+export function AccessCard({
+  instructions,
+  released,
+  noun = "booking",
+}: {
+  instructions: string | null;
+  released: boolean;
+  /** What was paid for: "booking", or "reservation" for a monthly term. */
+  noun?: string;
+}) {
   return (
     <View style={s.card}>
       <View style={s.head}>
@@ -25,12 +34,12 @@ export function AccessCard({ instructions, released }: { instructions: string | 
       {released ? (
         <Text style={s.body}>
           {instructions?.trim() ||
-            "The host hasn't added instructions. Show this booking to security or the host at the gate."}
+            `The host hasn't added instructions. Show this ${noun} to security or the host at the gate.`}
         </Text>
       ) : (
         <View style={s.locked}>
           <LockIcon size={15} color={colors.inkMuted} />
-          <Text style={s.lockedText}>Shared as soon as this booking is paid.</Text>
+          <Text style={s.lockedText}>Shared as soon as this {noun} is paid.</Text>
         </View>
       )}
     </View>

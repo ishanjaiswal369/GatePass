@@ -1,6 +1,9 @@
+/// For a booking or a monthly reservation -- exactly one of the two ids is
+/// set. Enforced in code: `db push` can't carry a CHECK constraint.
 model Payment {
   id                  String        @id @default(uuid())
-  bookingId           String        @unique
+  bookingId           String?       @unique
+  monthlyReservationId String?      @unique
   razorpayOrderId     String?
   razorpayPaymentId   String?
   amount              Decimal
@@ -10,7 +13,8 @@ model Payment {
   createdAt           DateTime      @default(now())
   updatedAt           DateTime      @updatedAt
 
-  booking             Booking       @relation(fields: [bookingId], references: [id])
+  booking             Booking?      @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  monthlyReservation  MonthlyReservation? @relation(fields: [monthlyReservationId], references: [id], onDelete: Restrict)
   creator             User?         @relation("PaymentCreatedBy", fields: [createdBy], references: [id])
   updater             User?         @relation("PaymentUpdatedBy", fields: [updatedBy], references: [id])
 
@@ -30,7 +34,9 @@ model Payment {
 /// integration's job.
 model Refund {
   id          String    @id @default(uuid())
-  bookingId   String    @unique
+  /// Exactly one of these two is set (enforced in code, as on Payment).
+  bookingId   String?   @unique
+  monthlyReservationId String? @unique
   amount      Decimal
   status      String    @default("REFUND_PENDING")
   /// The rule that set the amount, shown back to the driver.
@@ -41,7 +47,8 @@ model Refund {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  booking     Booking   @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  booking     Booking?  @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  monthlyReservation MonthlyReservation? @relation(fields: [monthlyReservationId], references: [id], onDelete: Restrict)
 
   @@index([status])
 }

@@ -39,6 +39,22 @@ export async function payForBooking(_input: {
   return { status: "NOT_CONFIGURED" };
 }
 
+/**
+ * Paying for a monthly reservation (Phase 6): the whole term, once. Its own
+ * call because it pays a different thing -- the API will create the
+ * gateway order against the reservation, not a booking. Same outcomes.
+ */
+export async function payForMonthly(_input: {
+  token: string;
+  reservationId: string;
+  /** Rupees, as the API quoted them. Shown to the driver, never trusted by the server. */
+  amount: string;
+  method: PaymentMethod;
+}): Promise<PaymentOutcome> {
+  // Cashfree: as payForBooking, with the order created for the reservation.
+  return { status: "NOT_CONFIGURED" };
+}
+
 /** A method the gateway has saved for this driver, as it describes it. */
 export interface SavedPaymentMethod {
   id: string;

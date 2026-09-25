@@ -84,12 +84,12 @@ the same seam as any booking and expires the same way if it isn't. Updating
 `endsAt` in place would hand out the extra time before payment, which is free
 parking. A booking's effective end is the latest confirmed extension's end.
 
-**Monthly reservations (Phase 6) need a decision first.** A Mon–Fri 9–7 term
-is many ranges, and the CHECK allows a spot booking exactly one. The options
-are (a) reserve the whole term as one range, simple but blocking evenings and
-weekends, or (b) a separate table checked in application code under a per-listing
-advisory lock that the hourly path also takes. This is deferred until the owner
-picks one.
+**Monthly reservations (Phase 6)** use option (b), chosen by the owner: a
+separate table checked in application code under the per-listing advisory
+lock (`lib/listing-lock.ts`, added in Phase 5) that the hourly path also takes.
+A Mon–Fri 9–7 term is many ranges, and the CHECK allows a spot booking exactly
+one; reserving the whole term as one range (option a) would have blocked
+evenings and weekends. See *Phase 6 in detail*.
 
 ## Phases
 
@@ -101,7 +101,7 @@ picks one.
 | 3 | Reviews (one-way, optional sub-ratings), rating aggregates | Rate, Review submitted, All reviews |
 | 4 | Report a problem + alternatives; notifications inbox + preferences; profile screens | Report, Support, Notifications, Profile, Vehicles, Payment methods |
 | 5 | Host: dashboard, host bookings, calendar blocks, earnings ledger, wizard additions | Host ×2, Dashboard ×2, Host bookings, Calendar, Earnings, wizard steps |
-| 6 | Monthly reservations (after the decision above) | Home monthly, Results monthly, Checkout monthly |
+| 6 | Monthly reservations (option b, above) | Home monthly, Results monthly, Filters monthly, Checkout monthly, Bookings (monthly card), Host bookings (Monthly badge) |
 
 ## Phase 1 in detail
 
@@ -571,3 +571,117 @@ in spot-listing.service).
    moves to paid out.
 6. Host booking lists never include unpaid holds, and show the driver as
    "First L." with the plate.
+
+## Phase 6 in detail — monthly reservations
+
+Prototype boards: *Home · monthly*, *Results · monthly*, *Filters · monthly*,
+*Review & pay · monthly*. Owner decisions: prepaid for the whole term, no
+auto-renewal; enforced in a separate table under the listing lock (option b);
+platform fee **5% of the parking amount** + 18% GST.
+
+### Requirements (EARS)
+
+- R1. When a driver searches monthly (start date, 1/3/6/12 months, weekdays,
+  daily hours), the system shall list only spaces open for those hours on
+  every chosen weekday, priced monthly, and free on every occurrence of the
+  term — not only the first week (no hourly booking, monthly reservation or
+  block overlapping any of them).
+- R2. When a driver reserves, the system shall hold the space for 15 minutes
+  at `pricePerMonth × months` + 5% platform fee + 18% GST on it, recheck R1
+  under the listing lock, and refuse (409) anything that overlaps.
+- R3. While a monthly reservation is held or confirmed, the system shall refuse
+  hourly bookings, extensions and host blocks that overlap any of its
+  occurrences, and leave the space out of searches that do.
+- R4. When a driver cancels before the term starts, the system shall refund
+  everything paid; after it starts, the parking for the whole months not yet
+  begun (fees are not refunded); an unpaid hold cancels with nothing to refund.
+- R5. When 7 days are left in a paid term, the system shall remind the driver
+  once; there is no auto-renewal.
+- R6. The driver's Bookings shall show monthly reservations (held, running,
+  finished, cancelled) with the term, days and hours; its screen shows access
+  instructions once paid.
+- R7. The host's bookings and calendar shall show monthly reservations with a
+  *Monthly* badge and their share; earnings release one month's share as each
+  month ends.
+
+### Three perspectives
+
+| | |
+|---|---|
+| **Frontend** | Results monthly: "₹X /month · ₹Y for N months" and the whole-term note. Spot detail → checkout in monthly mode: MONTHLY TERM card, price (monthly × N, 5% fee, GST, total), "Paid once… doesn't renew", monthly cancellation copy, `payForMonthly` through the payments seam. Bookings tab: a Monthly section; `monthly/[id]` (term, pass details, cancel). Host bookings / calendar badge. |
+| **Backend** | `MonthlyReservation`; `Payment` and `Refund` gain `monthlyReservationId` (each row belongs to exactly one of booking / reservation — enforced in code, since `db push` can't add a CHECK). `lib/monthly.ts`: occurrence maths (IST dates × weekdays × minutes) shared by search, booking, extension, blocks and reservation. Routes below. |
+| **Security** | Driver routes under `authenticate`, `driverId` in every WHERE; price, fee and term end computed server-side from `SpotPricing` and config; idempotency key; the lock serialises all four claim paths; audits `MONTHLY_HELD`, `MONTHLY_CANCELLED`. |
+
+### Data
+
+`MonthlyReservation`: `listingId`, `driverId`, `vehicleNumber`,
+`vehicleType`, `days Int[]` (0–6), `startMinute`, `endMinute`, `startDate`
+(IST date, `YYYY-MM-DD`), `months`, `endDate` (exclusive, = start + months),
+`pricePerMonth`, `amount`, `platformFee`, `taxAmount`, `status`
+(PENDING → CONFIRMED → COMPLETED; CANCELLED), `holdExpiresAt`,
+`idempotencyKey` (unique), `cancelledAt`, `cancellationReason`. Index
+`(listingId, status)`.
+
+An *occurrence* is one chosen weekday within `[startDate, endDate)`, from
+`startMinute` to `endMinute`, IST.
+
+### API
+
+| Route | Notes |
+|---|---|
+| `GET /spots/nearby` | monthly mode gains `startDate`, `months`; candidates are checked occurrence by occurrence |
+| `GET /spots/:id/monthly-quote?vehicleType&startDate&months&days&startMinute&endMinute` | price breakdown, availability and the reason |
+| `POST /monthly-reservations` | `{ listingId, vehicleType, vehicleNumber, startDate, months, days, startMinute, endMinute, idempotencyKey }` → 201 hold |
+| `GET /monthly-reservations?scope=current\|past` | the driver's own |
+| `GET /monthly-reservations/:id` | + access instructions when paid |
+| `GET /monthly-reservations/:id/cancellation`, `POST …/cancel` | the R4 policy, quote first |
+
+### Implementation plan
+
+- [x] Schema: `MonthlyReservation`; `Payment`, `Refund`, `SettlementItem` gain `monthlyReservationId` (db push; the two new unique indexes are on all-NULL columns)
+- [x] `lib/monthly.ts` occurrence maths + `lib/monthly-guard.ts`; the guard in hourly booking, extension (options and create), host blocks (incl. *free hours only*), search and the hourly quote
+- [x] monthly service + routes: quote, hold (lock, idempotency, 15-min hold), list, detail (access once paid), cancellation quote and cancel
+- [x] Host: terms in bookings, today, calendar (per occurrence), summary and earnings (released month by month); notifications (confirmed, 7-day reminder, new monthly booking for the host)
+- [x] App: monthly results line and whole-term note; spot detail term card + *Reserve Monthly*; `spots/checkout-monthly`; Bookings (Upcoming / Past) monthly card; `monthly/[id]` and its cancel screen; *Monthly* badge on host cards and calendar
+- [x] Live-DB suite (47 checks), earlier suites re-run, browser pass
+
+### What is deliberately not built
+
+- **Reviews and problem reports for monthly terms.** Both are keyed to a
+  booking (one review per booking; a report on a stay); a term is many stays.
+  Left for when the owner decides what one review of a term means.
+- **Auto-renewal**, by decision; the 7-day reminder is the prompt to rebook.
+- **Changing a term** (days, hours, vehicle) after reserving: cancel and
+  reserve again.
+- **Paying from the app** until Cashfree is wired in `payForMonthly`, as for
+  hourly bookings.
+
+**Fee note.** The prototype's example shows a ₹200 platform fee on ₹12,000
+(₹4,000 × 3). The owner chose 5% of the parking, which on that example is
+₹600 + ₹108 GST — the app shows the chosen rule, not the prototype's figure.
+`monthlyPlatformFeeRate` in `config/pricing.ts` changes it.
+
+### Security checklist (Phase 6)
+
+| Check | How |
+|---|---|
+| Auth | every route `driver` |
+| Authz | `id` + `driverId` in the WHERE on reads, cancel and quote-for-cancel; another driver's reservation is 404 |
+| Input | zod `.strict()`: `startDate` a date not in the past and ≤ 90 days ahead, `months` ∈ {1,3,6,12}, distinct weekdays, `startMinute < endMinute`, vehicle enum, plate normalised, key 8–128 |
+| Output | access instructions only when paid; host sees first name + initial and the plate |
+| Integrity | listing lock + occurrence checks on every claim path; idempotency key unique; refund amount from the policy only; one refund per reservation |
+| Rate limit | `write` bucket |
+| Logging | `MONTHLY_HELD`, `MONTHLY_CANCELLED` audits |
+
+### Acceptance criteria
+
+1. A Mon–Fri 9–19 term on a space with an hourly booking next Tuesday 10–12
+   inside the term is refused and absent from the monthly search; the same
+   term on another space is held.
+2. While that term is held, an hourly booking on a Wednesday 11–12 in it is
+   409, one on a Saturday or a Wednesday 20–21 goes through; a host block over
+   an occurrence is 409; an extension into one is refused.
+3. Price = monthly × months, fee = 5% of it, GST 18% of the fee.
+4. Cancelling before the start refunds everything; one month into a 3-month
+   term refunds two months of parking; an unpaid hold refunds nothing.
+5. Another driver's reservation is 404 everywhere.

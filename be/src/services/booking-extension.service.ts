@@ -2,6 +2,8 @@ import { Prisma } from "@prisma/client";
 import { EXTENSION_STEPS } from "../config/pricing.js";
 import { conflict, notFound } from "../lib/errors.js";
 import { assertNotBlocked, lockListing } from "../lib/listing-lock.js";
+import { assertNoMonthlyConflict, termClaiming } from "../lib/monthly-guard.js";
+import { occurrencesBetween } from "../lib/monthly.js";
 import { prisma } from "../lib/prisma.js";
 import { audit } from "../lib/security-log.js";
 import { venueDayAndMinute, windowsCover, type WeeklyWindow } from "../lib/venue-time.js";
@@ -159,12 +161,21 @@ export async function options(bookingId: string, driverId: string) {
     orderBy: { startsAt: "asc" },
   });
 
+  // Or a monthly reservation's next occurrence, within the longest step.
+  const longest = new Date(end.getTime() + Math.max(...EXTENSION_STEPS) * 60_000);
+  const claiming = await termClaiming(prisma, row.listingId!, end, longest);
+  const monthlyAfter = claiming
+    ? occurrencesBetween(claiming, end, longest).map((o) => (o.start < end ? end : o.start)).sort((a, b) => a.getTime() - b.getTime())[0] ?? null
+    : null;
+
   const opts: ExtensionOption[] = EXTENSION_STEPS.map((minutes) => {
     const endsAt = new Date(end.getTime() + minutes * 60_000);
     let reason: string | null = null;
 
     if (next?.startsAt && next.startsAt < endsAt) {
       reason = `This space is booked from ${clock(next.startsAt)}.`;
+    } else if (monthlyAfter && monthlyAfter < endsAt) {
+      reason = `This space is reserved monthly from ${clock(monthlyAfter)}.`;
     } else if (nextBlock && nextBlock.startsAt < endsAt) {
       reason = nextBlock.startsAt <= end
         ? "The host has blocked the time after your booking."
@@ -240,6 +251,7 @@ export async function create(
         throw conflict("The space isn't open for that long.");
       }
       await assertNotBlocked(tx, row.listingId!, end, endsAt);
+      await assertNoMonthlyConflict(tx, row.listingId!, end, endsAt);
 
       const created = await tx.booking.create({
         data: {

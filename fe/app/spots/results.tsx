@@ -87,7 +87,13 @@ export default function SpotResultsScreen() {
                 at: search.from,
                 durationMinutes: Math.round((Date.parse(search.to) - Date.parse(search.from)) / 60_000),
               }
-            : { days: search.days, startMinute: search.startMinute, endMinute: search.endMinute }),
+            : {
+                days: search.days,
+                startMinute: search.startMinute,
+                endMinute: search.endMinute,
+                startDate: search.startDate,
+                months: search.months,
+              }),
           vehicleType: vehicle ?? undefined,
           amenities: narrow.amenities,
           spaceTypes: narrow.spaceTypes,
@@ -275,12 +281,20 @@ export default function SpotResultsScreen() {
               </EmptyState>
             )
           ) : (
-            spots.map((spot) => (
+            <>
+            {criteria.mode === "monthly" ? (
+              <Text style={s.termNote}>
+                These spaces are free {describeCriteria(criteria).split(", from")[0]} for the whole {criteria.months}{" "}
+                {criteria.months === 1 ? "month" : "months"} — not just the first week.
+              </Text>
+            ) : null}
+            {spots.map((spot) => (
               <View key={spot.id} onLayout={(event) => (offsets.current[spot.id] = event.nativeEvent.layout.y)}>
                 <SpotListItem
                   spot={spot}
                   stayLabel={stayLabel}
                   monthly={monthly}
+                  months={criteria.mode === "monthly" ? criteria.months : undefined}
                   selected={spot.id === selected}
                   onToggleSave={() => void toggleSave(spot)}
                   onView={() =>
@@ -288,7 +302,8 @@ export default function SpotResultsScreen() {
                   }
                 />
               </View>
-            ))
+            ))}
+            </>
           )}
         </ScrollView>
       </View>
@@ -317,6 +332,7 @@ function Skeleton() {
 const SK = "#eceef1";
 
 const s = StyleSheet.create({
+  termNote: { fontSize: 13, lineHeight: 19, color: "#166534", backgroundColor: "#f0fdf4", borderRadius: radius.sm, padding: space.md },
   screen: { flex: 1, backgroundColor: colors.surface },
   header: {
     backgroundColor: colors.ink,

@@ -54,6 +54,16 @@ export function driverFees(): Fees {
   return { platformFee, taxAmount };
 }
 
+/**
+ * A monthly reservation's fees: a share of the parking amount rather than the
+ * hourly booking's flat fee (config/pricing.ts), with GST on it.
+ */
+export function monthlyFees(amount: Prisma.Decimal): Fees {
+  const platformFee = amount.mul(pricing.monthlyPlatformFeeRate).toDecimalPlaces(2);
+  const taxAmount = platformFee.mul(pricing.platformFeeGstRate).toDecimalPlaces(2);
+  return { platformFee, taxAmount };
+}
+
 /** Of rates across vehicle types, the one that makes this stay cheapest. */
 export function cheapestStay(rows: SpotRates[], minutes: number): Prisma.Decimal | null {
   return rows.reduce<Prisma.Decimal | null>((best, row) => {

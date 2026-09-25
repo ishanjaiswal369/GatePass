@@ -8,6 +8,7 @@ import {
   encodeCursor,
 } from "../lib/pagination.js";
 import { assertNotBlocked, lockListing } from "../lib/listing-lock.js";
+import { assertNoMonthlyConflict } from "../lib/monthly-guard.js";
 import { prisma } from "../lib/prisma.js";
 import { audit } from "../lib/security-log.js";
 import { driverFees, stayPrice } from "../lib/stay-price.js";
@@ -743,6 +744,7 @@ export async function createSpotBooking(
 
       await releaseExpiredHolds(tx, input.listingId);
       await assertNotBlocked(tx, input.listingId, input.startsAt, input.endsAt);
+      await assertNoMonthlyConflict(tx, input.listingId, input.startsAt, input.endsAt);
 
       const minutes = Math.round(
         (input.endsAt.getTime() - input.startsAt.getTime()) / 60_000

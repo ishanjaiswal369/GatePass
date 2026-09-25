@@ -49,6 +49,9 @@ const nearbyQuery = z
     vehicleType: z.enum(VEHICLE_TYPES).optional(),
     limit: z.coerce.number().int().positive().max(50).optional(),
     days: dayList.optional(),
+    /** Monthly only: the term, so every occurrence -- not just the first week -- is checked. */
+    startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "must be YYYY-MM-DD").optional(),
+    months: z.coerce.number().int().refine((m) => [1, 3, 6, 12].includes(m), "must be 1, 3, 6 or 12").optional(),
     startMinute: z.coerce.number().int().min(0).max(MINUTES_IN_DAY).optional(),
     endMinute: z.coerce.number().int().min(0).max(MINUTES_IN_DAY).optional(),
     amenities: csvOf(AMENITIES).optional(),

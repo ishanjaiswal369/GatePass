@@ -250,11 +250,12 @@ export default function HostCalendarScreen() {
                       ) : seg.kind === "booked" ? (
                         <>
                           <Text style={s.segBookedTitle}>
-                            {seg.booking.held ? "BEING PAID FOR" : "BOOKED"} · {seg.booking.driver}
+                            {seg.booking.held ? "BEING PAID FOR" : seg.booking.monthly ? "MONTHLY" : "BOOKED"} · {seg.booking.driver}
                           </Text>
                           <Text style={s.segBookedSub}>
                             {formatMinute(seg.from)} – {formatMinute(seg.to)} · {[seg.booking.vehicle.label, seg.booking.vehicle.number].filter(Boolean).join(" · ")}
-                            {Number(seg.booking.earning) > 0 ? ` · earns ${formatRupees(seg.booking.earning)}` : ""}
+                            {/* A term's share is for all its months, not this day; the bookings list shows it. */}
+                            {!seg.booking.monthly && Number(seg.booking.earning) > 0 ? ` · earns ${formatRupees(seg.booking.earning)}` : ""}
                           </Text>
                         </>
                       ) : seg.kind === "blocked" ? (

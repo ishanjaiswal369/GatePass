@@ -1,4 +1,5 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { distanceLabel as distanceText } from "@/lib/geo";
 import { formatRupees } from "@/lib/money";
 import { AMENITY_LABELS, spaceLabel } from "@/lib/spotLabels";
 import { colors, HIT_SLOP_MIN, radius, space } from "@/theme";
@@ -9,8 +10,7 @@ import { RatingBadge } from "./RatingBadge";
 import { SpotCover } from "./SpotCover";
 
 function distanceLabel(km: number): string {
-  if (km < 0.05) return "Under 50 m away";
-  return km < 1 ? `${Math.round((km * 1000) / 50) * 50} m away` : `${km.toFixed(1)} km away`;
+  return km < 0.05 ? "Under 50 m away" : `${distanceText(km)} away`;
 }
 
 /**
@@ -28,6 +28,7 @@ export function SpotListItem({
   spot,
   stayLabel,
   monthly,
+  months,
   selected,
   onToggleSave,
   onView,
@@ -36,6 +37,8 @@ export function SpotListItem({
   /** "for 7 hours" -- what `stayTotal` covers. */
   stayLabel: string;
   monthly?: boolean;
+  /** Monthly: the term's length, for "₹12,000 for 3 months". */
+  months?: number;
   selected?: boolean;
   onToggleSave: () => void;
   onView: () => void;
@@ -105,6 +108,11 @@ export function SpotListItem({
                 ) : null}
               </Text>
             )}
+            {monthly && months && spot.pricePerMonth !== null ? (
+              <Text style={s.total}>
+                {formatRupees(spot.pricePerMonth * months)} for {months} {months === 1 ? "month" : "months"}
+              </Text>
+            ) : null}
             {!monthly && spot.stayTotal !== null ? (
               <Text style={s.total}>
                 {spot.vehicleTypes.length > 1 ? "from " : ""}

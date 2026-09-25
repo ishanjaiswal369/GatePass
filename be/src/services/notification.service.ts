@@ -7,6 +7,7 @@ import {
 import { bookingRef, clock, day, rupees } from "../lib/format.js";
 import { DEFAULT_PAGE_SIZE, type Page, decodeCursor, encodeCursor } from "../lib/pagination.js";
 import { prisma } from "../lib/prisma.js";
+import { addDays, startOfVenueDay, venueDate } from "../lib/venue-calendar.js";
 import { audit } from "../lib/security-log.js";
 
 /**
@@ -50,6 +51,8 @@ const REMINDER_LEAD_MS = 30 * 60_000;
 const LOOKBACK_MS = 7 * 24 * 60 * 60_000;
 /** "The day after a completed booking." */
 const REVIEW_AFTER_MS = 12 * 60 * 60_000;
+/** A monthly term's end is flagged this far ahead. */
+const MONTHLY_REMINDER_MS = 7 * 24 * 60 * 60_000;
 
 export interface NotificationInput {
   title: string;
@@ -244,6 +247,60 @@ export async function syncFromState(userId: string, now = new Date()): Promise<v
     });
   }
 
+  // Monthly terms (Phase 6): confirmed, and 7 days before the end -- there's
+  // no auto-renewal, so the driver hears about the end in good time.
+  const monthly = await prisma.monthlyReservation.findMany({
+    where: {
+      OR: [{ driverId: userId }, { listing: { hostProfile: { userId } } }],
+      status: { in: ["CONFIRMED", "COMPLETED"] },
+      payment: { status: "CAPTURED" },
+      endDate: { gte: venueDate(since) },
+    },
+    select: {
+      id: true,
+      driverId: true,
+      status: true,
+      startDate: true,
+      endDate: true,
+      months: true,
+      listing: { select: { id: true, name: true } },
+      payment: { select: { amount: true, updatedAt: true } },
+      driver: { select: { firstName: true, lastName: true } },
+    },
+  });
+  for (const m of monthly) {
+    const name = m.listing.name;
+    if (m.driverId === userId) {
+      await notify(userId, "BOOKING_CONFIRMED", {
+        title: `Monthly parking confirmed · ${bookingRef(m.id)}`,
+        body: `${name}, ${m.months} ${m.months === 1 ? "month" : "months"} from ${day(startOfVenueDay(m.startDate))}. Paid ${rupees(m.payment!.amount)}.`,
+        listingId: m.listing.id,
+        dedupeKey: `mconfirmed:${m.id}`,
+        at: m.payment!.updatedAt,
+      });
+      const end = startOfVenueDay(m.endDate);
+      if (m.status === "CONFIRMED" && end > now && end.getTime() - now.getTime() <= MONTHLY_REMINDER_MS) {
+        await notify(userId, "MONTHLY_ENDING", {
+          title: `Your monthly parking ends on ${day(startOfVenueDay(addDays(m.endDate, -1)))}`,
+          body: `${name}. It doesn't renew automatically -- book again if you still need it.`,
+          listingId: m.listing.id,
+          dedupeKey: `mending:${m.id}`,
+        });
+      }
+    } else {
+      const driver = m.driver.firstName
+        ? `${m.driver.firstName}${m.driver.lastName ? ` ${m.driver.lastName.charAt(0).toUpperCase()}.` : ""}`
+        : "A driver";
+      await notify(userId, "HOST_NEW_BOOKING", {
+        title: `New monthly booking at ${name}`,
+        body: `${driver} · ${m.months} ${m.months === 1 ? "month" : "months"} from ${day(startOfVenueDay(m.startDate))}`,
+        listingId: m.listing.id,
+        dedupeKey: `hostmonthly:${m.id}`,
+        at: m.payment!.updatedAt,
+      });
+    }
+  }
+
   // Payouts sent to this user as a host.
   const payouts = await prisma.settlement.findMany({
     where: { status: "PAID", updatedAt: { gte: since }, hostProfile: { userId } },
@@ -267,8 +324,8 @@ export async function syncFromState(userId: string, now = new Date()): Promise<v
   for (const r of landed) {
     await notify(userId, "REFUND_SENT", {
       title: "Refund processed",
-      body: `${rupees(r.amount)} for ${r.booking.listing?.name ?? "your booking"} is back with your bank.`,
-      bookingId: r.bookingId,
+      body: `${rupees(r.amount)} for ${r.booking?.listing?.name ?? "your booking"} is back with your bank.`,
+      bookingId: r.bookingId ?? undefined,
       dedupeKey: `refunded:${r.bookingId}`,
       at: r.processedAt ?? undefined,
     });

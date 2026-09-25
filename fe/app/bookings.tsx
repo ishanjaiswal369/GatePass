@@ -1,7 +1,7 @@
 import { Redirect, router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { ApiError, bookingsApi } from "@/api";
+import { ApiError, bookingsApi, monthlyApi } from "@/api";
 import {
   BottomNav,
   Button,
@@ -15,12 +15,14 @@ import {
   type NavKey,
 } from "@/components/ui";
 import { BookingCard } from "@/features/bookings/BookingCard";
+import { MonthlyCard } from "@/features/bookings/MonthlyCard";
 import { ParkedCard } from "@/features/bookings/ParkedCard";
 import { useNow } from "@/features/bookings/useNow";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
+import { atMinute } from "@/lib/searchCriteria";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, space } from "@/theme";
-import type { BookingRow } from "@/types/api.types";
+import type { BookingRow, MonthlyReservation } from "@/types/api.types";
 
 type Scope = "upcoming" | "active" | "past";
 
@@ -49,6 +51,7 @@ export default function BookingsScreen() {
 
   const [scope, setScope] = useState<Scope>(isScope(params.tab) ? params.tab : "upcoming");
   const [rows, setRows] = useState<BookingRow[] | null>(null);
+  const [terms, setTerms] = useState<MonthlyReservation[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [parkedNow, setParkedNow] = useState(false);
@@ -61,15 +64,20 @@ export default function BookingsScreen() {
       setError(null);
 
       try {
-        const [page, active] = await Promise.all([
+        // Monthly terms have no "parked now" moment, so they sit in Upcoming
+        // while held or running and in Past once over, as the prototype has them.
+        const [page, active, monthly] = await Promise.all([
           bookingsApi.list(token, which),
           bookingsApi.active(token),
+          which === "active" ? Promise.resolve({ items: [] }) : monthlyApi.list(token, which === "past" ? "past" : "current"),
         ]);
+        setTerms(monthly.items);
         setRows(page.items);
         setCursor(page.nextCursor);
         setParkedNow(active.booking !== null);
       } catch (err) {
         setRows([]);
+        setTerms([]);
         setError(err instanceof ApiError ? err.message : "Could not load your bookings.");
       }
     },
@@ -144,15 +152,17 @@ export default function BookingsScreen() {
 
           {rows === null ? (
             <ActivityIndicator color={colors.ink} style={s.loading} />
-          ) : rows.length === 0 ? (
+          ) : rows.length === 0 && terms.length === 0 ? (
             <Empty scope={scope} failed={error !== null} onRetry={() => void load(scope)} />
           ) : (
             <>
-              {rows.map((row) =>
-                row.phase === "ACTIVE" ? (
-                  <ParkedCard key={row.id} row={row} now={now} />
+              {mergeByDate(rows, terms, scope).map((item) =>
+                item.kind === "monthly" ? (
+                  <MonthlyCard key={item.row.id} row={item.row} now={now} />
+                ) : item.row.phase === "ACTIVE" ? (
+                  <ParkedCard key={item.row.id} row={item.row} now={now} />
                 ) : (
-                  <BookingCard key={row.id} row={row} now={now} />
+                  <BookingCard key={item.row.id} row={item.row} now={now} />
                 )
               )}
 
@@ -172,6 +182,32 @@ export default function BookingsScreen() {
       </View>
     </PhoneFrame>
   );
+}
+
+type Item = { kind: "booking"; row: BookingRow } | { kind: "monthly"; row: MonthlyReservation };
+
+/**
+ * Terms slotted into the bookings in the order the tab reads: Upcoming
+ * soonest first, Past newest first. The bookings keep the server's order
+ * (they are paged); each term goes before the first booking it sorts ahead of.
+ */
+function mergeByDate(rows: BookingRow[], terms: MonthlyReservation[], scope: Scope): Item[] {
+  const upcoming = scope === "upcoming";
+  const bookingKey = (row: BookingRow) =>
+    upcoming ? Date.parse(row.startsAt ?? row.parkingCapacity?.listing.eventDate ?? "") : Date.parse(row.createdAt);
+  const termKey = (term: MonthlyReservation) =>
+    upcoming ? atMinute(term.startDate, term.startMinute).getTime() : Date.parse(term.createdAt);
+  const before = (a: number, b: number) => (Number.isNaN(b) ? true : upcoming ? a < b : a > b);
+
+  const pending = [...terms].sort((a, b) => (upcoming ? termKey(a) - termKey(b) : termKey(b) - termKey(a)));
+  const items: Item[] = [];
+  for (const row of rows) {
+    while (pending.length > 0 && before(termKey(pending[0]), bookingKey(row))) {
+      items.push({ kind: "monthly", row: pending.shift()! });
+    }
+    items.push({ kind: "booking", row });
+  }
+  return [...items, ...pending.map((row) => ({ kind: "monthly" as const, row }))];
 }
 
 function Empty({ scope, failed, onRetry }: { scope: Scope; failed: boolean; onRetry: () => void }) {

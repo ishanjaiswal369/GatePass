@@ -6,6 +6,10 @@ import { prisma } from "../lib/prisma.js";
 import { cheapestStay, driverFees, stayPrice } from "../lib/stay-price.js";
 import { daySegments, windowsCover } from "../lib/venue-time.js";
 import * as reviewService from "./review.service.js";
+import * as monthlyService from "./monthly.service.js";
+import { addMonths, termOverlapsRange } from "../lib/monthly.js";
+import { termClaiming, termsTouching } from "../lib/monthly-guard.js";
+import { addDays, venueDate } from "../lib/venue-calendar.js";
 
 const KM_PER_LAT_DEGREE = 111.045;
 
@@ -33,6 +37,9 @@ export interface NearbyFilters {
   days?: number[];
   startMinute?: number;
   endMinute?: number;
+  /** Monthly only: the term's first day (venue date) and length. */
+  startDate?: string;
+  months?: number;
   /** Every one of these must be offered. */
   amenities?: string[];
   /** Any of these. */
@@ -255,10 +262,32 @@ export async function nearby(filters: NearbyFilters, viewerId: string): Promise<
   const byId = new Map(terms.map((term) => [term.id, term]));
   const ratings = await reviewService.ratingsFor(rows.map((row) => row.id));
 
+  // Monthly reservations aren't Bookings, so the SQL above can't see them.
+  // Hourly: drop spaces a term claims during the stay. Monthly: check the
+  // requested term occurrence by occurrence against everything, the same
+  // check a reservation will face.
+  const ids = rows.map((row) => row.id);
+  const unavailable = new Set<string>();
+  if (monthly) {
+    const startDate = filters.startDate ?? addDays(venueDate(new Date()), 1);
+    const term = {
+      days: filters.days!,
+      startMinute: filters.startMinute ?? 0,
+      endMinute: filters.endMinute ?? 1440,
+      startDate,
+      endDate: addMonths(startDate, filters.months ?? 1),
+    };
+    for (const id of (await monthlyService.termConflicts(prisma, ids, term)).keys()) unavailable.add(id);
+  } else {
+    for (const t of await termsTouching(prisma, ids, start, end)) {
+      if (termOverlapsRange(t, start, end)) unavailable.add(t.listingId);
+    }
+  }
+
   const spots: NearbySpot[] = [];
   for (const row of rows) {
     const term = byId.get(row.id);
-    if (!term) continue;
+    if (!term || unavailable.has(row.id)) continue;
 
     if (!monthly && !windowsCover(term.availability, start, end)) continue;
 
@@ -413,6 +442,9 @@ export async function quote(
         select: { id: true },
       });
       if (blocked) reason = "The host has blocked some of those hours. Try a different time.";
+      else if (await termClaiming(prisma, listingId, input.startsAt, input.endsAt)) {
+        reason = "This space is reserved monthly for some of those hours. Try a different time.";
+      }
     }
   }
 

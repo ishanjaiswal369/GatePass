@@ -30,6 +30,9 @@ export const nearby = (
     days?: number[];
     startMinute?: number;
     endMinute?: number;
+    /** Monthly: the term, so the API checks every occurrence, not just the first week. */
+    startDate?: string;
+    months?: number;
     /** Prices the cards for this vehicle, and hides spots that don't take it. */
     vehicleType?: VehicleType;
     amenities?: Amenity[];
@@ -56,6 +59,8 @@ export const nearby = (
     params.set("days", input.days.join(","));
     params.set("startMinute", String(input.startMinute));
     params.set("endMinute", String(input.endMinute));
+    if (input.startDate) params.set("startDate", input.startDate);
+    if (input.months) params.set("months", String(input.months));
   }
   if (input.vehicleType) params.set("vehicleType", input.vehicleType);
   if (input.amenities?.length) params.set("amenities", input.amenities.join(","));
