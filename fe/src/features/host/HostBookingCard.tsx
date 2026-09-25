@@ -12,15 +12,23 @@ const PAYOUT_LABEL: Record<PayoutState, string> = {
   NONE: "No earning",
 };
 
-/** "Thu, 24 Sep · 10:00 AM – 5:00 PM" -- or "Today · …". */
+function dayText(date: Date): string {
+  return new Date().toDateString() === date.toDateString()
+    ? "Today"
+    : date.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" }).replace("Sept", "Sep");
+}
+
+/**
+ * "Thu, 24 Sep · 10:00 AM – 5:00 PM" -- or "Today · …". A stay that runs
+ * past midnight names both days: "Tue, 29 Sep 9:00 AM – Fri, 2 Oct 9:00 AM".
+ */
 export function stayLabel(b: Pick<HostBooking, "startsAt" | "endsAt">): string {
   if (!b.startsAt || !b.endsAt) return "";
   const start = new Date(b.startsAt);
-  const today = new Date().toDateString() === start.toDateString();
-  const dayText = today
-    ? "Today"
-    : start.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" }).replace("Sept", "Sep");
-  return `${dayText} · ${clockTime(b.startsAt)} – ${clockTime(b.endsAt)}`;
+  const end = new Date(b.endsAt);
+  return start.toDateString() === end.toDateString()
+    ? `${dayText(start)} · ${clockTime(b.startsAt)} – ${clockTime(b.endsAt)}`
+    : `${dayText(start)} ${clockTime(b.startsAt)} – ${dayText(end)} ${clockTime(b.endsAt)}`;
 }
 
 /**

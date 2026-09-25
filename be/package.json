@@ -11,7 +11,10 @@
     "prisma:migrate": "prisma migrate dev --schema prisma/schema",
     "prisma:deploy": "prisma migrate deploy --schema prisma/schema",
     "db:push": "prisma db push --schema prisma/schema",
-    "seed:spots": "node --import tsx/esm scripts/seed-spots.ts"
+    "seed:spots": "node --import tsx/esm scripts/seed-spots.ts",
+    "test:api": "node --import tsx/esm test/api.ts",
+    "test:migrations": "node --import tsx/esm test/migrations.ts",
+    "test:fixture": "node --import tsx/esm test/smoke-fixture.ts"
   },
   "dependencies": {
     "@fastify/cors": "^9.0.1",

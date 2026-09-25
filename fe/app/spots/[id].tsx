@@ -1,4 +1,4 @@
-import { Redirect, router, useLocalSearchParams } from "expo-router";
+import { Redirect, Unmatched, router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { ApiError, profileApi, spotsApi } from "@/api";
@@ -45,6 +45,9 @@ import { useSession } from "@/providers/SessionProvider";
 import { colors, radius, space } from "@/theme";
 import type { PublicSpot, StayQuote } from "@/types/api.types";
 
+/** Spot ids are UUIDs; the API refuses anything else. */
+const SPOT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * A host's spot, for a driver deciding whether to take it.
  *
@@ -61,7 +64,11 @@ export default function SpotDetailScreen() {
   const { token, isRestoring } = useSession();
   const insets = useScreenInsets();
   const params = useLocalSearchParams() as Record<string, string | string[] | undefined>;
-  const id = Array.isArray(params.id) ? params.id[0] : params.id;
+  const rawId = Array.isArray(params.id) ? params.id[0] : params.id;
+  // This route catches every /spots/<anything> that isn't a screen of its
+  // own, so a segment that can't be a spot's id is a mistyped or retired
+  // link: the not-found screen, not "Could not load this spot."
+  const id = rawId && SPOT_ID.test(rawId) ? rawId : undefined;
   const criteria = fromParams(params);
 
   const [spot, setSpot] = useState<PublicSpot | null>(null);
@@ -110,6 +117,7 @@ export default function SpotDetailScreen() {
     }
   };
 
+  if (!id) return <Unmatched />;
   if (isRestoring) return <RestoringScreen />;
   if (!token) return <Redirect href="/" />;
 

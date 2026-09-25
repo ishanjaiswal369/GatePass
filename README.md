@@ -45,11 +45,25 @@ npm run dev                                          # API on :3000
   `npm run db:push`, and update that table's `create_*` migration to match
   (or add the next `00NN_create_*` for a new table), so a fresh database still
   builds from migrations alone. Check with
-  `npx prisma migrate diff --from-migrations prisma/migrations --to-schema-datamodel prisma/schema --shadow-database-url <empty db> --exit-code`.
+  `SHADOW_DATABASE_URL=<empty db> npm run test:migrations`.
   Editing a migration in place only works while every database can be reset:
   before the first production deploy, switch to additive migrations.
 - **Don't run `prisma migrate dev`** on a database you want to keep: if the
   history and the database disagree it offers to reset.
+
+### Tests
+Against the API running from source (`npm run dev`, restarted after any API
+change) and the same `DATABASE_URL`, with `EMAIL_PROVIDER=console` and
+`SHOW_OTP_IN_RESPONSE=true`. In `be/`:
+```bash
+npm run test:api          # search, quotes, hourly/daily/multi-day booking, overlap 409,
+                          # cancel + refund, review, extend, the host endpoints
+npm run test:fixture      # a driver and host with a stay in every state, to click through the app
+npm run test:migrations   # needs SHADOW_DATABASE_URL: the migrations build exactly the schema
+```
+`test:api` signs up its own users and spot and deletes them afterwards;
+`test:fixture` resets smoke-driver@ and smoke-host@gatepass.test each run.
+Paid states are set directly in the database, since payments are front-end only.
 
 ### Frontend
 ```bash
@@ -64,7 +78,7 @@ a real phone", which also covers what the stores need before publishing.
 
 ## API
 
-96 routes in `be/src/api.ts` (routes → requests → controllers →
+91 routes in `be/src/api.ts` (routes → requests → controllers →
 services). The flows and their API are specified in
 `specs/driver-journey_design.md` and `specs/host-onboarding_design.md`.
 
