@@ -22,7 +22,9 @@ export async function list(userId: string) {
           id: true,
           name: true,
           city: true,
-          addressLine: true,
+          // Public place only: the street line comes with a paid booking.
+          societyName: true,
+          area: true,
           spaceType: true,
           amenities: true,
           status: true,
@@ -37,14 +39,15 @@ export async function list(userId: string) {
   const ratings = await reviewService.ratingsFor(rows.map((row) => row.listing.id));
 
   return rows.map(({ createdAt, listing }) => {
-    const hours = listing.pricing.map((p) => Number(p.pricePerHour));
+    const hours = listing.pricing.flatMap((p) => (p.pricePerHour ? [Number(p.pricePerHour)] : []));
     const days = listing.pricing.flatMap((p) => (p.pricePerDay ? [Number(p.pricePerDay)] : []));
     return {
       savedAt: createdAt,
       id: listing.id,
       name: listing.name,
       city: listing.city,
-      addressLine: listing.addressLine,
+      societyName: listing.societyName,
+      area: listing.area,
       spaceType: listing.spaceType,
       amenities: listing.amenities,
       coverPhotoUrl: listing.photos[0]?.url ?? null,

@@ -250,7 +250,12 @@ function Body({
       </Section>
 
       {spot && booking.phase !== "CANCELLED" && booking.phase !== "EXPIRED" ? (
-        <AccessCard instructions={booking.access?.accessInstructions ?? null} released={booking.access !== null} />
+        <AccessCard
+          instructions={booking.access?.accessInstructions ?? null}
+          bayNumber={booking.access?.bayNumber}
+          parkingMarker={booking.access?.parkingMarker}
+          released={booking.access !== null}
+        />
       ) : null}
 
       <Section title="DETAILS">

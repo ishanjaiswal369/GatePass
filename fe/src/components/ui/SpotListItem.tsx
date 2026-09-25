@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { distanceLabel as distanceText } from "@/lib/geo";
-import { formatRupees } from "@/lib/money";
+import { formatRupees, leadRate } from "@/lib/money";
 import { AMENITY_LABELS, spaceLabel } from "@/lib/spotLabels";
 import { colors, HIT_SLOP_MIN, radius, space } from "@/theme";
 import type { NearbySpot } from "@/types/api.types";
@@ -98,9 +98,9 @@ export function SpotListItem({
               </Text>
             ) : (
               <Text style={s.price}>
-                {formatRupees(spot.pricePerHour)}
-                <Text style={s.unit}>/hr</Text>
-                {spot.pricePerDay !== null ? (
+                {leadRate(spot)?.amount ?? "—"}
+                <Text style={s.unit}>{leadRate(spot)?.unit}</Text>
+                {spot.pricePerHour !== null && spot.pricePerDay !== null ? (
                   <Text style={s.unit}>
                     {" · "}
                     <Text style={s.priceSmall}>{formatRupees(spot.pricePerDay)}</Text>/day

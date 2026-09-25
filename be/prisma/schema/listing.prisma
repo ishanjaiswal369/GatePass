@@ -14,14 +14,31 @@ model Listing {
 
   // ---- Host spot fields. Null on event listings. ----
 
-  /// DRIVEWAY / GARAGE / CAR_PARK. No ON_STREET: a host cannot warrant
+  /// DRIVEWAY / GARAGE / CAR_PARK / PRIVATE_LOT / SOCIETY / COMMERCIAL
+  /// (constants/enums/space-type.ts). No ON_STREET: a host cannot warrant
   /// exclusive use of public kerbside.
   spaceType     String?
+  /// A line or two in the host's words, public ("Covered parking inside a
+  /// gated society").
+  description   String?
   /// The spot's own address, in the host's words. A host can list more than
   /// one spot, so this cannot live on HostProfile (one row per host, holding
   /// only the address from whichever spot happened to save it last) the way
   /// it did when a host had only one.
+  ///
+  /// Composed on save from building, society and street, so older readers
+  /// keep one line. Released to a driver only with a paid booking.
   addressLine   String?
+  /// Public: the society or complex, and the locality. Enough to judge the
+  /// place before booking, not enough to walk up to one house.
+  societyName   String?
+  area          String?
+  /// Private until paid: the house / flat / plot and the street.
+  building      String?
+  street        String?
+  /// When the host placed the pin on the map themselves. A search result's
+  /// point is the middle of an area, not a parking space, so it doesn't count.
+  pinConfirmedAt DateTime?
   city          String?
   state         String?
   pincode       String?
@@ -33,14 +50,37 @@ model Listing {
   /// true -- drivers filter on these. "24/7 access" is not one: it is derived
   /// from the opening hours, so it can never contradict them.
   amenities     String[]      @default([])
+  /// The host's own "Other" amenity, public ("Car wash on request").
+  amenityNote   String?
+  /// Which vehicle types may park (CAR, BIKE). Chosen before prices, so it
+  /// can't be read off SpotPricing; empty on older rows, where the priced
+  /// types are the answer.
+  vehicleTypes  String[]      @default([])
   /// The largest vehicle that fits, and the clearance: shown before booking
   /// so a driver with an SUV doesn't find out at the gate.
   maxVehicleHeightCm Int?
-  /// HATCHBACK / SEDAN / SUV / VAN.
+  /// HATCHBACK / SEDAN / SUV / VAN. SUVs and vans are sizes of car, not
+  /// separately priced types.
   maxVehicleSize String?
+  /// The bay itself, when the host measured it. Public: it decides whether a
+  /// car fits and whether its doors open.
+  bayWidthCm    Int?
+  bayLengthCm   Int?
+  /// Booking rules (null = the platform's own limits). Enforced on search,
+  /// quote, booking and extension; advanceDays also on a monthly start.
+  minStayMinutes Int?
+  maxStayMinutes Int?
+  advanceDays   Int?
   /// Which gate or entrance, public before booking. The detailed
   /// instructions below are not.
   entryPoint    String?
+  /// SECURITY_GUARD / GATE_CODE / INTERCOM / MANUAL_GATE / OPEN_ACCESS /
+  /// OTHER. Public: "there's a guard" helps a driver decide; the code doesn't.
+  entryMethod   String?
+  /// Which bay, and how to recognise it. Private until paid, like the
+  /// instructions they complete.
+  bayNumber     String?
+  parkingMarker String?
   /// The host's own house rules, public ("No commercial vehicles").
   rules         String?
   /// Set while the host has paused new bookings. Bookings already made, and
@@ -53,6 +93,15 @@ model Listing {
   /// Electricity bill or property tax receipt proving the host controls the
   /// space. Checked by a human before the listing is allowed to go live.
   ownershipDocUrl String?
+  /// ELECTRICITY_BILL / PROPERTY_TAX / ALLOTMENT_LETTER / OTHER.
+  ownershipDocType String?
+  /// OWNER or OWNER_PERMISSION: owning a space and being allowed to rent
+  /// someone else's are different promises, and review checks them differently.
+  permissionBasis String?
+  /// Whether the space is in a housing society or RWA-managed property; when
+  /// it is, the host's confirmation of that body's permission, as an instant.
+  inSociety     Boolean?
+  societyPermissionAt DateTime?
   /// When the host ticked the RWA-permission / liability warranty box. A
   /// timestamp rather than a boolean: consent is evidence, and evidence needs
   /// to say when.
@@ -67,6 +116,10 @@ model Listing {
   reviewedBy    String?
   /// Shown to the host so a rejection is actionable rather than a dead end.
   rejectionReason String?
+  /// Which wizard step the rejection is about (type, address, photos,
+  /// details, availability, pricing, access, documents, payout), so the host
+  /// is taken straight to it.
+  rejectionSection String?
 
   createdBy     String?
   updatedBy     String?
@@ -131,7 +184,9 @@ model SpotPricing {
   id            String   @id @default(uuid())
   listingId     String
   vehicleType   String
-  pricePerHour  Decimal
+  /// Null when the host doesn't rent by the hour (daily- or monthly-only).
+  /// At least one of the three is set, enforced on save.
+  pricePerHour  Decimal?
   /// Optional ways to rent the same space. A stay is charged the cheaper of
   /// hourly and daily; null means the host doesn't offer that model.
   pricePerDay   Decimal?

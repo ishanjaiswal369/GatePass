@@ -177,7 +177,15 @@ function Body({
         <Timeline steps={stepsFor(row)} />
       </Section>
 
-      {live ? <AccessCard instructions={row.access?.accessInstructions ?? null} released={!!row.access} noun="reservation" /> : null}
+      {live ? (
+        <AccessCard
+          instructions={row.access?.accessInstructions ?? null}
+          bayNumber={row.access?.bayNumber}
+          parkingMarker={row.access?.parkingMarker}
+          released={!!row.access}
+          noun="reservation"
+        />
+      ) : null}
 
       {live && listing.entryPoint ? (
         <Section title="ENTRY POINT">

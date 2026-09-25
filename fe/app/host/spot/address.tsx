@@ -1,26 +1,30 @@
 import { Redirect, router, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { spotListingApi, spotsApi } from "@/api";
 import type { AddressParts, PlaceSuggestion } from "@/types/api.types";
 import {
   Button,
   Card,
+  CheckIcon,
   Field,
+  InfoIcon,
+  LockIcon,
   PinIcon,
   RestoringScreen,
   WizardShell,
 } from "@/components/ui";
+import { useStaticMap } from "@/hooks/useStaticMap";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useDriverLocation } from "@/hooks/useDriverLocation";
 import { usePlaceSearch } from "@/hooks/usePlaceSearch";
 import { useSpotDraft } from "@/hooks/useSpotDraft";
 import { useWizardBack } from "@/hooks/useWizardBack";
+import { useWizardContinue } from "@/hooks/useWizardContinue";
 import { takePin } from "@/lib/pinHandoff";
 import {
   TOTAL_STEPS,
   firstStepPath,
-  nextStepPath,
   stepNumber,
 } from "@/constants/wizard";
 import { colors, radius, space, type } from "@/theme";
@@ -33,12 +37,19 @@ import { colors, radius, space, type } from "@/theme";
  * reads and the point their maps app routes to -- and a gate that is 40m down
  * a lane from the building's registered address is the normal case, not the
  * exception.
+ *
+ * So the search area is not the parking location. A search result (or "my
+ * location") only gives the map somewhere to start; the pin counts once the
+ * host has placed it on the map screen, and moving it any other way asks for
+ * that again. Drivers see the society, area and city before booking; the
+ * house, street and exact pin come with payment.
  */
 
 export default function AddressScreen() {
   const { spot, loading, isRestoring, token } = useSpotDraft();
   const { requestLocation } = useDriverLocation();
   const back = useWizardBack("address", spot?.id);
+  const proceed = useWizardContinue("address");
   const {
     query,
     setQuery,
@@ -49,20 +60,30 @@ export default function AddressScreen() {
     sessionToken,
   } = usePlaceSearch(token);
 
-  const [addressLine, setAddressLine] = useState("");
+  const [societyName, setSocietyName] = useState("");
+  const [building, setBuilding] = useState("");
+  const [street, setStreet] = useState("");
+  const [area, setArea] = useState("");
   const [city, setCity] = useState("");
   const [stateName, setStateName] = useState("");
   const [pincode, setPincode] = useState("");
   const [latitude, setLatitude] = useState<number | null>(null);
   const [longitude, setLongitude] = useState<number | null>(null);
   const [placeId, setPlaceId] = useState<string | undefined>();
+  // Placed on the map by the host, as opposed to a search result's point.
+  const [pinPlaced, setPinPlaced] = useState(false);
 
   useEffect(() => {
     if (!spot) return;
     if (spot.latitude) setLatitude(Number(spot.latitude));
     if (spot.longitude) setLongitude(Number(spot.longitude));
+    setPinPlaced(Boolean(spot.pinConfirmedAt));
     setPlaceId(spot.googlePlaceId ?? undefined);
-    if (spot.addressLine) setAddressLine(spot.addressLine);
+    setSocietyName(spot.societyName ?? "");
+    setBuilding(spot.building ?? "");
+    // Older listings have only the one line; it goes where the street does.
+    setStreet(spot.street ?? (spot.societyName || spot.building ? "" : spot.addressLine ?? ""));
+    setArea(spot.area ?? "");
     if (spot.city) setCity(spot.city);
     if (spot.state) setStateName(spot.state);
     if (spot.pincode) setPincode(spot.pincode);
@@ -73,6 +94,8 @@ export default function AddressScreen() {
     if (!at) return;
     setLatitude(at.latitude);
     setLongitude(at.longitude);
+    // Where the phone is, not necessarily the bay: still to be placed.
+    setPinPlaced(false);
   });
 
   /**
@@ -84,7 +107,9 @@ export default function AddressScreen() {
    * absence of one.
    */
   const applyAddress = useCallback((parts: AddressParts) => {
-    if (parts.addressLine) setAddressLine(parts.addressLine);
+    const road = parts.street ?? parts.addressLine;
+    if (road) setStreet(road);
+    if (parts.area) setArea(parts.area);
     if (parts.city) setCity(parts.city);
     if (parts.state) setStateName(parts.state);
     if (parts.pincode) setPincode(parts.pincode);
@@ -129,6 +154,10 @@ export default function AddressScreen() {
       const carriedSession = sessionToken();
       settle(result.description);
 
+      // A search result is the middle of an area: somewhere for the map to
+      // start, not the parking location.
+      setPinPlaced(false);
+
       if (result.latitude !== undefined && result.longitude !== undefined) {
         setLatitude(result.latitude);
         setLongitude(result.longitude);
@@ -171,6 +200,7 @@ export default function AddressScreen() {
 
       setLatitude(handed.latitude);
       setLongitude(handed.longitude);
+      setPinPlaced(true);
 
       if (handed.address) applyAddress(handed.address);
     }, [applyAddress])
@@ -180,16 +210,20 @@ export default function AddressScreen() {
     if (!token || !spot || latitude === null || longitude === null) return;
 
     await spotListingApi.saveAddress(token, spot.id, {
-      addressLine: addressLine.trim(),
+      societyName: societyName.trim() || null,
+      building: building.trim() || null,
+      street: street.trim() || null,
+      area: area.trim(),
       city: city.trim(),
       state: stateName.trim(),
       pincode: pincode.trim(),
       latitude,
       longitude,
       googlePlaceId: placeId,
+      pinConfirmed: pinPlaced,
     });
 
-    router.push(nextStepPath("address", spot.id));
+    proceed(spot);
   });
 
   if (isRestoring || loading) return <RestoringScreen />;
@@ -199,9 +233,22 @@ export default function AddressScreen() {
   if (!spot) return <Redirect href={firstStepPath()} />;
 
   const hasPin = latitude !== null && longitude !== null;
-  const canContinue = Boolean(
-    hasPin && addressLine.trim() && city.trim() && stateName.trim() && /^\d{6}$/.test(pincode.trim())
-  );
+  const pinOk = /^\d{6}$/.test(pincode.trim());
+  const missing = !hasPin
+    ? "Search for the area, or use your current location, to continue."
+    : !pinPlaced
+      ? "Place the pin on the map."
+      : !(street.trim() || societyName.trim() || building.trim())
+        ? "Add the street, or the society or building name."
+        : !area.trim()
+          ? "Add the area."
+          : !city.trim() || !stateName.trim()
+            ? "Add the city and state."
+            : !pinOk
+              ? "Add a 6-digit PIN code."
+              : null;
+  const openMap = () =>
+    router.push({ pathname: "/host/spot/pin", params: { lat: String(latitude), lng: String(longitude) } });
 
   return (
     <WizardShell
@@ -211,10 +258,10 @@ export default function AddressScreen() {
       totalSteps={TOTAL_STEPS}
       onBack={back}
       onContinue={save}
-      canContinue={canContinue}
+      canContinue={missing === null}
       busy={busy}
       error={error ?? pickError}
-      footerNote={hasPin ? undefined : "Search for the area, or drop a pin, to continue."}
+      footerNote={missing ?? undefined}
     >
       <Field
         label="Search for the area"
@@ -259,48 +306,31 @@ export default function AddressScreen() {
       ) : null}
 
       <View style={s.pinCard}>
-        <Text style={s.pinTitle}>Exact spot</Text>
+        <Text style={s.pinTitle}>Exact parking location</Text>
+        <Text style={s.pinHint}>Place the pin exactly where drivers should park — the gate or the bay, not the middle of the area.</Text>
 
         {hasPin ? (
           <>
-            <Text style={s.pinValue}>
-              {latitude!.toFixed(5)}, {longitude!.toFixed(5)}
-            </Text>
-            <Text style={s.pinHint}>
-              The point drivers are sent to. Open the map to move it onto your
-              gate or entrance.
-            </Text>
-            <Button
-              label="Adjust on map"
-              variant="ghost"
-              onPress={() =>
-                router.push({
-                  pathname: "/host/spot/pin",
-                  params: { lat: String(latitude), lng: String(longitude) },
-                })
-              }
-            />
-          </>
-        ) : (
-          <>
-            <Text style={s.pinHint}>
-              Pick your area above, or use your current location, and then place
-              the pin on a map.
-            </Text>
-
-            <Pressable
-              onPress={useMyLocation}
-              disabled={locating}
-              accessibilityRole="button"
-              style={({ pressed }) => [s.locate, pressed && s.locatePressed]}
-            >
-              <PinIcon color={colors.ink} size={15} />
-              <Text style={s.locateLabel}>
-                {locating ? "Finding you…" : "Use my current location"}
+            <PinPreview token={token} latitude={latitude!} longitude={longitude!} placed={pinPlaced} />
+            <View style={s.pinStatus}>
+              {pinPlaced ? <CheckIcon color="#166534" size={15} /> : <InfoIcon color={colors.accentInk} size={15} />}
+              <Text style={[s.pinStatusText, !pinPlaced && s.pinStatusWarn]}>
+                {pinPlaced ? "Pin placed" : "Not placed yet — this is only a starting point for the map."}
               </Text>
-            </Pressable>
+            </View>
+            <Button label={pinPlaced ? "Adjust pin" : "Place pin on map"} variant={pinPlaced ? "ghost" : "primary"} onPress={openMap} />
           </>
-        )}
+        ) : null}
+
+        <Pressable
+          onPress={useMyLocation}
+          disabled={locating}
+          accessibilityRole="button"
+          style={({ pressed }) => [s.locate, pressed && s.locatePressed]}
+        >
+          <PinIcon color={colors.ink} size={15} />
+          <Text style={s.locateLabel}>{locating ? "Finding you…" : "Use my current location"}</Text>
+        </Pressable>
       </View>
 
       {/* Grouped rather than loose, so this screen reads like the rest of the
@@ -308,18 +338,45 @@ export default function AddressScreen() {
           a small uppercase heading. */}
       <Card heading="Address details">
         <View style={s.fields}>
-          <Field label="Address" value={addressLine} onChangeText={setAddressLine} maxLength={200} />
-          <Field label="City" value={city} onChangeText={setCity} maxLength={100} />
-          <Field label="State" value={stateName} onChangeText={setStateName} maxLength={100} />
+          <Field
+            label="Apartment / Society name"
+            optional
+            value={societyName}
+            onChangeText={setSocietyName}
+            placeholder="Sai Krupa Society"
+            maxLength={120}
+          />
+          <Field
+            label="Building / House number"
+            optional
+            value={building}
+            onChangeText={setBuilding}
+            placeholder="B-402"
+            maxLength={60}
+          />
+          <Field label="Street / Road" value={street} onChangeText={setStreet} placeholder="Karve Road" maxLength={200} />
+          <Field label="Area" value={area} onChangeText={setArea} placeholder="Kothrud" maxLength={120} />
+          <Field label="City" value={city} onChangeText={setCity} placeholder="Pune" maxLength={100} />
+          <Field label="State" value={stateName} onChangeText={setStateName} placeholder="Maharashtra" maxLength={100} />
           <Field
             label="PIN code"
             value={pincode}
-            onChangeText={setPincode}
+            onChangeText={(t) => setPincode(t.replace(/[^0-9]/g, "").slice(0, 6))}
             keyboardType="number-pad"
             maxLength={6}
+            placeholder="411038"
+            error={pincode.length > 0 && !pinOk ? "A PIN code has 6 digits." : null}
           />
         </View>
       </Card>
+
+      <View style={s.privacy}>
+        <LockIcon color={colors.inkMuted} size={14} />
+        <Text style={s.privacyText}>
+          Drivers see the society, area and city before booking. The house number, street and exact pin are shared
+          only after they pay.
+        </Text>
+      </View>
     </WizardShell>
   );
 }
@@ -354,9 +411,24 @@ const s = StyleSheet.create({
     gap: 4,
   },
   pinTitle: { ...type.label, color: colors.ink },
-  pinValue: { fontSize: 15, fontWeight: "600", color: colors.accent },
   pinHint: { ...type.caption, color: colors.inkMuted, marginBottom: space.md },
+  pinStatus: { flexDirection: "row", alignItems: "center", gap: space.sm, marginVertical: space.sm },
+  pinStatusText: { flex: 1, fontSize: 13, fontWeight: "600", color: "#166534" },
+  pinStatusWarn: { color: colors.accentInk },
+  preview: {
+    height: 150,
+    borderRadius: radius.sm,
+    overflow: "hidden",
+    backgroundColor: colors.canvas,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  previewPin: { position: "absolute", top: "50%", left: "50%", marginLeft: -15, marginTop: -30 },
+  previewCoords: { ...type.caption, color: colors.inkFaint, position: "absolute", bottom: 8 },
+  privacy: { flexDirection: "row", gap: space.sm, alignItems: "flex-start" },
+  privacyText: { flex: 1, ...type.caption, color: colors.inkMuted, lineHeight: 17 },
   locate: {
+    marginTop: space.sm,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -366,8 +438,27 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.canvas,
-    marginBottom: space.md,
   },
   locatePressed: { backgroundColor: colors.border },
   locateLabel: { fontSize: 13, fontWeight: "600", color: colors.ink },
 });
+
+/**
+ * The pin on a small map, so the host can see where it is without opening
+ * the full-screen picker. Without a map provider it still shows the point.
+ */
+function PinPreview({ token, latitude, longitude, placed }: { token: string; latitude: number; longitude: number; placed: boolean }) {
+  const { uri } = useStaticMap(token, { latitude, longitude }, { zoom: 17, width: 350, height: 150 });
+  return (
+    <View style={s.preview} accessible accessibilityLabel={placed ? "Map with your parking pin" : "Map with the search result's point"}>
+      {uri ? <Image source={{ uri }} style={StyleSheet.absoluteFill} resizeMode="cover" /> : (
+        <Text style={s.previewCoords}>
+          {latitude.toFixed(5)}, {longitude.toFixed(5)}
+        </Text>
+      )}
+      <View style={s.previewPin}>
+        <PinIcon size={30} color={placed ? colors.ink : colors.inkFaint} />
+      </View>
+    </View>
+  );
+}

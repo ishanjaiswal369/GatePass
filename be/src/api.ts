@@ -510,6 +510,26 @@ export function registerApi(app: App): void {
     request(spotListingRequests.saveLimits, spotListingController.saveLimits)
   );
   app.patch(
+    "/host/spots/:id/details",
+    host,
+    request(spotListingRequests.saveDetails, spotListingController.saveDetails)
+  );
+  app.patch(
+    "/host/spots/:id/booking-rules",
+    host,
+    request(spotListingRequests.saveBookingRules, spotListingController.saveBookingRules)
+  );
+  app.patch(
+    "/host/spots/:id/permission",
+    host,
+    request(spotListingRequests.savePermission, spotListingController.savePermission)
+  );
+  app.get(
+    "/host/spots/:id/ownership-document",
+    host,
+    request(spotListingRequests.ownershipDocument, spotListingController.ownershipDocument)
+  );
+  app.patch(
     "/host/spots/:id/pricing",
     host,
     request(spotListingRequests.savePricing, spotListingController.savePricing)
@@ -569,6 +589,11 @@ export function registerApi(app: App): void {
     "/admin/spots/:id/approve",
     admin,
     request(adminSpotRequests.approve, adminSpotController.approve)
+  );
+  app.get(
+    "/admin/spots/:id/ownership-document",
+    admin,
+    request(adminSpotRequests.ownershipDocument, adminSpotController.ownershipDocument)
   );
   app.post(
     "/admin/spots/:id/reject",

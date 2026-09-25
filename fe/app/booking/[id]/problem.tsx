@@ -20,7 +20,7 @@ import { supportMailto } from "@/constants/support";
 import { PROBLEM_LABELS } from "@/features/bookings/problemLabels";
 import { bookingListing, bookingRef, bookingTotal, clockTime, dateTime } from "@/lib/booking";
 import { distanceLabel } from "@/lib/geo";
-import { formatRupees } from "@/lib/money";
+import { formatRupees, rateLine } from "@/lib/money";
 import { toParams } from "@/lib/searchCriteria";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, radius, space } from "@/theme";
@@ -179,7 +179,7 @@ export default function ProblemStatusScreen() {
                             {spot.name}
                           </Text>
                           <Text style={s.small}>{distanceLabel(spot.distanceKm)} · available now</Text>
-                          <Text style={s.altPrice}>{formatRupees(spot.pricePerHour)}/hour</Text>
+                          <Text style={s.altPrice}>{spot.stayTotal ? `${formatRupees(spot.stayTotal)} for your time` : rateLine(spot)}</Text>
                         </View>
                         <Pressable
                           onPress={() =>

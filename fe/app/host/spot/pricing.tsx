@@ -1,126 +1,55 @@
 import { Redirect, router } from "expo-router";
 import { useEffect, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Switch, Text, View } from "react-native";
 import { spotListingApi } from "@/api";
-import { Checkbox, Field, RestoringScreen, WizardShell } from "@/components/ui";
+import { Button, Field, RestoringScreen, WizardShell } from "@/components/ui";
+import { TOTAL_STEPS, firstStepPath, stepHref, stepNumber } from "@/constants/wizard";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useSpotDraft } from "@/hooks/useSpotDraft";
 import { useWizardBack } from "@/hooks/useWizardBack";
-import { continueAfter } from "@/lib/wizardFlow";
-import {
-  TOTAL_STEPS,
-  firstStepPath,
-  nextStepPath,
-  stepNumber,
-} from "@/constants/wizard";
-import { colors, radius, space, type } from "@/theme";
+import { useWizardContinue } from "@/hooks/useWizardContinue";
+import { vehicleTypesOf } from "@/lib/listingRules";
 import { formatRupees } from "@/lib/money";
-import type { SpotPricingRow, VehicleType } from "@/types/api.types";
+import type { VehicleSize } from "@/constants/enums";
+import { colors, radius, space, type } from "@/theme";
+import type { SpotPricingRow } from "@/types/api.types";
 
 /**
- * Step 5. What it costs, per vehicle type.
+ * Step 6. What it costs, for each vehicle the host said can park (step 4).
  *
- * Two rates rather than one, because a bike and a car are not worth the same
- * and a single rate makes the host choose which one to be wrong about.
- *
- * The range hints are fixed, not a live market average: a "current average"
- * computed from a handful of early listings is noise presented as guidance,
- * and hosts anchor hard on whatever number they are shown.
+ * Hourly, daily and monthly are each a switch: a host can rent only by the
+ * month, or only by the hour -- but each vehicle needs at least one. Whole
+ * rupees, as a host sets a price; the API refuses anything else. The guidance
+ * is deliberately not a "market average": a handful of early listings would
+ * be noise presented as fact, and hosts anchor hard on a number they're shown.
  */
-const GUIDE: Record<VehicleType, string> = {
-  CAR: "Most city driveways sit between ₹30 and ₹80 an hour.",
-  BIKE: "Usually a third to half the car rate.",
-  OTHER: "",
+
+type Vehicle = "CAR" | "BIKE";
+type Mode = "hour" | "day" | "month";
+
+interface Rate {
+  on: Record<Mode, boolean>;
+  value: Record<Mode, string>;
+}
+
+const TITLES: Record<Vehicle, string> = { CAR: "CARS", BIKE: "BIKES & SCOOTERS" };
+const EXAMPLES: Record<Vehicle, Record<Mode, string>> = {
+  CAR: { hour: "60", day: "300", month: "5000" },
+  BIKE: { hour: "25", day: "120", month: "2000" },
+};
+/** The cars one car price covers, by the largest that fits. */
+const FITS: Record<VehicleSize, string> = {
+  HATCHBACK: "hatchbacks",
+  SEDAN: "hatchbacks and sedans",
+  SUV: "hatchbacks, sedans and SUVs",
+  VAN: "every car, SUV and van",
 };
 
-export default function PricingScreen() {
-  const { spot, loading, isRestoring, token } = useSpotDraft();
-  const back = useWizardBack("pricing", spot?.id);
-
-  const [carOn, setCarOn] = useState(true);
-  const [bikeOn, setBikeOn] = useState(false);
-  const [car, setCar] = useState<Rate>(EMPTY_RATE);
-  const [bike, setBike] = useState<Rate>(EMPTY_RATE);
-
-  useEffect(() => {
-    if (!spot?.pricing?.length) return;
-
-    const find = (t: VehicleType) =>
-      spot.pricing.find((row) => row.vehicleType === t);
-
-    const carRow = find("CAR");
-    const bikeRow = find("BIKE");
-
-    setCarOn(Boolean(carRow));
-    setBikeOn(Boolean(bikeRow));
-    if (carRow) setCar(rateFrom(carRow));
-    if (bikeRow) setBike(rateFrom(bikeRow));
-  }, [spot]);
-
-  const { run: save, busy, error } = useAsyncAction(async () => {
-    if (!token || !spot) return;
-
-    const rates = [
-      ...(carOn && Number(car.hour) > 0 ? [toRow("CAR", car)] : []),
-      ...(bikeOn && Number(bike.hour) > 0 ? [toRow("BIKE", bike)] : []),
-    ];
-
-    await spotListingApi.savePricing(token, spot.id, rates);
-    continueAfter("pricing", spot);
-  });
-
-  if (isRestoring || loading) return <RestoringScreen />;
-  if (!token) return <Redirect href="/" />;
-  if (!spot) return <Redirect href={firstStepPath()} />;
-
-  const valid =
-    ((carOn && Number(car.hour) > 0) || (bikeOn && Number(bike.hour) > 0)) &&
-    [car, bike].every((r) => (!r.dayOn || Number(r.day) > 0) && (!r.monthOn || Number(r.month) > 0));
-  const example = carOn ? car : bike;
-  const exampleAmount = Number(example.dayOn ? example.day : example.hour) || 0;
-
-  return (
-    <WizardShell
-      title="Pricing"
-      sub="Turn on only the ways you want to rent it out."
-      step={stepNumber("pricing")}
-      totalSteps={TOTAL_STEPS}
-      onBack={back}
-      onContinue={save}
-      canContinue={valid}
-      busy={busy}
-      error={error}
-      footerNote={valid ? undefined : "Set an hourly rate for at least one vehicle type, and a price for each option you turned on."}
-    >
-      <View style={s.block}>
-        <Checkbox label="Cars" checked={carOn} onChange={setCarOn} />
-        {carOn ? <RateFields value={car} onChange={setCar} placeholder={["40", "200", "3200"]} hint={GUIDE.CAR} /> : null}
-      </View>
-
-      <View style={s.block}>
-        <Checkbox label="Bikes and scooters" checked={bikeOn} onChange={setBikeOn} />
-        {bikeOn ? <RateFields value={bike} onChange={setBike} placeholder={["15", "80", "1200"]} hint={GUIDE.BIKE} /> : null}
-      </View>
-
-      {exampleAmount > 0 ? (
-        <View style={s.split}>
-          <Text style={s.splitTitle}>
-            For a {formatRupees(exampleAmount)} {example.dayOn ? "day" : "hour"} booking you receive{" "}
-            {formatRupees(Math.round(exampleAmount * (1 - HOST_COMMISSION_RATE) * 100) / 100)}
-          </Text>
-          <Text style={s.note}>
-            GatePass keeps a {Math.round(HOST_COMMISSION_RATE * 100)}% commission. Drivers pay the cheaper of hourly
-            and daily for their stay; monthly is paid up front.
-          </Text>
-        </View>
-      ) : null}
-
-      <Text style={s.note}>
-        A vehicle type you leave off simply will not see your spot in search.
-      </Text>
-    </WizardShell>
-  );
-}
+const MODES: { key: Mode; label: string; unit: string }[] = [
+  { key: "hour", label: "Hourly", unit: "per hour" },
+  { key: "day", label: "Daily", unit: "per day" },
+  { key: "month", label: "Monthly", unit: "per month, paid up front" },
+];
 
 /**
  * GatePass's cut of the parking, mirrored from be/src/config/pricing.ts for
@@ -128,93 +57,167 @@ export default function PricingScreen() {
  */
 const HOST_COMMISSION_RATE = 0.1;
 
-interface Rate {
-  hour: string;
-  dayOn: boolean;
-  day: string;
-  monthOn: boolean;
-  month: string;
-}
+const EMPTY: Rate = { on: { hour: true, day: false, month: false }, value: { hour: "", day: "", month: "" } };
 
-const EMPTY_RATE: Rate = { hour: "", dayOn: false, day: "", monthOn: false, month: "" };
-
-function rateFrom(row: SpotPricingRow): Rate {
+function rateFrom(row: SpotPricingRow | undefined): Rate {
+  if (!row) return EMPTY;
+  const text = (v: string | null) => (v ? String(Number(v)) : "");
   return {
-    hour: String(Number(row.pricePerHour)),
-    dayOn: row.pricePerDay !== null,
-    day: row.pricePerDay ? String(Number(row.pricePerDay)) : "",
-    monthOn: row.pricePerMonth !== null,
-    month: row.pricePerMonth ? String(Number(row.pricePerMonth)) : "",
+    on: { hour: row.pricePerHour !== null, day: row.pricePerDay !== null, month: row.pricePerMonth !== null },
+    value: { hour: text(row.pricePerHour), day: text(row.pricePerDay), month: text(row.pricePerMonth) },
   };
 }
 
-function toRow(vehicleType: VehicleType, rate: Rate) {
-  return {
-    vehicleType,
-    pricePerHour: Number(rate.hour),
-    ...(rate.dayOn ? { pricePerDay: Number(rate.day) } : {}),
-    ...(rate.monthOn ? { pricePerMonth: Number(rate.month) } : {}),
-  };
-}
+/** A rate a host may save: a whole number of rupees, above zero. */
+const valid = (text: string) => /^\d+$/.test(text) && Number(text) > 0 && Number(text) <= 10_000_000;
 
-/** Hourly always; daily and monthly each behind their own switch, as the prototype has them. */
-function RateFields({
-  value,
-  onChange,
-  placeholder,
-  hint,
-}: {
-  value: Rate;
-  onChange: (next: Rate) => void;
-  placeholder: [string, string, string];
-  hint: string;
-}) {
-  const digits = (text: string) => text.replace(/[^0-9]/g, "").slice(0, 7);
+export default function PricingScreen() {
+  const { spot, loading, isRestoring, token } = useSpotDraft();
+  const back = useWizardBack("pricing", spot?.id);
+  const proceed = useWizardContinue("pricing");
+  const [rates, setRates] = useState<Partial<Record<Vehicle, Rate>>>({});
+
+  useEffect(() => {
+    if (!spot) return;
+    setRates(Object.fromEntries(vehicleTypesOf(spot).map((t) => [t, rateFrom(spot.pricing.find((r) => r.vehicleType === t))])));
+  }, [spot]);
+
+  const types = spot ? vehicleTypesOf(spot) : [];
+
+  const problemFor = (t: Vehicle): string | null => {
+    const rate = rates[t];
+    if (!rate) return null;
+    const on = MODES.filter((m) => rate.on[m.key]);
+    const noun = t === "CAR" ? "cars" : "bikes";
+    if (on.length === 0) return `Turn on at least one way to rent to ${noun}.`;
+    if (on.some((m) => !rate.value[m.key])) return `Set a price for ${noun}.`;
+    if (on.some((m) => !valid(rate.value[m.key]))) return "Prices are whole rupees, above ₹0.";
+    return null;
+  };
+  const problem = types.map(problemFor).find(Boolean) ?? null;
+
+  const { run: save, busy, error } = useAsyncAction(async () => {
+    if (!token || !spot) return;
+    const num = (rate: Rate, mode: Mode) => (rate.on[mode] ? Number(rate.value[mode]) : undefined);
+    await spotListingApi.savePricing(
+      token,
+      spot.id,
+      types.map((t) => {
+        const rate = rates[t] ?? EMPTY;
+        return { vehicleType: t, pricePerHour: num(rate, "hour"), pricePerDay: num(rate, "day"), pricePerMonth: num(rate, "month") };
+      })
+    );
+    proceed(spot);
+  });
+
+  if (isRestoring || loading) return <RestoringScreen />;
+  if (!token) return <Redirect href="/" />;
+  if (!spot) return <Redirect href={firstStepPath()} />;
+
+  const update = (t: Vehicle, next: Rate) => setRates((current) => ({ ...current, [t]: next }));
+  const example = types.map((t) => rates[t]).find((r) => r && r.on.hour && valid(r.value.hour));
+
   return (
-    <View style={s.rates}>
-      <Field
-        label="Hourly · per hour (₹)"
-        value={value.hour}
-        onChangeText={(t) => onChange({ ...value, hour: digits(t) })}
-        keyboardType="number-pad"
-        placeholder={placeholder[0]}
-        hint={hint}
-      />
-      <Checkbox label="Daily · per day" checked={value.dayOn} onChange={(on) => onChange({ ...value, dayOn: on })} />
-      {value.dayOn ? (
-        <Field
-          label="Per day (₹)"
-          value={value.day}
-          onChangeText={(t) => onChange({ ...value, day: digits(t) })}
-          keyboardType="number-pad"
-          placeholder={placeholder[1]}
-        />
+    <WizardShell
+      title="Pricing"
+      sub="Set what you charge for each vehicle type."
+      step={stepNumber("pricing")}
+      totalSteps={TOTAL_STEPS}
+      onBack={back}
+      onContinue={save}
+      canContinue={types.length > 0 && problem === null}
+      busy={busy}
+      error={error}
+      footerNote={types.length === 0 ? "Choose which vehicles can park in Parking details first." : problem ?? undefined}
+    >
+      {types.length === 0 ? (
+        <View style={s.block}>
+          <Text style={s.blockText}>Tell us which vehicles can park here, then set their prices.</Text>
+          <Button label="Go to Parking details" variant="ghost" onPress={() => router.push(stepHref("details", spot.id))} />
+        </View>
       ) : null}
-      <Checkbox label="Monthly · per month, paid up front" checked={value.monthOn} onChange={(on) => onChange({ ...value, monthOn: on })} />
-      {value.monthOn ? (
-        <Field
-          label="Per month (₹)"
-          value={value.month}
-          onChangeText={(t) => onChange({ ...value, month: digits(t) })}
-          keyboardType="number-pad"
-          placeholder={placeholder[2]}
-        />
+
+      {types.map((t) => {
+        const rate = rates[t] ?? EMPTY;
+        const issue = problemFor(t);
+        return (
+          <View key={t} style={s.block}>
+            <Text style={s.blockTitle} accessibilityRole="header">
+              {TITLES[t]}
+            </Text>
+            {t === "CAR" && spot.maxVehicleSize ? (
+              <Text style={s.blockSub}>One price for every car that fits: {FITS[spot.maxVehicleSize]}.</Text>
+            ) : null}
+            {MODES.map((mode) => (
+              <View key={mode.key} style={s.mode}>
+                <View style={s.modeHead}>
+                  <Text style={s.modeLabel}>{mode.label}</Text>
+                  <Switch
+                    value={rate.on[mode.key]}
+                    onValueChange={(on) => update(t, { ...rate, on: { ...rate.on, [mode.key]: on } })}
+                    accessibilityLabel={`${mode.label} price for ${t === "CAR" ? "cars" : "bikes"}`}
+                    trackColor={{ true: colors.ink, false: "#d1d5db" }}
+                    thumbColor={colors.surface}
+                    {...({ activeThumbColor: colors.surface } as object)}
+                  />
+                </View>
+                {rate.on[mode.key] ? (
+                  <Field
+                    label={`₹ ${mode.unit}`}
+                    value={rate.value[mode.key]}
+                    onChangeText={(text) =>
+                      update(t, { ...rate, value: { ...rate.value, [mode.key]: text.replace(/[^0-9]/g, "").slice(0, 8) } })
+                    }
+                    keyboardType="number-pad"
+                    placeholder={EXAMPLES[t][mode.key]}
+                    error={rate.value[mode.key] && !valid(rate.value[mode.key]) ? "Above ₹0, whole rupees." : null}
+                  />
+                ) : null}
+              </View>
+            ))}
+            {issue ? <Text style={s.issue}>{issue}</Text> : null}
+          </View>
+        );
+      })}
+
+      {example ? (
+        <View style={s.split}>
+          <Text style={s.splitTitle}>
+            For a {formatRupees(example.value.hour)} hour you receive{" "}
+            {formatRupees(Math.round(Number(example.value.hour) * (1 - HOST_COMMISSION_RATE) * 100) / 100)}
+          </Text>
+          <Text style={s.note}>
+            GatePass keeps a {Math.round(HOST_COMMISSION_RATE * 100)}% commission. Drivers pay the cheaper of hourly and
+            daily for their stay; monthly is paid up front.
+          </Text>
+        </View>
       ) : null}
-    </View>
+
+      <Text style={s.note}>
+        Set a price that reflects your location, access and parking type. New prices apply to new bookings; bookings
+        already made keep the price they were made at.
+      </Text>
+    </WizardShell>
   );
 }
 
 const s = StyleSheet.create({
-  rates: { gap: space.md },
-  split: { gap: 4, backgroundColor: colors.canvas, borderRadius: radius.md, padding: space.lg },
-  splitTitle: { fontSize: 14, fontWeight: "700", color: colors.ink },
   block: {
-    gap: space.lg,
+    gap: space.md,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.md,
     padding: space.lg,
   },
+  blockTitle: { ...type.label, color: colors.inkMuted, letterSpacing: 0.6 },
+  blockSub: { fontSize: 13, color: colors.inkMuted, marginTop: -6 },
+  blockText: { fontSize: 14, color: colors.ink },
+  mode: { gap: space.sm },
+  modeHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 36 },
+  modeLabel: { fontSize: 15, fontWeight: "600", color: colors.ink },
+  issue: { ...type.caption, color: "#b91c1c" },
+  split: { gap: 4, backgroundColor: colors.canvas, borderRadius: radius.md, padding: space.lg },
+  splitTitle: { fontSize: 14, fontWeight: "700", color: colors.ink },
   note: { ...type.caption, color: colors.inkFaint, lineHeight: 18 },
 });

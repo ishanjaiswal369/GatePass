@@ -1,5 +1,6 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type {
+  AdminOwnershipDocumentInput,
   ApproveSpotInput,
   GetSpotInput,
   ListSpotsInput,
@@ -7,7 +8,10 @@ import type {
   SetPayoutStatusInput,
   SuspendSpotInput,
 } from "../requests/admin-spot.request.js";
+import { sendFile } from "../lib/send-file.js";
+import { audit } from "../lib/security-log.js";
 import * as adminSpotService from "../services/admin-spot.service.js";
+import * as spotListingService from "../services/spot-listing.service.js";
 import * as hostPayoutService from "../services/host-payout.service.js";
 
 export const adminSpotController = {
@@ -48,9 +52,17 @@ export const adminSpotController = {
       await adminSpotService.reject(
         input.params.id,
         request.user.userId,
-        input.body.reason
+        input.body.reason,
+        input.body.section
       )
     );
+  },
+
+  /** The ownership document, for the reviewer. Streamed here because its public URL is closed. */
+  ownershipDocument: async (input: AdminOwnershipDocumentInput, request: FastifyRequest, reply: FastifyReply) => {
+    const file = await spotListingService.ownershipDocumentFile(input.params.id, null);
+    audit("OWNERSHIP_DOC_VIEWED", { userId: request.user.userId, listingId: input.params.id, as: "admin" });
+    return sendFile(reply, file);
   },
 
   suspend: async (

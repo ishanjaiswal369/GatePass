@@ -1,7 +1,10 @@
 import { Prisma } from "@prisma/client";
 import { badRequest, conflict, notFound } from "../lib/errors.js";
+import { allOccurrences } from "../lib/monthly.js";
 import { prisma } from "../lib/prisma.js";
-import { getStorageProvider } from "../integrations/storage/index.js";
+import { audit } from "../lib/security-log.js";
+import { windowsCover } from "../lib/venue-time.js";
+import { getLocalStorage, getStorageProvider } from "../integrations/storage/index.js";
 import { env } from "../config/env.js";
 import * as hostService from "./host.service.js";
 
@@ -25,8 +28,9 @@ const EDITABLE_STATUSES = ["DRAFT", "REJECTED"];
  */
 const OPERABLE_STATUSES = [...EDITABLE_STATUSES, "PUBLISHED", "ONGOING", "SUSPENDED"];
 
-/** Photos a host may attach to one spot. */
+/** Photos a host may attach to one spot, and the fewest a listing goes to review (or stays live) with. */
 const MAX_PHOTOS = 8;
+const MIN_PHOTOS = 2;
 
 const IMAGE_CONTENT_TYPES = ["image/jpeg", "image/png", "image/webp"];
 /** Ownership proof is usually a scan or a PDF bill. */
@@ -36,16 +40,50 @@ export interface CreateSpotInput {
   name: string;
   spaceType: string;
   venueName: string;
+  /** Public; empty clears it. */
+  description?: string | null;
 }
 
 export interface SaveAddressInput {
-  addressLine: string;
+  /** Older clients send one line; newer ones the parts, and the line is composed. */
+  addressLine?: string;
+  societyName?: string | null;
+  building?: string | null;
+  street?: string | null;
+  area?: string;
   city: string;
   state: string;
   pincode: string;
   latitude: number;
   longitude: number;
   googlePlaceId?: string;
+  /** True once the host placed the pin on the map; false when it moved since. */
+  pinConfirmed?: boolean;
+}
+
+export interface SaveDetailsInput {
+  covered: boolean;
+  amenities: string[];
+  amenityNote: string | null;
+  vehicleTypes: string[];
+  maxVehicleSize: string | null;
+  maxVehicleHeightCm: number | null;
+  bayWidthCm: number | null;
+  bayLengthCm: number | null;
+  notes: string | null;
+}
+
+export interface BookingRulesInput {
+  minStayMinutes: number | null;
+  maxStayMinutes: number | null;
+  advanceDays: number | null;
+}
+
+export interface PermissionInput {
+  ownershipDocType: string;
+  permissionBasis: string;
+  inSociety: boolean;
+  societyPermission?: boolean;
 }
 
 export interface AvailabilityWindowInput {
@@ -56,7 +94,8 @@ export interface AvailabilityWindowInput {
 
 export interface PricingRowInput {
   vehicleType: string;
-  pricePerHour: number;
+  /** Absent when the host doesn't rent by the hour. At least one of the three is set. */
+  pricePerHour?: number;
   /** Optional ways to rent the same space; absent = not offered. */
   pricePerDay?: number;
   pricePerMonth?: number;
@@ -73,8 +112,14 @@ const spotView = {
   name: true,
   venueName: true,
   spaceType: true,
+  description: true,
   status: true,
   addressLine: true,
+  societyName: true,
+  building: true,
+  street: true,
+  area: true,
+  pinConfirmedAt: true,
   city: true,
   state: true,
   pincode: true,
@@ -83,16 +128,32 @@ const spotView = {
   googlePlaceId: true,
   accessInstructions: true,
   entryPoint: true,
+  entryMethod: true,
+  bayNumber: true,
+  parkingMarker: true,
   amenities: true,
+  amenityNote: true,
+  vehicleTypes: true,
   maxVehicleHeightCm: true,
   maxVehicleSize: true,
+  bayWidthCm: true,
+  bayLengthCm: true,
+  minStayMinutes: true,
+  maxStayMinutes: true,
+  advanceDays: true,
   rules: true,
   bookingsPausedAt: true,
   ownershipDocUrl: true,
+  ownershipDocType: true,
+  permissionBasis: true,
+  inSociety: true,
+  societyPermissionAt: true,
   warrantyAcceptedAt: true,
   submittedAt: true,
+  docApprovedAt: true,
   reviewedAt: true,
   rejectionReason: true,
+  rejectionSection: true,
   createdAt: true,
   photos: {
     select: { id: true, url: true, position: true },
@@ -211,6 +272,7 @@ export async function createSpot(userId: string, input: CreateSpotInput) {
       name: input.name,
       venueName: input.venueName,
       spaceType: input.spaceType,
+      description: input.description || null,
       // DRAFT, not PUBLISHED. Naming a spot opens it; it does not make it
       // bookable. Going live needs the rest of the wizard, an admin accepting
       // the ownership document, and an active payout account -- publishing
@@ -239,6 +301,7 @@ export async function saveType(
       name: input.name,
       venueName: input.venueName,
       spaceType: input.spaceType,
+      ...(input.description !== undefined ? { description: input.description || null } : {}),
       updatedBy: userId,
     },
     select: spotView,
@@ -297,16 +360,54 @@ export async function saveAddress(
 ) {
   await editableSpot(listingId, hostProfileId);
 
+  const current = await prisma.listing.findUniqueOrThrow({
+    where: { id: listingId },
+    select: { latitude: true, longitude: true, pinConfirmedAt: true },
+  });
+
+  // The one line older readers show, from the parts in the order an Indian
+  // address is written: house, society, street.
+  const composed = [input.building, input.societyName, input.street]
+    .map((part) => part?.trim())
+    .filter(Boolean)
+    .join(", ");
+  const addressLine = composed || input.addressLine?.trim() || null;
+
+  if (!addressLine) {
+    throw badRequest("Add the street, or the society or building name");
+  }
+
+  // A pin counts as placed only when the host placed it. A search result is
+  // the middle of an area; moving the point without saying so un-places it.
+  const moved =
+    current.latitude === null ||
+    current.longitude === null ||
+    !current.latitude.equals(input.latitude) ||
+    !current.longitude.equals(input.longitude);
+  const pinConfirmedAt =
+    input.pinConfirmed === true
+      ? moved || !current.pinConfirmedAt
+        ? new Date()
+        : current.pinConfirmedAt
+      : input.pinConfirmed === false || moved
+        ? null
+        : current.pinConfirmedAt;
+
   return prisma.listing.update({
     where: { id: listingId },
     data: {
-      addressLine: input.addressLine,
+      addressLine,
+      ...(input.societyName !== undefined ? { societyName: input.societyName || null } : {}),
+      ...(input.building !== undefined ? { building: input.building || null } : {}),
+      ...(input.street !== undefined ? { street: input.street || null } : {}),
+      ...(input.area !== undefined ? { area: input.area || null } : {}),
       city: input.city,
       state: input.state,
       pincode: input.pincode,
       latitude: new Prisma.Decimal(input.latitude),
       longitude: new Prisma.Decimal(input.longitude),
       googlePlaceId: input.googlePlaceId,
+      pinConfirmedAt,
       updatedBy: userId,
     },
     select: spotView,
@@ -362,10 +463,19 @@ export async function replacePhotos(
   hostProfileId: string,
   urls: string[]
 ) {
-  await operableSpot(listingId, hostProfileId);
+  const spot = await operableSpot(listingId, hostProfileId);
 
   if (urls.length > MAX_PHOTOS) {
     throw badRequest(`At most ${MAX_PHOTOS} photos`);
+  }
+
+  // A draft fills up one photo at a time; a live listing keeps its minimum
+  // (or what it had, if it went live with fewer before the minimum existed).
+  if (!EDITABLE_STATUSES.includes(spot.status)) {
+    const had = await prisma.spotPhoto.count({ where: { listingId } });
+    if (urls.length < Math.min(MIN_PHOTOS, had)) {
+      throw badRequest(`A live listing needs at least ${MIN_PHOTOS} photos. Add one before removing this.`);
+    }
   }
 
   const storage = getStorageProvider();
@@ -410,7 +520,14 @@ export async function saveTerms(
   listingId: string,
   hostProfileId: string,
   userId: string,
-  input: { accessInstructions?: string; entryPoint?: string; warrantyAccepted?: boolean }
+  input: {
+    accessInstructions?: string;
+    entryPoint?: string;
+    warrantyAccepted?: boolean;
+    entryMethod?: string | null;
+    bayNumber?: string | null;
+    parkingMarker?: string | null;
+  }
 ) {
   await operableSpot(listingId, hostProfileId);
 
@@ -421,6 +538,9 @@ export async function saveTerms(
         ? { accessInstructions: input.accessInstructions }
         : {}),
       ...(input.entryPoint !== undefined ? { entryPoint: input.entryPoint || null } : {}),
+      ...(input.entryMethod !== undefined ? { entryMethod: input.entryMethod } : {}),
+      ...(input.bayNumber !== undefined ? { bayNumber: input.bayNumber || null } : {}),
+      ...(input.parkingMarker !== undefined ? { parkingMarker: input.parkingMarker || null } : {}),
       // Recorded as an instant, and only ever set forward. Un-ticking the box
       // after the fact should not erase that it was ticked.
       ...(input.warrantyAccepted ? { warrantyAcceptedAt: new Date() } : {}),
@@ -459,6 +579,10 @@ function isOverlapViolation(error: unknown): boolean {
  * A replace rather than a merge: the wizard shows the full week, so what it
  * sends is the truth. Overlaps inside the payload are caught by the database's
  * exclusion constraint, not by a loop here -- see migration 0023.
+ *
+ * Bookings already made are never touched by new hours: a driver who paid
+ * keeps their time. What the host is told instead is how many paid stays and
+ * monthly days now fall outside the hours, so the change is never silent.
  */
 export async function replaceAvailability(
   listingId: string,
@@ -485,10 +609,38 @@ export async function replaceAvailability(
     throw error;
   }
 
-  return getForHost(listingId, hostProfileId);
+  return { ...(await getForHost(listingId, hostProfileId)), outsideHours: await outsideHours(listingId, windows) };
 }
 
-/** Step 9. One rate per vehicle type, replacing whatever was there. */
+/** Paid stays still to come, and monthly days still to come, that these hours don't cover. */
+async function outsideHours(listingId: string, windows: AvailabilityWindowInput[]) {
+  const now = new Date();
+  const [stays, terms] = await Promise.all([
+    prisma.booking.findMany({
+      where: { listingId, status: "CONFIRMED", endsAt: { gt: now } },
+      select: { startsAt: true, endsAt: true },
+    }),
+    prisma.monthlyReservation.findMany({
+      where: { listingId, status: "CONFIRMED" },
+      select: { days: true, startMinute: true, endMinute: true, startDate: true, endDate: true },
+    }),
+  ]);
+  const covered = (start: Date, end: Date) => windowsCover(windows, start, end);
+  return {
+    bookings: stays.filter((b) => b.startsAt && b.endsAt && !covered(b.startsAt < now ? now : b.startsAt, b.endsAt)).length,
+    monthlyDays: terms.flatMap((t) => allOccurrences(t)).filter((o) => o.end > now && !covered(o.start, o.end)).length,
+  };
+}
+
+/**
+ * Step 6. One row per vehicle type, replacing whatever was there.
+ *
+ * Any of the three rates may be missing -- a monthly-only space has no hourly
+ * rate -- but not all of them. Rows must be for the vehicle types the host
+ * said can park (Parking details): a price for bikes on a car-only space
+ * would put it in bike searches it can't serve. New prices apply to new
+ * bookings; a booking keeps the amount it was made at.
+ */
 export async function replacePricing(
   listingId: string,
   hostProfileId: string,
@@ -501,8 +653,21 @@ export async function replacePricing(
     if (seen.has(row.vehicleType)) {
       throw badRequest(`Two rates given for ${row.vehicleType}`);
     }
+    if (row.pricePerHour === undefined && row.pricePerDay === undefined && row.pricePerMonth === undefined) {
+      throw badRequest(`Set at least one price for ${row.vehicleType === "BIKE" ? "bikes" : "cars"}`);
+    }
     seen.add(row.vehicleType);
   }
+
+  const { vehicleTypes } = await prisma.listing.findUniqueOrThrow({ where: { id: listingId }, select: { vehicleTypes: true } });
+  if (vehicleTypes.length > 0) {
+    const stray = rows.find((row) => !vehicleTypes.includes(row.vehicleType));
+    if (stray) throw badRequest("Add that vehicle type in Parking details before pricing it");
+    const unpriced = vehicleTypes.find((type) => !seen.has(type));
+    if (unpriced) throw badRequest(`Set a price for ${unpriced === "BIKE" ? "bikes" : "cars"}`);
+  }
+
+  const decimal = (value: number | undefined) => (value !== undefined ? new Prisma.Decimal(value) : null);
 
   await prisma.$transaction([
     prisma.spotPricing.deleteMany({ where: { listingId } }),
@@ -510,9 +675,9 @@ export async function replacePricing(
       data: rows.map((row) => ({
         listingId,
         vehicleType: row.vehicleType,
-        pricePerHour: new Prisma.Decimal(row.pricePerHour),
-        pricePerDay: row.pricePerDay !== undefined ? new Prisma.Decimal(row.pricePerDay) : null,
-        pricePerMonth: row.pricePerMonth !== undefined ? new Prisma.Decimal(row.pricePerMonth) : null,
+        pricePerHour: decimal(row.pricePerHour),
+        pricePerDay: decimal(row.pricePerDay),
+        pricePerMonth: decimal(row.pricePerMonth),
       })),
     }),
   ]);
@@ -520,26 +685,44 @@ export async function replacePricing(
   return getForHost(listingId, hostProfileId);
 }
 
+/** One thing still to do, and the wizard step that does it. */
+export interface ReadinessItem {
+  step: string;
+  message: string;
+}
+
 /**
  * What is still missing before this spot can be submitted.
  *
  * Returned as a list rather than thrown one at a time: a host who is three
- * fields short should be told all three, not made to submit three times.
+ * fields short should be told all three, not made to submit three times. Each
+ * names its step so the review screen can take the host straight there.
  */
-export async function missingForSubmit(
-  listingId: string,
-  hostProfileId: string
-): Promise<string[]> {
+export async function readiness(listingId: string, hostProfileId: string): Promise<ReadinessItem[]> {
   const spot = await prisma.listing.findFirst({
     where: { id: listingId, hostProfileId, listingType: "INDEPENDENT_SPOT" },
     select: {
+      name: true,
       spaceType: true,
       latitude: true,
       longitude: true,
+      pinConfirmedAt: true,
+      addressLine: true,
+      area: true,
+      city: true,
+      pincode: true,
+      vehicleTypes: true,
       accessInstructions: true,
+      entryMethod: true,
       ownershipDocUrl: true,
+      ownershipDocType: true,
+      permissionBasis: true,
+      inSociety: true,
+      societyPermissionAt: true,
       warrantyAcceptedAt: true,
-      _count: { select: { photos: true, pricing: true } },
+      pricing: { select: { vehicleType: true, pricePerHour: true, pricePerDay: true, pricePerMonth: true } },
+      hostProfile: { select: { payoutKycStatus: true, payoutAccountNumber: true } },
+      _count: { select: { photos: true } },
     },
   });
 
@@ -551,21 +734,63 @@ export async function missingForSubmit(
     where: { listingId, isActive: true },
   });
 
-  const missing: string[] = [];
-  if (!spot.spaceType) missing.push("space type");
-  if (spot.latitude === null || spot.longitude === null) missing.push("address");
-  if (spot._count.photos === 0) missing.push("at least one photo");
-  if (spot._count.pricing === 0) missing.push("pricing");
-  if (windows === 0) missing.push("at least one availability window");
-  if (!spot.accessInstructions) missing.push("access instructions");
-  if (!spot.ownershipDocUrl) missing.push("ownership proof");
-  if (!spot.warrantyAcceptedAt) missing.push("permission warranty");
+  const items: ReadinessItem[] = [];
+  const need = (step: string, message: string) => items.push({ step, message });
 
-  return missing;
+  if (!spot.spaceType) need("type", "Choose the type of space");
+  if (!spot.name.trim()) need("type", "Name your listing");
+
+  if (spot.latitude === null || spot.longitude === null || !spot.pinConfirmedAt) {
+    need("address", "Place the pin on the map where drivers should park");
+  }
+  if (!spot.addressLine || !spot.area || !spot.city || !spot.pincode) need("address", "Complete the address");
+
+  if (spot._count.photos < MIN_PHOTOS) {
+    need("photos", spot._count.photos === 1 ? "Add at least one more photo" : `Add at least ${MIN_PHOTOS} photos`);
+  }
+
+  // Older listings predate the list; their priced types are the answer.
+  const vehicleTypes = spot.vehicleTypes.length ? spot.vehicleTypes : spot.pricing.map((row) => row.vehicleType);
+  // Covered or open is answered with the vehicles (saveDetails requires it),
+  // so a saved vehicle list means the details step was completed.
+  if (vehicleTypes.length === 0) need("details", "Choose which vehicles can park");
+
+  if (windows === 0) need("availability", "Set when drivers can book");
+
+  for (const type of vehicleTypes) {
+    const row = spot.pricing.find((r) => r.vehicleType === type);
+    if (!row || (!row.pricePerHour && !row.pricePerDay && !row.pricePerMonth)) {
+      need("pricing", `Set a price for ${type === "BIKE" ? "bikes" : "cars"}`);
+    }
+  }
+
+  if (!spot.entryMethod) need("access", "Choose how drivers get in");
+  if (!spot.accessInstructions) need("access", "Add your access instructions");
+
+  if (!spot.ownershipDocUrl) need("documents", "Attach your ownership or permission document");
+  else if (!spot.ownershipDocType) need("documents", "Say what the document is");
+  if (!spot.permissionBasis || !spot.warrantyAcceptedAt) need("documents", "Confirm you own the space or have the owner's permission");
+  if (spot.inSociety === null) need("documents", "Say whether the space is in a housing society");
+  else if (spot.inSociety && !spot.societyPermissionAt) need("documents", "Confirm your society or RWA's permission");
+
+  const payout = spot.hostProfile;
+  const payoutReady =
+    payout?.payoutKycStatus === "ACTIVATED" ||
+    (Boolean(payout?.payoutAccountNumber) && payout?.payoutKycStatus !== "REJECTED");
+  if (!payoutReady) {
+    need("payout", payout?.payoutKycStatus === "REJECTED" ? "Fix your payout details" : "Add a payout account");
+  }
+
+  return items;
+}
+
+/** The same list as plain sentences, for the submit refusal. */
+export async function missingForSubmit(listingId: string, hostProfileId: string): Promise<string[]> {
+  return (await readiness(listingId, hostProfileId)).map((item) => item.message);
 }
 
 /**
- * Step 11. Hands the spot to review.
+ * Step 10. Hands the spot to review.
  *
  * Note what this does NOT do: publish. Submitting is the host saying they are
  * finished, not the platform agreeing. PUBLISHED is an admin's decision, and
@@ -581,10 +806,10 @@ export async function submit(
   const missing = await missingForSubmit(listingId, hostProfileId);
 
   if (missing.length > 0) {
-    throw badRequest(`Still needed before submitting: ${missing.join(", ")}`);
+    throw badRequest(`Still needed before submitting: ${missing.join("; ")}`);
   }
 
-  return prisma.listing.update({
+  const submitted = await prisma.listing.update({
     where: { id: listingId },
     data: {
       status: "PENDING_REVIEW",
@@ -592,15 +817,19 @@ export async function submit(
       // A resubmission after a rejection starts clean, or the host would see
       // last round's reason next to their new submission.
       rejectionReason: null,
+      rejectionSection: null,
       reviewedAt: null,
       reviewedBy: null,
       updatedBy: userId,
     },
     select: spotView,
   });
+
+  audit("LISTING_SUBMITTED", { userId, listingId });
+  return submitted;
 }
 
-/** Wizard: what the space offers. Only what is always true -- drivers filter on these. */
+/** Wizard (dashboard "Amenities"): what the space offers. Kept for older screens; the wizard uses saveDetails. */
 export async function saveFeatures(listingId: string, hostProfileId: string, userId: string, amenities: string[]) {
   await operableSpot(listingId, hostProfileId);
   return prisma.listing.update({
@@ -610,7 +839,7 @@ export async function saveFeatures(listingId: string, hostProfileId: string, use
   });
 }
 
-/** Wizard: what fits, and the host's own rules. Null clears a limit. */
+/** Wizard (older): what fits, and the host's own rules. Null clears a limit. */
 export async function saveLimits(
   listingId: string,
   hostProfileId: string,
@@ -623,4 +852,101 @@ export async function saveLimits(
     data: { ...input, updatedBy: userId },
     select: spotView,
   });
+}
+
+/**
+ * Step 4, Parking details: covered or open, amenities, which vehicles, and
+ * what fits.
+ *
+ * SUVs and vans are sizes of car, so the vehicle list is CAR / BIKE and the
+ * largest car is `maxVehicleSize`. A vehicle type taken away loses its prices
+ * in the same transaction, or the space would stay in searches for a vehicle
+ * the host just said can't park there.
+ */
+export async function saveDetails(listingId: string, hostProfileId: string, userId: string, input: SaveDetailsInput) {
+  await operableSpot(listingId, hostProfileId);
+
+  const amenities = [...new Set(input.amenities.filter((a) => a !== "COVERED"))];
+  if (input.covered) amenities.push("COVERED");
+  const takesCars = input.vehicleTypes.includes("CAR");
+
+  const [, updated] = await prisma.$transaction([
+    prisma.spotPricing.deleteMany({ where: { listingId, vehicleType: { notIn: input.vehicleTypes } } }),
+    prisma.listing.update({
+      where: { id: listingId },
+      data: {
+        amenities,
+        amenityNote: input.amenityNote || null,
+        vehicleTypes: [...new Set(input.vehicleTypes)],
+        maxVehicleSize: takesCars ? input.maxVehicleSize : null,
+        maxVehicleHeightCm: input.maxVehicleHeightCm,
+        bayWidthCm: input.bayWidthCm,
+        bayLengthCm: input.bayLengthCm,
+        rules: input.notes || null,
+        updatedBy: userId,
+      },
+      select: spotView,
+    }),
+  ]);
+  return updated;
+}
+
+/**
+ * Step 5, booking rules. Optional; null leaves the platform's own limits.
+ * Changing them never touches bookings already made -- they are checked when
+ * a stay is quoted, booked or extended.
+ */
+export async function saveBookingRules(listingId: string, hostProfileId: string, userId: string, input: BookingRulesInput) {
+  await operableSpot(listingId, hostProfileId);
+  return prisma.listing.update({
+    where: { id: listingId },
+    data: { ...input, updatedBy: userId },
+    select: spotView,
+  });
+}
+
+/**
+ * Step 8, the permission half: what the document is, whether the host owns
+ * the space or has the owner's permission, and -- in a housing society or
+ * RWA-managed property -- that body's permission too. Confirmations are
+ * stored as instants: consent is evidence, and evidence needs a date.
+ */
+export async function savePermission(listingId: string, hostProfileId: string, userId: string, input: PermissionInput) {
+  await editableSpot(listingId, hostProfileId);
+
+  if (input.inSociety && !input.societyPermission) {
+    throw badRequest("Confirm you have your society or RWA's permission to rent this space");
+  }
+
+  const now = new Date();
+  return prisma.listing.update({
+    where: { id: listingId },
+    data: {
+      ownershipDocType: input.ownershipDocType,
+      permissionBasis: input.permissionBasis,
+      inSociety: input.inSociety,
+      societyPermissionAt: input.inSociety ? now : null,
+      warrantyAcceptedAt: now,
+      updatedBy: userId,
+    },
+    select: spotView,
+  });
+}
+
+/**
+ * The ownership document's file, for its host or an admin (hostProfileId
+ * null). Never through the public upload URL -- see storage PRIVATE_PREFIXES.
+ */
+export async function ownershipDocumentFile(listingId: string, hostProfileId: string | null) {
+  const spot = await prisma.listing.findFirst({
+    where: { id: listingId, listingType: "INDEPENDENT_SPOT", ...(hostProfileId ? { hostProfileId } : {}) },
+    select: { ownershipDocUrl: true },
+  });
+  if (!spot?.ownershipDocUrl) throw notFound("Document not found");
+
+  const local = getLocalStorage();
+  const key = local?.keyOf(spot.ownershipDocUrl);
+  const path = key ? local!.resolvePath(key) : null;
+  if (!path) throw notFound("Document not found");
+  return path;
 }

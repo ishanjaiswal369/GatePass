@@ -31,6 +31,9 @@ export function OptionCard({
       disabled={disabled}
       accessibilityRole="radio"
       accessibilityState={{ selected, disabled: !!disabled }}
+      // A radio's state is "checked"; react-native-web reads aria-*, not accessibilityState.
+      aria-checked={selected}
+      aria-disabled={!!disabled}
       style={({ pressed }) => [
         s.card,
         selected && s.cardSelected,

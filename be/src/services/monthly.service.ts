@@ -1,4 +1,6 @@
 import { Prisma } from "@prisma/client";
+import { startTooFar } from "../lib/booking-rules.js";
+import { coarsen } from "../lib/location-privacy.js";
 import { pricing } from "../config/pricing.js";
 import { BOOKABLE_SPOT } from "../lib/bookable-spot.js";
 import { conflict, notFound } from "../lib/errors.js";
@@ -100,6 +102,7 @@ async function assess(db: Prisma.TransactionClient, listingId: string, input: Te
     where: { id: listingId, ...BOOKABLE_SPOT },
     select: {
       bookingsPausedAt: true,
+      advanceDays: true,
       availability: { where: { isActive: true }, select: { dayOfWeek: true, startMinute: true, endMinute: true } },
       pricing: { where: { vehicleType: input.vehicleType }, select: { pricePerMonth: true } },
     },
@@ -109,9 +112,12 @@ async function assess(db: Prisma.TransactionClient, listingId: string, input: Te
   const term = termOf(input);
   const rate = spot.pricing[0]?.pricePerMonth ?? null;
   let reason: string | null = null;
+  // The host's advance-booking rule; their stay-length rules are for hourly stays.
+  const tooFar = startTooFar(spot, startOfVenueDay(term.startDate));
 
   if (spot.bookingsPausedAt) reason = "This space isn't taking new bookings right now.";
   else if (!rate) reason = "This space doesn't offer monthly parking for that vehicle.";
+  else if (tooFar) reason = tooFar;
   else {
     // Open for the whole daily window on every chosen weekday. A term is at
     // least a month, so its first seven days hold each chosen weekday once,
@@ -166,7 +172,7 @@ const reservationView = {
   cancelledAt: true,
   createdAt: true,
   listing: {
-    select: { id: true, name: true, addressLine: true, city: true, latitude: true, longitude: true, entryPoint: true },
+    select: { id: true, name: true, addressLine: true, area: true, city: true, latitude: true, longitude: true, entryPoint: true },
   },
   payment: { select: { status: true, amount: true } },
   refund: { select: { amount: true, status: true, policy: true, createdAt: true } },
@@ -182,7 +188,10 @@ function phaseOf(row: ReservationRow, now: Date) {
 }
 
 function present(row: ReservationRow, now = new Date()) {
-  return { ...row, lastDate: addDays(row.endDate, -1), phase: phaseOf(row, now), ref: bookingRef(row.id) };
+  // The street line and exact pin come with payment, as for a stay.
+  const paid = row.payment?.status === "CAPTURED";
+  const listing = paid ? row.listing : coarsen(row.listing);
+  return { ...row, listing, lastDate: addDays(row.endDate, -1), phase: phaseOf(row, now), ref: bookingRef(row.id) };
 }
 
 export async function create(
@@ -264,13 +273,16 @@ export async function listForDriver(driverId: string, scope: "current" | "past")
 export async function getForDriver(id: string, driverId: string) {
   const row = await prisma.monthlyReservation.findFirst({
     where: { id, driverId },
-    select: { ...reservationView, listing: { select: { ...reservationView.listing.select, accessInstructions: true } } },
+    select: {
+      ...reservationView,
+      listing: { select: { ...reservationView.listing.select, accessInstructions: true, bayNumber: true, parkingMarker: true } },
+    },
   });
   if (!row) throw notFound("Reservation not found");
   const { listing, ...rest } = row;
-  const { accessInstructions, ...publicListing } = listing;
+  const { accessInstructions, bayNumber, parkingMarker, ...publicListing } = listing;
   const paid = row.payment?.status === "CAPTURED" && (row.status === "CONFIRMED" || row.status === "COMPLETED");
-  return { ...present({ ...rest, listing: publicListing }), access: paid ? { accessInstructions } : null };
+  return { ...present({ ...rest, listing: publicListing }), access: paid ? { accessInstructions, bayNumber, parkingMarker } : null };
 }
 
 /**

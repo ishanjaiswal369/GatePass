@@ -215,7 +215,9 @@ export async function approve(listingId: string, adminUserId: string) {
 export async function reject(
   listingId: string,
   adminUserId: string,
-  reason: string
+  reason: string,
+  /** The wizard step it concerns, so the host is taken straight to it. */
+  section?: string
 ) {
   const spot = await prisma.listing.findFirst({
     where: { id: listingId, listingType: "INDEPENDENT_SPOT" },
@@ -243,9 +245,10 @@ export async function reject(
       reviewedAt: new Date(),
       reviewedBy: adminUserId,
       rejectionReason: reason,
+      rejectionSection: section ?? null,
       updatedBy: adminUserId,
     },
-    select: { id: true, status: true, rejectionReason: true },
+    select: { id: true, status: true, rejectionReason: true, rejectionSection: true },
   });
 }
 

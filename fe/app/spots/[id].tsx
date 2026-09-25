@@ -29,11 +29,14 @@ import { useStaticMap } from "@/hooks/useStaticMap";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { distanceKm, distanceLabel } from "@/lib/geo";
 import { groupByHours } from "@/lib/hours";
-import { formatRupees } from "@/lib/money";
+import { durationText } from "@/lib/listingRules";
+import { formatRupees, rateLine } from "@/lib/money";
 import { monthsLabel, termRange, termSchedule } from "@/lib/monthly";
 import { describeCriteria, fromParams, toParams, type HourlyCriteria, type MonthlyCriteria } from "@/lib/searchCriteria";
 import {
   AMENITY_LABELS,
+  ENTRY_METHOD_LABELS,
+  feetLabel,
   heightLabel,
   spaceLabel,
   VEHICLE_LABELS,
@@ -158,7 +161,8 @@ export default function SpotDetailScreen() {
     criteria && spot.latitude && spot.longitude
       ? distanceLabel(distanceKm(criteria.place, { latitude: Number(spot.latitude), longitude: Number(spot.longitude) }))
       : null;
-  const address = [spot.addressLine, spot.city, spot.pincode].filter(Boolean).join(", ");
+  // The public place only: the street line and exact pin come with a paid booking.
+  const place = [spot.societyName, spot.area, spot.city, spot.pincode].filter(Boolean).join(", ");
 
   return (
     <PhoneFrame>
@@ -231,10 +235,11 @@ export default function SpotDetailScreen() {
               <View style={s.row}>
                 <PinIcon size={15} color={colors.inkMuted} />
                 <Text style={s.muted} numberOfLines={2}>
-                  {spot.city ?? spot.venueName}
-                  {away ? ` · ${away} from your destination` : ""}
+                  {[spot.area, spot.city].filter(Boolean).join(", ") || spot.venueName}
+                  {away ? ` · about ${away} from your destination` : ""}
                 </Text>
               </View>
+              {spot.description ? <Text style={s.description}>{spot.description}</Text> : null}
             </View>
 
             {hourly ? (
@@ -287,7 +292,7 @@ export default function SpotDetailScreen() {
             {rate ? (
               <Section title={`PRICING${spot.pricing.length > 1 ? ` · ${VEHICLE_LABELS[rate.vehicleType].toUpperCase()}` : ""}`}>
                 <View style={s.tiles}>
-                  <Tile amount={formatRupees(rate.pricePerHour)} unit="per hour" />
+                  {rate.pricePerHour ? <Tile amount={formatRupees(rate.pricePerHour)} unit="per hour" /> : null}
                   {rate.pricePerDay ? <Tile amount={formatRupees(rate.pricePerDay)} unit="per day" /> : null}
                   {rate.pricePerMonth ? <Tile amount={formatRupees(rate.pricePerMonth)} unit="per month" /> : null}
                 </View>
@@ -299,8 +304,7 @@ export default function SpotDetailScreen() {
                 ) : null}
                 {otherRates.map((other) => (
                   <Text key={other.id} style={s.note}>
-                    {VEHICLE_LABELS[other.vehicleType]}: {formatRupees(other.pricePerHour)}/hr
-                    {other.pricePerDay ? ` · ${formatRupees(other.pricePerDay)}/day` : ""}
+                    {VEHICLE_LABELS[other.vehicleType]}: {rateLine(other)}
                   </Text>
                 ))}
               </Section>
@@ -317,10 +321,16 @@ export default function SpotDetailScreen() {
                 }
               />
               {spot.maxVehicleHeightCm ? <DataRow label="Height limit" value={heightLabel(spot.maxVehicleHeightCm)} /> : null}
+              {spot.bayWidthCm && spot.bayLengthCm ? (
+                <DataRow label="Bay size" value={`${feetLabel(spot.bayWidthCm)} × ${feetLabel(spot.bayLengthCm)}`} />
+              ) : null}
               {hours.map((row) => (
                 <DataRow key={row.label} label={row.label} value={row.hours} />
               ))}
-              {spot.rules ? <DataRow label="Host's rules" value={spot.rules} /> : null}
+              {spot.minStayMinutes ? <DataRow label="Shortest stay" value={durationText(spot.minStayMinutes)} /> : null}
+              {spot.maxStayMinutes ? <DataRow label="Longest stay" value={durationText(spot.maxStayMinutes)} /> : null}
+              {spot.advanceDays ? <DataRow label="Book ahead" value={`Up to ${spot.advanceDays} days`} /> : null}
+              {spot.rules ? <DataRow label="Good to know" value={spot.rules} /> : null}
             </Section>
 
             {spot.amenities.length > 0 || spot.open24x7 ? (
@@ -338,6 +348,12 @@ export default function SpotDetailScreen() {
                       <Text style={s.amenityText}>24/7 access</Text>
                     </View>
                   ) : null}
+                  {spot.amenityNote ? (
+                    <View style={s.amenity}>
+                      <CheckIcon size={15} color="#166534" />
+                      <Text style={s.amenityText}>{spot.amenityNote}</Text>
+                    </View>
+                  ) : null}
                 </View>
               </Section>
             ) : null}
@@ -349,18 +365,20 @@ export default function SpotDetailScreen() {
                 </View>
                 <Text style={s.accessTitle}>How to get in</Text>
               </View>
+              {spot.entryMethod ? <DataRow label="Entry method" value={ENTRY_METHOD_LABELS[spot.entryMethod]} /> : null}
               {spot.entryPoint ? <DataRow label="Entry" value={spot.entryPoint} /> : null}
               <DataRow label="Gate timing" value={spot.open24x7 ? "Open 24 hours" : hours.map((h) => `${h.label} ${h.hours}`).join(" · ")} />
               <View style={s.locked}>
                 <LockIcon size={14} color={colors.inkMuted} />
-                <Text style={s.lockedText}>Detailed instructions and the exact bay are shared as soon as you book.</Text>
+                <Text style={s.lockedText}>The full address, the exact bay and how to get in are shared as soon as you've paid.</Text>
               </View>
             </View>
 
             {spot.latitude && spot.longitude ? (
               <Section title="LOCATION">
                 <LocationMap token={token} latitude={Number(spot.latitude)} longitude={Number(spot.longitude)} />
-                {address ? <Text style={s.address}>{address}</Text> : null}
+                {place ? <Text style={s.address}>{place}</Text> : null}
+                <Text style={s.note}>Approximate location, within about 100 m. The exact spot comes with your booking.</Text>
               </Section>
             ) : null}
 
@@ -562,6 +580,7 @@ const s = StyleSheet.create({
   lockedText: { flex: 1, fontSize: 13, color: colors.inkMuted },
   map: { height: 170, borderRadius: radius.md, overflow: "hidden", backgroundColor: "#eceee8", alignItems: "center", justifyContent: "center" },
   mapPin: { marginTop: -30 },
+  description: { fontSize: 14, lineHeight: 20, color: colors.ink, marginTop: 2 },
   address: { fontSize: 14, lineHeight: 20, color: colors.ink },
   host: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: space.lg, gap: space.md },
   avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.canvas, alignItems: "center", justifyContent: "center" },

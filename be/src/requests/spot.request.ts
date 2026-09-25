@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AMENITIES, SPACE_TYPES, VEHICLE_TYPES } from "../constants/enums/index.js";
+import { AMENITIES, SPACE_TYPES, VEHICLE_SIZES, VEHICLE_TYPES } from "../constants/enums/index.js";
 import type { RequestInput, RequestSchemas } from "../lib/request.js";
 
 const MINUTES_IN_DAY = 24 * 60;
@@ -47,6 +47,8 @@ const nearbyQuery = z
     // to be able to ask about it (it stopped at one day before).
     durationMinutes: z.coerce.number().int().positive().max(MAX_STAY_MINUTES).default(60),
     vehicleType: z.enum(VEHICLE_TYPES).optional(),
+    /** The driver's car size; spaces that only fit a smaller car are left out. */
+    vehicleSize: z.enum(VEHICLE_SIZES).optional(),
     limit: z.coerce.number().int().positive().max(50).optional(),
     days: dayList.optional(),
     /** Monthly only: the term, so every occurrence -- not just the first week -- is checked. */

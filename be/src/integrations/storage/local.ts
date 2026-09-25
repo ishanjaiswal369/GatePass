@@ -57,6 +57,11 @@ export class LocalStorageProvider implements StorageProvider {
     return url.startsWith(`${this.baseUrl}/`);
   }
 
+  /** The storage key behind one of this provider's URLs, or null for anyone else's. */
+  keyOf(url: string): string | null {
+    return this.ownsUrl(url) ? url.slice(this.baseUrl.length + 1) : null;
+  }
+
   /**
    * Checks a signed upload and writes the bytes.
    *

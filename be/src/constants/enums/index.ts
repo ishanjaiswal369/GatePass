@@ -77,6 +77,17 @@ export {
 } from "./space-type.js";
 
 export {
+  ENTRY_METHODS,
+  OWNERSHIP_DOC_TYPES,
+  PERMISSION_BASES,
+  LISTING_SECTIONS,
+  type EntryMethod,
+  type OwnershipDocType,
+  type PermissionBasis,
+  type ListingSection,
+} from "./listing-details.js";
+
+export {
   PAYOUT_KYC_STATUSES,
   DEFAULT_PAYOUT_KYC_STATUS,
   type PayoutKycStatus,

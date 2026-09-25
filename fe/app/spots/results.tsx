@@ -13,10 +13,10 @@ import {
   SlidersIcon,
   SpotListItem,
 } from "@/components/ui";
-import type { VehicleType } from "@/constants/enums";
+import type { VehicleSize, VehicleType } from "@/constants/enums";
 import { ResultsMap } from "@/features/search/ResultsMap";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
-import { formatRupees } from "@/lib/money";
+import { formatRupees, leadRate } from "@/lib/money";
 import { describeCriteria, formatDuration, fromParams, toParams, type SearchCriteria } from "@/lib/searchCriteria";
 import {
   activeFilterCount,
@@ -57,6 +57,8 @@ export default function SpotResultsScreen() {
   const [selected, setSelected] = useState<string | null>(null);
   const [mapOn, setMapOn] = useState(true);
   const [vehicleType, setVehicleType] = useState<VehicleType | null | undefined>(undefined);
+  // SUVs and vans are sizes of car: the default car's size hides spaces it won't fit.
+  const [vehicleSize, setVehicleSize] = useState<VehicleSize | null>(null);
 
   const scroller = useRef<ScrollView>(null);
   const offsets = useRef<Record<string, number>>({});
@@ -67,7 +69,11 @@ export default function SpotResultsScreen() {
     if (!token) return;
     profileApi
       .listVehicles(token)
-      .then(({ vehicles }) => setVehicleType((vehicles.find((v) => v.isDefault) ?? vehicles[0])?.vehicleType ?? null))
+      .then(({ vehicles }) => {
+        const main = vehicles.find((v) => v.isDefault) ?? vehicles[0];
+        setVehicleSize(main?.vehicleType === "CAR" ? main.size ?? null : null);
+        setVehicleType(main?.vehicleType ?? null);
+      })
       .catch(() => setVehicleType(null));
   }, [token]);
 
@@ -95,6 +101,7 @@ export default function SpotResultsScreen() {
                 months: search.months,
               }),
           vehicleType: vehicle ?? undefined,
+          vehicleSize: vehicleSize ?? undefined,
           amenities: narrow.amenities,
           spaceTypes: narrow.spaceTypes,
           maxPricePerHour: narrow.maxPricePerHour ?? undefined,
@@ -109,7 +116,7 @@ export default function SpotResultsScreen() {
         setError(err instanceof ApiError ? err.message : "Could not search for spaces");
       }
     },
-    [token]
+    [token, vehicleSize]
   );
 
   // On focus: coming back from Filters or a spot (where it may have been
@@ -212,9 +219,7 @@ export default function SpotResultsScreen() {
               id: spot.id,
               latitude: spot.latitude,
               longitude: spot.longitude,
-              label: monthly && spot.pricePerMonth !== null
-                ? `${formatRupees(spot.pricePerMonth)}/mo`
-                : `${formatRupees(spot.pricePerHour)}/hr`,
+              label: pinLabel(spot, monthly),
             }))}
           />
         ) : null}
@@ -407,3 +412,10 @@ const s = StyleSheet.create({
   skeletonBody: { padding: 14, gap: 10 },
   skeletonLine: { height: 12, borderRadius: 6, backgroundColor: SK },
 });
+
+/** A map pin's price: the monthly rate on a monthly search, else the rate the space leads with. */
+function pinLabel(spot: NearbySpot, monthly: boolean): string {
+  if (monthly && spot.pricePerMonth !== null) return `${formatRupees(spot.pricePerMonth)}/mo`;
+  const lead = leadRate(spot);
+  return lead ? `${lead.amount}${lead.unit}` : "—";
+}

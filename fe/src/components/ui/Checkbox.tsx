@@ -26,6 +26,8 @@ export function Checkbox({
       onPress={() => onChange(!checked)}
       accessibilityRole="checkbox"
       accessibilityState={{ checked }}
+      // react-native-web 0.19 reads aria-*, not accessibilityState.
+      aria-checked={checked}
       hitSlop={8}
       style={s.row}
     >

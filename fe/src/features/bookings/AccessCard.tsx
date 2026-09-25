@@ -14,11 +14,16 @@ export function AccessCard({
   instructions,
   released,
   noun = "booking",
+  bayNumber,
+  parkingMarker,
 }: {
   instructions: string | null;
   released: boolean;
   /** What was paid for: "booking", or "reservation" for a monthly term. */
   noun?: string;
+  /** Which bay, and how to recognise it -- released with the instructions. */
+  bayNumber?: string | null;
+  parkingMarker?: string | null;
 }) {
   return (
     <View style={s.card}>
@@ -32,10 +37,14 @@ export function AccessCard({
       </View>
 
       {released ? (
-        <Text style={s.body}>
-          {instructions?.trim() ||
-            `The host hasn't added instructions. Show this ${noun} to security or the host at the gate.`}
-        </Text>
+        <>
+          {bayNumber ? <Text style={s.bay}>Bay {bayNumber}</Text> : null}
+          {parkingMarker ? <Text style={s.marker}>{parkingMarker}</Text> : null}
+          <Text style={s.body}>
+            {instructions?.trim() ||
+              `The host hasn't added instructions. Show this ${noun} to security or the host at the gate.`}
+          </Text>
+        </>
       ) : (
         <View style={s.locked}>
           <LockIcon size={15} color={colors.inkMuted} />
@@ -66,6 +75,8 @@ const s = StyleSheet.create({
   },
   title: { fontSize: 16, fontWeight: "700", color: colors.ink },
   body: { fontSize: 15, lineHeight: 22, color: colors.ink },
+  bay: { fontSize: 20, fontWeight: "700", color: colors.ink },
+  marker: { fontSize: 14, color: colors.inkMuted, marginTop: -8 },
   locked: {
     flexDirection: "row",
     alignItems: "center",

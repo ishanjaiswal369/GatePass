@@ -1,4 +1,4 @@
-import type { Amenity, VehicleType } from "@/constants/enums";
+import type { Amenity, VehicleSize, VehicleType } from "@/constants/enums";
 import type {
   GeocodeResult,
   PlaceSuggestion,
@@ -35,6 +35,8 @@ export const nearby = (
     months?: number;
     /** Prices the cards for this vehicle, and hides spots that don't take it. */
     vehicleType?: VehicleType;
+    /** The driver's car size: spaces that only fit a smaller car are left out. */
+    vehicleSize?: VehicleSize;
     amenities?: Amenity[];
     spaceTypes?: SpaceType[];
     maxPricePerHour?: number;
@@ -63,6 +65,7 @@ export const nearby = (
     if (input.months) params.set("months", String(input.months));
   }
   if (input.vehicleType) params.set("vehicleType", input.vehicleType);
+  if (input.vehicleSize) params.set("vehicleSize", input.vehicleSize);
   if (input.amenities?.length) params.set("amenities", input.amenities.join(","));
   if (input.spaceTypes?.length) params.set("spaceTypes", input.spaceTypes.join(","));
   if (input.maxPricePerHour !== undefined) params.set("maxPricePerHour", String(input.maxPricePerHour));

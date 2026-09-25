@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { EXTENSION_STEPS } from "../config/pricing.js";
+import { ruleViolation } from "../lib/booking-rules.js";
 import { conflict, notFound } from "../lib/errors.js";
 import { assertNotBlocked, lockListing } from "../lib/listing-lock.js";
 import { assertNoMonthlyConflict, termClaiming } from "../lib/monthly-guard.js";
@@ -44,8 +45,13 @@ type ParentRow = Prisma.BookingGetPayload<{ select: typeof parentRow }>;
 
 interface SpotTerms {
   availability: WeeklyWindow[];
-  pricePerHour: Prisma.Decimal;
+  /** Null on a space rented only by the day or month: extra time is sold by the hour. */
+  pricePerHour: Prisma.Decimal | null;
+  /** The host's longest stay, which counts the extra time (lib/booking-rules). */
+  maxStayMinutes: number | null;
 }
+
+const NO_HOURLY = "Extra time is sold by the hour, and this space isn't rented by the hour. Book again for more time.";
 
 function currentEnd(row: ParentRow): Date {
   return row.extensions
@@ -94,6 +100,7 @@ async function loadTerms(listingId: string, vehicleType: string | null): Promise
   const spot = await prisma.listing.findUnique({
     where: { id: listingId },
     select: {
+      maxStayMinutes: true,
       availability: {
         where: { isActive: true },
         select: { dayOfWeek: true, startMinute: true, endMinute: true },
@@ -105,11 +112,17 @@ async function loadTerms(listingId: string, vehicleType: string | null): Promise
   const rate = spot?.pricing.find((row) => row.vehicleType === vehicleType);
   if (!spot || !rate) throw conflict("This space can no longer be extended.");
 
-  return { availability: spot.availability, pricePerHour: rate.pricePerHour };
+  return { availability: spot.availability, pricePerHour: rate.pricePerHour, maxStayMinutes: spot.maxStayMinutes };
 }
 
 function priceFor(terms: SpotTerms, minutes: number): Prisma.Decimal {
-  return terms.pricePerHour.mul(minutes).div(60).toDecimalPlaces(2);
+  return terms.pricePerHour ? terms.pricePerHour.mul(minutes).div(60).toDecimalPlaces(2) : new Prisma.Decimal(0);
+}
+
+/** The host's longest stay, counted from the booking's start to the new end. */
+function overMaxStay(terms: SpotTerms, startsAt: Date, endsAt: Date): string | null {
+  const minutes = Math.round((endsAt.getTime() - startsAt.getTime()) / 60_000);
+  return ruleViolation({ minStayMinutes: null, maxStayMinutes: terms.maxStayMinutes, advanceDays: null }, { startsAt, minutes });
 }
 
 /** "6:00 PM" at the venue -- the same shape the app prints times in. */
@@ -171,8 +184,13 @@ export async function options(bookingId: string, driverId: string) {
   const opts: ExtensionOption[] = EXTENSION_STEPS.map((minutes) => {
     const endsAt = new Date(end.getTime() + minutes * 60_000);
     let reason: string | null = null;
+    const tooLong = overMaxStay(terms, row.startsAt!, endsAt);
 
-    if (next?.startsAt && next.startsAt < endsAt) {
+    if (!terms.pricePerHour) {
+      reason = NO_HOURLY;
+    } else if (tooLong) {
+      reason = tooLong;
+    } else if (next?.startsAt && next.startsAt < endsAt) {
       reason = `This space is booked from ${clock(next.startsAt)}.`;
     } else if (monthlyAfter && monthlyAfter < endsAt) {
       reason = `This space is reserved monthly from ${clock(monthlyAfter)}.`;
@@ -246,6 +264,10 @@ export async function create(
 
       const terms = await loadTerms(row.listingId!, row.vehicleType);
       const endsAt = new Date(end.getTime() + input.minutes * 60_000);
+
+      if (!terms.pricePerHour) throw conflict(NO_HOURLY);
+      const tooLong = overMaxStay(terms, row.startsAt!, endsAt);
+      if (tooLong) throw conflict(tooLong);
 
       if (!windowsCover(terms.availability, end, endsAt)) {
         throw conflict("The space isn't open for that long.");

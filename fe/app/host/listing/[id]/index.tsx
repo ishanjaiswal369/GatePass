@@ -15,6 +15,7 @@ import {
   WalletIcon,
 } from "@/components/ui";
 import { HostBookingCard } from "@/features/host/HostBookingCard";
+import { listingStatus } from "@/lib/listingRules";
 import { clockTime } from "@/lib/booking";
 import { formatRupees } from "@/lib/money";
 import { useSession } from "@/providers/SessionProvider";
@@ -172,11 +173,11 @@ export default function ListingDashboardScreen() {
                 <Action icon={<WalletIcon size={18} />} label="Edit prices" onPress={() => router.push({ pathname: "/host/spot/pricing", params: { id: id! } })} />
                 <Action icon={<CalendarIcon size={18} color={colors.ink} />} label="Block dates" onPress={() => go("/host/listing/[id]/calendar")} />
                 <Action icon={<KeyIcon size={18} color={colors.ink} />} label="Access instructions" onPress={() => router.push({ pathname: "/host/spot/access", params: { id: id! } })} />
-                <Action label="Amenities" onPress={() => router.push({ pathname: "/host/spot/features", params: { id: id! } })} />
-                <Action label="Vehicle limits and rules" onPress={() => router.push({ pathname: "/host/spot/limits", params: { id: id! } })} last />
+                <Action label="Parking details" onPress={() => router.push({ pathname: "/host/spot/details", params: { id: id! } })} />
+                <Action label="Availability and booking rules" onPress={() => router.push({ pathname: "/host/spot/availability", params: { id: id! } })} last />
               </View>
               {data.listing.status !== "PUBLISHED" && data.listing.status !== "ONGOING" ? (
-                <StatusChip label={`Status: ${data.listing.status.replace("_", " ").toLowerCase()}`} tone="warning" />
+                <StatusChip label={listingStatus({ ...data.listing, docApprovedAt: null, bookingsPausedAt: null }).label} tone="warning" />
               ) : null}
             </>
           )}

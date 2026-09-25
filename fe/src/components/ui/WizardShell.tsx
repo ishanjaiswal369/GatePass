@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { colors, space, type } from "@/theme";
 import { Button } from "./Button";
 import { ErrorNotice } from "./Notice";
@@ -30,7 +30,7 @@ export function WizardShell({
 }: {
   title: string;
   sub?: string;
-  /** 1-based, for "Step 3 of 9". */
+  /** 1-based, for "3 of 10". */
   step: number;
   totalSteps: number;
   onBack: () => void;
@@ -45,7 +45,10 @@ export function WizardShell({
 }) {
   return (
     <PhoneFrame>
-      <View style={s.screen}>
+      {/* The keyboard pushes the footer up rather than covering it, and the
+          body scrolls so the field being typed in stays in view. Android
+          resizes the window itself. */}
+      <KeyboardAvoidingView style={s.screen} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <SectionHeader
           title={title}
           sub={sub}
@@ -56,6 +59,7 @@ export function WizardShell({
         <ScrollView
           contentContainerStyle={s.body}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
         >
           {error ? <ErrorNotice message={error} /> : null}
           {children}
@@ -69,9 +73,13 @@ export function WizardShell({
             busy={busy}
             size="lg"
           />
-          {footerNote ? <Text style={s.footerNote}>{footerNote}</Text> : null}
+          {footerNote ? (
+            <Text style={s.footerNote} accessibilityLiveRegion="polite">
+              {footerNote}
+            </Text>
+          ) : null}
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </PhoneFrame>
   );
 }

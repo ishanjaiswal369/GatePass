@@ -11,18 +11,15 @@ export const WIZARD_STEPS = [
   // opening a blank row here and naming it later left an unnamed "New spot"
   // on the dashboard for everyone who looked at the wizard and backed out.
   "type",
-  // The only place the address is asked for. Host onboarding used to collect
-  // it separately before the wizard opened, which meant typing it twice into
-  // two rows free to disagree.
+  // The only place the address is asked for, and where the pin is placed.
   "address",
   "photos",
-  // What the space offers -- the amenities drivers filter on.
-  "features",
+  // What the space offers and what fits: covered or open, amenities, which
+  // vehicles, size limits (replaced the separate features and limits steps).
+  "details",
   "availability",
   "pricing",
   "access",
-  // What fits: height, largest vehicle, and the host's own rules.
-  "limits",
   "documents",
   "payout",
   "review",
@@ -70,6 +67,19 @@ export function prevStepPath(step: WizardStep, id?: string): string {
 function stepPath(step: WizardStep, id?: string): string {
   const path = `/host/spot/${step}`;
   return id ? `${path}?id=${id}` : path;
+}
+
+/** The step names the API uses for readiness items and rejections, as wizard steps. */
+export function isWizardStep(value: string | null | undefined): value is WizardStep {
+  return (WIZARD_STEPS as readonly string[]).includes(value ?? "");
+}
+
+/**
+ * The route of one step, for links from the review screen and the status
+ * page. `from: "review"` makes that step's Continue return to the review.
+ */
+export function stepHref(step: WizardStep, id: string, from?: "review"): string {
+  return `${stepPath(step, id)}${from ? `&from=${from}` : ""}`;
 }
 
 /** A listing that is live (or paused by support): edits there are day-to-day changes, not a draft. */

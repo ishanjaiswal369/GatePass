@@ -236,7 +236,7 @@ export interface BookingExtension {
  * paid: instructions for getting in are worth money.
  */
 export interface BookingDetail extends BookingRow {
-  access: { accessInstructions: string | null } | null;
+  access: BookingAccess | null;
 }
 
 export interface CancellationQuote {
@@ -281,14 +281,17 @@ export interface NearbySpot {
   name: string;
   venueName: string;
   city: string;
+  /** The locality ("Kothrud"); public. */
+  area: string | null;
   spaceType: SpaceType | null;
   /** The first photo in the host's order; null when the host added none. */
   coverPhotoUrl: string | null;
+  /** Rounded to ~100 m until a booking is paid. */
   latitude: number;
   longitude: number;
   distanceKm: number;
-  /** The cheapest of the spot's rates. */
-  pricePerHour: number;
+  /** The cheapest of the spot's hourly rates; null when it isn't rented by the hour. */
+  pricePerHour: number | null;
   pricePerDay: number | null;
   pricePerMonth: number | null;
   /** The searched stay at the cheapest rate, as a decimal string; null on a monthly search. */
@@ -342,6 +345,8 @@ export interface HostAvailabilityRow extends AvailabilityWindow {
  */
 export interface AddressParts {
   addressLine?: string;
+  street?: string;
+  area?: string;
   city?: string;
   state?: string;
   pincode?: string;
@@ -436,8 +441,12 @@ export type SpotListingStatus =
   | "CANCELLED"
   | "SUSPENDED";
 
-/** CAR_PARK reads as "Private lot". Covered or open is the COVERED amenity, not a type. */
-export type SpaceType = "DRIVEWAY" | "GARAGE" | "CAR_PARK" | "OTHER";
+/** Covered or open is the COVERED amenity, not a type. OTHER only on older listings. */
+export type SpaceType = "DRIVEWAY" | "GARAGE" | "CAR_PARK" | "PRIVATE_LOT" | "SOCIETY" | "COMMERCIAL" | "OTHER";
+
+export type EntryMethod = "SECURITY_GUARD" | "GATE_CODE" | "INTERCOM" | "MANUAL_GATE" | "OPEN_ACCESS" | "OTHER";
+export type OwnershipDocType = "ELECTRICITY_BILL" | "PROPERTY_TAX" | "ALLOTMENT_LETTER" | "OTHER";
+export type PermissionBasis = "OWNER" | "OWNER_PERMISSION";
 
 /** Mirrors the gateway. Only ACTIVATED can receive money. */
 export type PayoutKycStatus =
@@ -458,18 +467,31 @@ export interface PublicSpot {
   name: string;
   venueName: string;
   spaceType: SpaceType | null;
-  addressLine: string | null;
+  description: string | null;
+  /** The public place: society, area, city. The street line comes with a paid booking. */
+  societyName: string | null;
+  area: string | null;
   city: string | null;
   state: string | null;
   pincode: string | null;
+  /** Rounded to ~100 m (`locationApproximate`); exact once a booking is paid. */
   latitude: string | null;
   longitude: string | null;
+  locationApproximate: boolean;
   amenities: Amenity[];
+  amenityNote: string | null;
+  vehicleTypes: VehicleType[];
   maxVehicleHeightCm: number | null;
   maxVehicleSize: VehicleSize | null;
+  bayWidthCm: number | null;
+  bayLengthCm: number | null;
+  minStayMinutes: number | null;
+  maxStayMinutes: number | null;
+  advanceDays: number | null;
   /** Which gate, public before booking. The detailed instructions are not. */
   entryPoint: string | null;
-  /** The host's own rules ("No commercial vehicles"). */
+  entryMethod: EntryMethod | null;
+  /** The host's additional details ("Suitable for sedans and compact SUVs"). */
   rules: string | null;
   photos: SpotPhoto[];
   pricing: SpotPricingRow[];
@@ -533,7 +555,8 @@ export interface SavedSpot {
   id: string;
   name: string;
   city: string | null;
-  addressLine: string | null;
+  societyName: string | null;
+  area: string | null;
   spaceType: SpaceType | null;
   amenities: Amenity[];
   coverPhotoUrl: string | null;
@@ -554,7 +577,8 @@ export interface SpotPhoto {
 export interface SpotPricingRow {
   id: string;
   vehicleType: VehicleType;
-  pricePerHour: string;
+  /** Null when the host doesn't rent by the hour. */
+  pricePerHour: string | null;
   pricePerDay: string | null;
   pricePerMonth: string | null;
 }
@@ -564,8 +588,16 @@ export interface SpotListing {
   name: string;
   venueName: string;
   spaceType: SpaceType | null;
+  description: string | null;
   status: SpotListingStatus;
+  /** Composed by the API from building, society and street. */
   addressLine: string | null;
+  societyName: string | null;
+  building: string | null;
+  street: string | null;
+  area: string | null;
+  /** When the host placed the pin on the map; a search result doesn't count. */
+  pinConfirmedAt: string | null;
   city: string | null;
   state: string | null;
   pincode: string | null;
@@ -575,18 +607,38 @@ export interface SpotListing {
   accessInstructions: string | null;
   /** Public before booking ("Blue gate on the lane behind SBI"). */
   entryPoint: string | null;
+  entryMethod: EntryMethod | null;
+  /** Private until paid, like the instructions. */
+  bayNumber: string | null;
+  parkingMarker: string | null;
   amenities: Amenity[];
+  amenityNote: string | null;
+  /** CAR / BIKE; empty on listings made before Parking details existed. */
+  vehicleTypes: VehicleType[];
   maxVehicleHeightCm: number | null;
   maxVehicleSize: VehicleSize | null;
-  /** The host's own rules, public. */
+  bayWidthCm: number | null;
+  bayLengthCm: number | null;
+  minStayMinutes: number | null;
+  maxStayMinutes: number | null;
+  advanceDays: number | null;
+  /** Additional details, public. */
   rules: string | null;
   /** Set while new bookings are paused. */
   bookingsPausedAt: string | null;
   ownershipDocUrl: string | null;
+  ownershipDocType: OwnershipDocType | null;
+  permissionBasis: PermissionBasis | null;
+  inSociety: boolean | null;
+  societyPermissionAt: string | null;
   warrantyAcceptedAt: string | null;
   submittedAt: string | null;
+  /** An admin accepted the document; with an active payout account the listing goes live. */
+  docApprovedAt: string | null;
   reviewedAt: string | null;
   rejectionReason: string | null;
+  /** The wizard step a rejection is about. */
+  rejectionSection: string | null;
   createdAt: string;
   photos: SpotPhoto[];
   pricing: SpotPricingRow[];
@@ -597,6 +649,14 @@ export interface SpotListing {
 export interface SpotReadiness {
   ready: boolean;
   missing: string[];
+  /** The same, each with the wizard step that fixes it. */
+  items: { step: string; message: string }[];
+}
+
+/** What saving new hours reports: paid stays and monthly days they no longer cover (kept, never cancelled). */
+export interface OutsideHours {
+  bookings: number;
+  monthlyDays: number;
 }
 
 export interface PresignedUpload {
@@ -771,7 +831,7 @@ export interface MonthlyReservation {
   payment: { status: PaymentStatus; amount: string } | null;
   refund: { amount: string; status: RefundStatus; policy: string; createdAt: string } | null;
   /** Detail only: released once paid. */
-  access?: { accessInstructions: string | null } | null;
+  access?: BookingAccess | null;
 }
 
 export interface MonthlyCancellationQuote {
@@ -780,4 +840,11 @@ export interface MonthlyCancellationQuote {
   rule: "FULL" | "UNUSED_MONTHS" | "NOTHING_PAID" | null;
   refundAmount: string;
   unusedMonths: number | null;
+}
+
+/** How to get in, released with payment: the instructions, the bay and how to recognise it. */
+export interface BookingAccess {
+  accessInstructions: string | null;
+  bayNumber: string | null;
+  parkingMarker: string | null;
 }

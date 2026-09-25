@@ -44,10 +44,10 @@ export default function PinScreen() {
     <PhoneFrame>
       <View style={s.screen}>
         <View style={[s.header, { paddingTop: insets.top + 16 }]}>
-          <Text style={s.title}>Drop the pin</Text>
+          <Text style={s.title}>Exact parking location</Text>
           <Text style={s.sub}>
-            Slide the map so the pin sits on the gate or entrance drivers should
-            head for — not the middle of the building.
+            Place the pin exactly where drivers should park. Slide the map so it
+            sits on the gate or the bay — not the middle of the building.
           </Text>
         </View>
 

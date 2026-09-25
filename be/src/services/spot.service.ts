@@ -9,7 +9,9 @@ import * as reviewService from "./review.service.js";
 import * as monthlyService from "./monthly.service.js";
 import { addMonths, termOverlapsRange } from "../lib/monthly.js";
 import { termClaiming, termsTouching } from "../lib/monthly-guard.js";
-import { addDays, venueDate } from "../lib/venue-calendar.js";
+import { addDays, startOfVenueDay, venueDate } from "../lib/venue-calendar.js";
+import { bookingRuleSelect, ruleViolation, startTooFar } from "../lib/booking-rules.js";
+import { approximate } from "../lib/location-privacy.js";
 
 const KM_PER_LAT_DEGREE = 111.045;
 
@@ -40,6 +42,8 @@ export interface NearbyFilters {
   /** Monthly only: the term's first day (venue date) and length. */
   startDate?: string;
   months?: number;
+  /** The driver's car size: spaces that fit a smaller car are left out. */
+  vehicleSize?: string;
   /** Every one of these must be offered. */
   amenities?: string[];
   /** Any of these. */
@@ -57,15 +61,19 @@ export interface NearbySpot {
   name: string;
   venueName: string;
   city: string;
-  /** DRIVEWAY / GARAGE / CAR_PARK / OTHER. */
+  /** The locality, public ("Kothrud"). */
+  area: string | null;
+  /** DRIVEWAY / GARAGE / CAR_PARK / PRIVATE_LOT / SOCIETY / COMMERCIAL / OTHER. */
   spaceType: string | null;
   /** The first photo in the host's order, or null when there is none. */
   coverPhotoUrl: string | null;
+  /** Rounded to ~100 m (lib/location-privacy); the exact pin comes with payment. */
   latitude: number;
   longitude: number;
+  /** From the exact point. */
   distanceKm: number;
-  /** The cheapest of the spot's rates -- "from", when there is more than one. */
-  pricePerHour: number;
+  /** The cheapest of the spot's rates -- "from", when there is more than one. Null when it isn't rented by the hour. */
+  pricePerHour: number | null;
   pricePerDay: number | null;
   pricePerMonth: number | null;
   /** What this stay costs at the cheapest rate; null on a monthly search. */
@@ -144,10 +152,20 @@ export async function nearby(filters: NearbyFilters, viewerId: string): Promise<
     filters.radiusKm /
     (KM_PER_LAT_DEGREE * Math.max(Math.cos((filters.latitude * Math.PI) / 180), 0.01));
 
+  // A stay needs an hourly or a daily rate; a monthly-only space answers only
+  // monthly searches.
   const pricingFilter = Prisma.sql`
     ${filters.vehicleType ? Prisma.sql`AND sp."vehicleType" = ${filters.vehicleType}` : Prisma.empty}
-    ${monthly ? Prisma.sql`AND sp."pricePerMonth" IS NOT NULL` : Prisma.empty}
+    ${monthly ? Prisma.sql`AND sp."pricePerMonth" IS NOT NULL` : Prisma.sql`AND (sp."pricePerHour" IS NOT NULL OR sp."pricePerDay" IS NOT NULL)`}
   `;
+
+  // SUVs and vans are sizes of car: a space fits the driver's car when it has
+  // no size limit or its limit is at least that size.
+  const sizes = ["HATCHBACK", "SEDAN", "SUV", "VAN"];
+  const sizeFilter =
+    filters.vehicleSize && filters.vehicleType !== "BIKE"
+      ? Prisma.sql`AND (l."maxVehicleSize" IS NULL OR array_position(${sizes}::text[], l."maxVehicleSize") >= array_position(${sizes}::text[], ${filters.vehicleSize}::text))`
+      : Prisma.empty;
 
   const open24x7 = Prisma.sql`(
     SELECT COUNT(DISTINCT h."dayOfWeek") FROM "HostAvailability" h
@@ -159,6 +177,7 @@ export async function nearby(filters: NearbyFilters, viewerId: string): Promise<
     ${filters.amenities?.length ? Prisma.sql`AND l."amenities" @> ${filters.amenities}::text[]` : Prisma.empty}
     ${filters.spaceTypes?.length ? Prisma.sql`AND l."spaceType" = ANY(${filters.spaceTypes}::text[])` : Prisma.empty}
     ${filters.open24x7 ? Prisma.sql`AND ${open24x7}` : Prisma.empty}
+    ${sizeFilter}
     ${
       filters.minRating !== undefined
         ? Prisma.sql`AND (
@@ -188,6 +207,7 @@ export async function nearby(filters: NearbyFilters, viewerId: string): Promise<
       l."name",
       l."venueName",
       l."city",
+      l."area",
       l."spaceType",
       l."amenities",
       -- A correlated subquery rather than a join: a join would multiply the
@@ -198,8 +218,8 @@ export async function nearby(filters: NearbyFilters, viewerId: string): Promise<
         ORDER BY p."position" ASC, p."createdAt" ASC
         LIMIT 1
       ) AS "coverPhotoUrl",
-      l."latitude"::float8 AS "latitude",
-      l."longitude"::float8 AS "longitude",
+      round(l."latitude", 3)::float8 AS "latitude",
+      round(l."longitude", 3)::float8 AS "longitude",
       ${distance} AS "distanceKm",
       MIN(sp."pricePerHour")::float8 AS "pricePerHour",
       MIN(sp."pricePerDay")::float8 AS "pricePerDay",
@@ -252,6 +272,7 @@ export async function nearby(filters: NearbyFilters, viewerId: string): Promise<
     where: { id: { in: rows.map((row) => row.id) } },
     select: {
       id: true,
+      ...bookingRuleSelect,
       availability: {
         where: { isActive: true },
         select: { dayOfWeek: true, startMinute: true, endMinute: true },
@@ -290,9 +311,14 @@ export async function nearby(filters: NearbyFilters, viewerId: string): Promise<
     if (!term || unavailable.has(row.id)) continue;
 
     if (!monthly && !windowsCover(term.availability, start, end)) continue;
+    // The host's own rules: an hourly stay's length and how far ahead; a
+    // term's start (monthly.service checks the same on reserving).
+    if (!monthly && ruleViolation(term, { startsAt: start, minutes })) continue;
+    if (monthly && startTooFar(term, startOfVenueDay(filters.startDate ?? venueDate(new Date())))) continue;
 
     const rates = term.pricing.filter((rate) => !filters.vehicleType || rate.vehicleType === filters.vehicleType);
     const total = monthly ? null : cheapestStay(rates, minutes);
+    if (!monthly && total === null) continue;
 
     const rated = ratings.get(row.id);
     spots.push({
@@ -319,8 +345,10 @@ export async function nearby(filters: NearbyFilters, viewerId: string): Promise<
  * bookable" and "does not exist" answer identically.
  *
  * `accessInstructions` is deliberately absent: it is the gate code and the
- * guard's name, worth money, and arrives with a paid booking. The entry point
- * ("Main gate, Karve Road") is public, because a driver needs it to decide.
+ * guard's name, worth money, and arrives with a paid booking -- as do the
+ * street line, the house number, the bay and its marker, and the exact pin
+ * (lib/location-privacy). The society, area, entry point ("Main gate, Karve
+ * Road") and entry method are public, because a driver needs them to decide.
  * The host is a first name and an initial -- enough to recognise them at the
  * gate, not enough to find them.
  */
@@ -332,16 +360,24 @@ export async function getPublic(listingId: string, viewerId: string) {
       name: true,
       venueName: true,
       spaceType: true,
-      addressLine: true,
+      description: true,
+      societyName: true,
+      area: true,
       city: true,
       state: true,
       pincode: true,
       latitude: true,
       longitude: true,
       amenities: true,
+      amenityNote: true,
+      vehicleTypes: true,
       maxVehicleHeightCm: true,
       maxVehicleSize: true,
+      bayWidthCm: true,
+      bayLengthCm: true,
+      ...bookingRuleSelect,
       entryPoint: true,
+      entryMethod: true,
       rules: true,
       photos: {
         select: { id: true, url: true, position: true },
@@ -374,6 +410,10 @@ export async function getPublic(listingId: string, viewerId: string) {
 
   return {
     ...rest,
+    latitude: approximate(rest.latitude),
+    longitude: approximate(rest.longitude),
+    /** The pin is rounded until the driver has paid (lib/location-privacy). */
+    locationApproximate: true,
     open24x7:
       new Set(
         spot.availability.filter((w) => w.startMinute === 0 && w.endMinute >= 1440).map((w) => w.dayOfWeek)
@@ -402,6 +442,7 @@ export async function quote(
     where: { id: listingId, ...BOOKABLE_SPOT },
     select: {
       bookingsPausedAt: true,
+      ...bookingRuleSelect,
       availability: {
         where: { isActive: true },
         select: { dayOfWeek: true, startMinute: true, endMinute: true },
@@ -417,12 +458,17 @@ export async function quote(
 
   const rate = spot.pricing.find((row) => row.vehicleType === input.vehicleType);
   const { platformFee, taxAmount } = driverFees();
+  const broken = ruleViolation(spot, { startsAt: input.startsAt, minutes });
 
   let reason: string | null = null;
   if (spot.bookingsPausedAt) {
     reason = "This space isn't taking new bookings right now.";
   } else if (!rate) {
     reason = "This space doesn't take that vehicle.";
+  } else if (!rate.pricePerHour && !rate.pricePerDay) {
+    reason = "This space is only rented monthly.";
+  } else if (broken) {
+    reason = broken;
   } else if (!windowsCover(spot.availability, input.startsAt, input.endsAt)) {
     reason = "The space isn't open for all of those hours.";
   } else {
@@ -457,7 +503,7 @@ export async function quote(
     minutes,
     basis: price?.basis ?? null,
     /** What the stay would cost on the hourly rate alone, to show the saving. */
-    hourlyAmount: rate ? rate.pricePerHour.mul(minutes).div(60).toDecimalPlaces(2).toString() : null,
+    hourlyAmount: rate?.pricePerHour ? rate.pricePerHour.mul(minutes).div(60).toDecimalPlaces(2).toString() : null,
     parking: parking.toString(),
     platformFee: platformFee.toString(),
     taxAmount: taxAmount.toString(),

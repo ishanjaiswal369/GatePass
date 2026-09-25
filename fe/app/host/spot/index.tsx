@@ -1,5 +1,7 @@
-import { Redirect, router } from "expo-router";
+import { Redirect, router, useLocalSearchParams } from "expo-router";
+import { useEffect, useState } from "react";
 import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, View } from "react-native";
+import { spotListingApi } from "@/api";
 import {
   Button,
   CheckIcon,
@@ -10,49 +12,67 @@ import {
   PhoneFrame,
   RestoringScreen,
   SectionHeader,
-  formatMinute,
+  StatusChip,
 } from "@/components/ui";
-import { firstStepPath } from "@/constants/wizard";
+import { WIZARD_STEPS, firstStepPath, isWizardStep, stepHref, type WizardStep } from "@/constants/wizard";
 import { useSpotDraft } from "@/hooks/useSpotDraft";
+import { groupByHours } from "@/lib/hours";
+import { listingStatus } from "@/lib/listingRules";
+import { rateLine } from "@/lib/money";
 import { colors, radius, space, type } from "@/theme";
 import type { SpotListing } from "@/types/api.types";
 
-const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const SECTION_TITLES: Partial<Record<WizardStep, string>> = {
+  type: "Your space",
+  address: "Address",
+  photos: "Photos",
+  details: "Parking details",
+  availability: "Availability",
+  pricing: "Pricing",
+  access: "Getting in",
+  documents: "Proof & permission",
+  payout: "Getting paid",
+};
 
 /**
- * Where the listing stands once it has left the host's hands.
+ * Where a listing stands, once it's more than a draft.
  *
- * This screen deliberately holds no introduction and no checklist. The Host
- * tab owns that, and having it here too meant a host met the same "Rent out
- * your space" page twice on the way in, with no way to tell the two apart.
- *
- * So anything still editable redirects straight into the wizard, and what is
- * left is the two things the wizard cannot show: what happened after Submit,
- * and what was submitted. It used to show only the first, on an otherwise
- * empty screen with nothing but a back chevron -- a host who had just
- * finished nine steps was shown one paragraph and no way onward.
+ * A draft doesn't stop here: it resumes at the first step that still needs
+ * something (from the API's readiness list), not at step 1 -- a host who
+ * finished six steps last week shouldn't page through them again. What is
+ * left is what the wizard can't show: what happened after Submit (under
+ * review, approved and waiting on payout, live), a rejection with its reason
+ * and the step to fix, and what was submitted.
  */
 export default function SpotStatusScreen() {
   const { spot, loading, error, isRestoring, token } = useSpotDraft();
+  const { submitted } = useLocalSearchParams<{ submitted?: string }>();
+  const [resume, setResume] = useState<string | null>(null);
+
+  // A draft: find the first step with something missing.
+  useEffect(() => {
+    if (!token || !spot || spot.status !== "DRAFT") return;
+    spotListingApi
+      .readiness(token, spot.id)
+      .then(({ items }) => {
+        const steps = items.map((i) => i.step).filter(isWizardStep);
+        const first = WIZARD_STEPS.find((step) => steps.includes(step)) ?? "review";
+        setResume(stepHref(first, spot.id));
+      })
+      .catch(() => setResume(firstStepPath(spot.id)));
+  }, [token, spot]);
 
   if (isRestoring || loading) return <RestoringScreen />;
   if (!token) return <Redirect href="/" />;
 
-  // No spot yet, or one the host can still change: there is nothing to report,
-  // so go to the step that continues it. spot.id (when there is one) carries
-  // forward so the wizard resumes this specific draft.
-  if (!error && (!spot || spot.status === "DRAFT" || spot.status === "REJECTED")) {
-    return <Redirect href={firstStepPath(spot?.id)} />;
-  }
+  // No spot yet: the first step creates one.
+  if (!error && !spot) return <Redirect href={firstStepPath()} />;
+  if (spot?.status === "DRAFT") return resume ? <Redirect href={resume} /> : <RestoringScreen />;
 
   return (
     <PhoneFrame>
       <View style={s.screen}>
-        <SectionHeader
-          title="Your listing"
-          sub={spot?.name}
-          onBack={() => router.replace("/host")}
-        />
+        <SectionHeader title="Your listing" sub={spot?.name} onBack={() => router.replace("/host")} />
 
         <ScrollView contentContainerStyle={s.body}>
           {error ? <ErrorNotice message={error} /> : null}
@@ -61,19 +81,14 @@ export default function SpotStatusScreen() {
             <ActivityIndicator color={colors.ink} style={s.loader} />
           ) : (
             <>
-              <StatusCard spot={spot} />
+              <StatusCard spot={spot} justSubmitted={submitted === "1"} />
               <SpotSummary spot={spot} />
             </>
           )}
 
-          {/* Always, not only when published. This is the end of the wizard,
-              and the Host tab is the only place left to go from it -- the
-              back chevron alone left the screen reading as a dead end. */}
-          <Button
-            label="Back to your spots"
-            variant="ghost"
-            onPress={() => router.replace("/host")}
-          />
+          {/* Always: this is where the wizard ends, and the Host tab is the
+              only place left to go from it. */}
+          <Button label="Back to your spaces" variant="ghost" onPress={() => router.replace("/host")} />
         </ScrollView>
       </View>
     </PhoneFrame>
@@ -87,143 +102,105 @@ export default function SpotStatusScreen() {
  * who is told only about the document reads an activated payout account as
  * the listing being stuck.
  */
-type StatusCopy = {
-  tone: "neutral" | "good" | "warn";
-  title: string;
-  body: string;
-  steps: string[];
-};
+function StatusCard({ spot, justSubmitted }: { spot: SpotListing; justSubmitted: boolean }) {
+  const chip = listingStatus(spot);
 
-function StatusCard({ spot }: { spot: SpotListing }) {
-  // Partial because the editable statuses never reach this screen -- they are
-  // redirected into the wizard above -- and COMPLETED has no story to tell a
-  // host yet. The fallback covers all of them.
-  const table: Partial<Record<SpotListing["status"], StatusCopy>> = {
-    PENDING_REVIEW: {
-      tone: "neutral",
-      title: "With us for review",
-      body: "Two things have to clear before your spot goes live. You will get an email either way.",
-      steps: [
-        "We check the ownership proof you attached.",
-        "Your payout account is verified, so you can be paid.",
-      ],
-    },
-    PUBLISHED: {
-      tone: "good",
-      title: "Your spot is live",
-      body: "Drivers nearby can find and book it now, during the hours you set.",
-      steps: [],
-    },
-    ONGOING: {
-      tone: "good",
-      title: "Your spot is live",
-      body: "Drivers nearby can find and book it now, during the hours you set.",
-      steps: [],
-    },
-    SUSPENDED: {
-      tone: "warn",
-      title: "Your spot is paused",
-      body: spot.rejectionReason ?? "It is offline for now. Contact support to put it back online.",
-      steps: [],
-    },
-    CANCELLED: {
-      tone: "warn",
-      title: "This spot was removed",
-      body: "It no longer appears in search. Add a new spot from the Host tab to start again.",
-      steps: [],
-    },
-  };
-
-  const copy: StatusCopy = table[spot.status] ?? {
-    tone: "neutral",
-    title: spot.status,
-    body: "",
-    steps: [],
-  };
-
-  return (
-    <View
-      style={[
-        s.status,
-        copy.tone === "good" && s.statusGood,
-        copy.tone === "warn" && s.statusWarn,
-      ]}
-    >
-      <View style={s.statusHead}>
-        {copy.tone === "good" ? (
-          <CheckIcon color={colors.success} size={16} />
-        ) : copy.tone === "warn" ? (
-          <InfoIcon color={colors.devInk} size={16} />
-        ) : (
-          <ClockIcon color={colors.inkMuted} size={16} />
-        )}
-        <Text style={s.statusTitle}>{copy.title}</Text>
-      </View>
-
-      <Text style={s.statusBody}>{copy.body}</Text>
-
-      {copy.steps.map((step) => (
-        <View key={step} style={s.step}>
-          <View style={s.stepDot} />
-          <Text style={s.stepText}>{step}</Text>
+  if (spot.status === "REJECTED") {
+    const section = isWizardStep(spot.rejectionSection) ? spot.rejectionSection : null;
+    return (
+      <View style={[s.status, s.statusBad]}>
+        <View style={s.statusHead}>
+          <InfoIcon color="#b91c1c" size={16} />
+          <Text style={[s.statusTitle, s.bad]}>Your listing needs changes</Text>
         </View>
-      ))}
+        <StatusChip label="REJECTED" tone="danger" />
+        <Text style={s.statusBody}>{spot.rejectionReason ?? "Update the listing and submit it again."}</Text>
+        {section ? <DataRow label="Section" value={SECTION_TITLES[section] ?? section} /> : null}
+        <Button
+          label={section === "documents" ? "Replace document" : section ? `Fix ${SECTION_TITLES[section]?.toLowerCase()}` : "Edit listing"}
+          onPress={() => router.push(stepHref(section ?? "type", spot.id))}
+        />
+        <Button label="Review and resubmit" variant="ghost" onPress={() => router.push(stepHref("review", spot.id))} />
+      </View>
+    );
+  }
+
+  if (spot.status === "PENDING_REVIEW") {
+    const approved = Boolean(spot.docApprovedAt);
+    return (
+      <View style={[s.status, approved && s.statusGood]}>
+        <View style={s.statusHead}>
+          {justSubmitted || approved ? <CheckIcon color="#166534" size={16} /> : <ClockIcon color={colors.inkMuted} size={16} />}
+          <Text style={s.statusTitle}>
+            {approved ? "Listing approved" : justSubmitted ? "Listing submitted" : "Your listing is being reviewed"}
+          </Text>
+        </View>
+        <StatusChip label={approved ? "APPROVED" : "UNDER REVIEW"} tone={chip.tone} />
+        <Text style={s.statusBody}>
+          {approved
+            ? "Your document has been approved. Your listing goes live as soon as your payout account is active."
+            : justSubmitted
+              ? "Your parking space has been submitted for verification. We'll review your information and notify you when your listing is approved."
+              : "We'll review your information and notify you when your listing is approved."}
+        </Text>
+        <Step done={approved} text="We check the ownership proof you attached." />
+        <Step done={false} text="Your payout account is verified, so you can be paid." />
+      </View>
+    );
+  }
+
+  const live = spot.status === "PUBLISHED" || spot.status === "ONGOING";
+  return (
+    <View style={[s.status, live && s.statusGood, spot.status === "SUSPENDED" && s.statusBad]}>
+      <View style={s.statusHead}>
+        {live ? <CheckIcon color="#166534" size={16} /> : <InfoIcon color={colors.ink} size={16} />}
+        <Text style={s.statusTitle}>{live ? "Your listing is live" : spot.status === "SUSPENDED" ? "Your listing is suspended" : "This listing was removed"}</Text>
+      </View>
+      <StatusChip label={chip.label.toUpperCase()} tone={chip.tone} />
+      <Text style={s.statusBody}>
+        {live
+          ? "Drivers nearby can find and book it during the hours you set."
+          : spot.status === "SUSPENDED"
+            ? spot.rejectionReason ?? "It's offline for now. Contact support to put it back online."
+            : "It no longer appears in search. Add a new space from the Host tab to start again."}
+      </Text>
+      {live ? <Button label="Manage listing" onPress={() => router.replace({ pathname: "/host/listing/[id]", params: { id: spot.id } })} /> : null}
     </View>
   );
 }
 
-/** What was sent, so the host can check it without reopening nine steps. */
+function Step({ done, text }: { done: boolean; text: string }) {
+  return (
+    <View style={s.step}>
+      {done ? <CheckIcon color="#166534" size={14} /> : <View style={s.stepDot} />}
+      <Text style={s.stepText}>{text}</Text>
+    </View>
+  );
+}
+
+/** What was sent, so the host can check it without reopening ten steps. */
 function SpotSummary({ spot }: { spot: SpotListing }) {
-  const open = spot.availability.filter((window) => window.isActive);
+  const hours = groupByHours(spot.availability.filter((window) => window.isActive));
 
   return (
     <View style={s.card}>
-      {spot.photos.length > 0 ? (
-        <Image
-          source={{ uri: spot.photos[0].url }}
-          style={s.cover}
-          resizeMode="cover"
-        />
-      ) : null}
+      {spot.photos.length > 0 ? <Image source={{ uri: spot.photos[0].url }} style={s.cover} resizeMode="cover" /> : null}
 
       <Text style={s.cardHeading}>What you submitted</Text>
 
       {spot.addressLine ? (
-        <DataRow
-          label="Address"
-          value={[spot.addressLine, spot.city, spot.pincode]
-            .filter(Boolean)
-            .join(", ")}
-        />
+        <DataRow label="Address" value={[spot.addressLine, spot.area, spot.city, spot.pincode].filter(Boolean).join(", ")} />
       ) : null}
 
-      {spot.pricing.length > 0 ? (
-        <DataRow
-          label="Rates"
-          value={spot.pricing
-            .map(
-              (rate) =>
-                `${rate.vehicleType === "CAR" ? "Car" : "Bike"} ₹${Number(rate.pricePerHour)}/hr`
-            )
-            .join("  ·  ")}
-        />
-      ) : null}
+      {spot.pricing.map((rate) => (
+        <DataRow key={rate.id} label={rate.vehicleType === "BIKE" ? "Bikes" : "Cars"} value={rateLine(rate)} />
+      ))}
 
       <DataRow label="Photos" value={`${spot.photos.length}`} />
 
-      {open.length > 0 ? (
-        <View style={s.hours}>
-          <Text style={s.hoursLabel}>Open</Text>
-          {open.map((window) => (
-            <Text key={window.id} style={s.hoursRow}>
-              {DAY_LABELS[window.dayOfWeek]}{" "}
-              {window.startMinute === 0 && window.endMinute >= 1440
-                ? "all day"
-                : `${formatMinute(window.startMinute)}–${formatMinute(window.endMinute)}`}
-            </Text>
-          ))}
-        </View>
-      ) : null}
+      {hours.map((row) => (
+        <DataRow key={row.label} label={row.label} value={row.hours} />
+      ))}
     </View>
   );
 }
@@ -240,19 +217,14 @@ const s = StyleSheet.create({
     borderColor: colors.border,
     backgroundColor: colors.canvas,
   },
-  statusGood: { borderColor: colors.success, backgroundColor: "#f0fdf4" },
-  statusWarn: { borderColor: colors.devBorder, backgroundColor: colors.devSurface },
+  statusGood: { borderColor: "#86efac", backgroundColor: "#f0fdf4" },
+  statusBad: { borderColor: "#fecaca", backgroundColor: colors.dangerSurface },
   statusHead: { flexDirection: "row", alignItems: "center", gap: space.sm },
   statusTitle: { fontSize: 16, fontWeight: "700", color: colors.ink },
+  bad: { color: "#b91c1c" },
   statusBody: { fontSize: 13, lineHeight: 20, color: colors.inkMuted },
-  step: { flexDirection: "row", gap: space.md, alignItems: "flex-start" },
-  stepDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: colors.accent,
-    marginTop: 7,
-  },
+  step: { flexDirection: "row", gap: space.md, alignItems: "center" },
+  stepDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.accent, marginHorizontal: 4 },
   stepText: { flex: 1, fontSize: 13, lineHeight: 19, color: colors.inkMuted },
   card: {
     gap: space.sm,
@@ -262,20 +234,6 @@ const s = StyleSheet.create({
     borderRadius: radius.md,
     padding: space.lg,
   },
-  cover: {
-    width: "100%",
-    aspectRatio: 16 / 9,
-    borderRadius: radius.sm,
-    backgroundColor: colors.border,
-    marginBottom: space.xs,
-  },
-  cardHeading: {
-    ...type.label,
-    color: colors.inkMuted,
-    textTransform: "uppercase",
-    letterSpacing: 0.6,
-  },
-  hours: { gap: 2, paddingTop: space.sm },
-  hoursLabel: { fontSize: 13, color: colors.inkMuted },
-  hoursRow: { fontSize: 14, fontWeight: "600", color: colors.ink },
+  cover: { width: "100%", aspectRatio: 16 / 9, borderRadius: radius.sm, backgroundColor: colors.border, marginBottom: space.xs },
+  cardHeading: { ...type.label, color: colors.inkMuted, textTransform: "uppercase", letterSpacing: 0.6 },
 });

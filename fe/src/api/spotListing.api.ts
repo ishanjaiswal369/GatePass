@@ -1,6 +1,10 @@
 import type { Amenity, VehicleSize } from "@/constants/enums";
 import type {
+  EntryMethod,
+  OutsideHours,
+  OwnershipDocType,
   PayoutAccount,
+  PermissionBasis,
   PresignedUpload,
   SpaceType,
   SpotListing,
@@ -45,7 +49,7 @@ export const deleteSpot = (token: string, id: string) =>
 export const saveType = (
   token: string,
   id: string,
-  input: { name: string; venueName: string; spaceType: SpaceType }
+  input: { name: string; venueName: string; spaceType: SpaceType; description?: string | null }
 ) =>
   request<SpotListing>(`/host/spots/${id}/type`, {
     method: "PATCH",
@@ -57,13 +61,18 @@ export const saveAddress = (
   token: string,
   id: string,
   input: {
-    addressLine: string;
+    societyName: string | null;
+    building: string | null;
+    street: string | null;
+    area: string;
     city: string;
     state: string;
     pincode: string;
     latitude: number;
     longitude: number;
     googlePlaceId?: string;
+    /** True once the host placed the pin on the map themselves. */
+    pinConfirmed: boolean;
   }
 ) =>
   request<SpotListing>(`/host/spots/${id}/address`, {
@@ -137,7 +146,14 @@ export const saveOwnershipDocument = (token: string, id: string, url: string) =>
 export const saveTerms = (
   token: string,
   id: string,
-  input: { accessInstructions?: string; entryPoint?: string; warrantyAccepted?: true }
+  input: {
+    accessInstructions?: string;
+    entryPoint?: string;
+    warrantyAccepted?: true;
+    entryMethod?: EntryMethod;
+    bayNumber?: string | null;
+    parkingMarker?: string | null;
+  }
 ) =>
   request<SpotListing>(`/host/spots/${id}/terms`, {
     method: "PATCH",
@@ -150,16 +166,23 @@ export const saveAvailability = (
   id: string,
   windows: { dayOfWeek: number; startMinute: number; endMinute: number }[]
 ) =>
-  request<SpotListing>(`/host/spots/${id}/availability`, {
+  request<SpotListing & { outsideHours: OutsideHours }>(`/host/spots/${id}/availability`, {
     method: "PUT",
     body: { windows },
     token,
   });
 
+/** Booking rules: shortest and longest stay, how far ahead. `null` = no rule of the host's own. */
+export const saveBookingRules = (
+  token: string,
+  id: string,
+  input: { minStayMinutes: number | null; maxStayMinutes: number | null; advanceDays: number | null }
+) => request<SpotListing>(`/host/spots/${id}/booking-rules`, { method: "PATCH", body: input, token });
+
 export const savePricing = (
   token: string,
   id: string,
-  rates: { vehicleType: VehicleType; pricePerHour: number; pricePerDay?: number; pricePerMonth?: number }[]
+  rates: { vehicleType: VehicleType; pricePerHour?: number; pricePerDay?: number; pricePerMonth?: number }[]
 ) =>
   request<SpotListing>(`/host/spots/${id}/pricing`, {
     method: "PATCH",
@@ -194,7 +217,34 @@ export const submitPayoutAccount = (
     token,
   });
 
-/** Wizard: what the space offers. Allowed on a live space too. */
+/**
+ * Parking details: covered or open, amenities, which vehicles, what fits.
+ * Taking a vehicle type away deletes its prices on the server.
+ */
+export const saveDetails = (
+  token: string,
+  id: string,
+  input: {
+    covered: boolean;
+    amenities: Amenity[];
+    amenityNote: string | null;
+    vehicleTypes: ("CAR" | "BIKE")[];
+    maxVehicleSize: VehicleSize | null;
+    maxVehicleHeightCm: number | null;
+    bayWidthCm: number | null;
+    bayLengthCm: number | null;
+    notes: string | null;
+  }
+) => request<SpotListing>(`/host/spots/${id}/details`, { method: "PATCH", body: input, token });
+
+/** Proof & permission: what the document is, owner or owner's permission, and the society's. */
+export const savePermission = (
+  token: string,
+  id: string,
+  input: { ownershipDocType: OwnershipDocType; permissionBasis: PermissionBasis; inSociety: boolean; societyPermission?: true }
+) => request<SpotListing>(`/host/spots/${id}/permission`, { method: "PATCH", body: input, token });
+
+/** Wizard (older): what the space offers. Allowed on a live space too. */
 export const saveFeatures = (token: string, id: string, amenities: Amenity[]) =>
   request<SpotListing>(`/host/spots/${id}/features`, { method: "PATCH", body: { amenities }, token });
 

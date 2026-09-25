@@ -96,7 +96,12 @@ export default function BookingConfirmedScreen() {
               </View>
             ) : null}
 
-            <AccessCard instructions={booking.access?.accessInstructions ?? null} released={booking.access !== null} />
+            <AccessCard
+              instructions={booking.access?.accessInstructions ?? null}
+              bayNumber={booking.access?.bayNumber}
+              parkingMarker={booking.access?.parkingMarker}
+              released={booking.access !== null}
+            />
 
             <Text style={s.remind}>We'll remind you 30 minutes before your parking starts.</Text>
 

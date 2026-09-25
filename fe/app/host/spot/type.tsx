@@ -6,8 +6,10 @@ import { Field, OptionCard, RestoringScreen, WizardShell } from "@/components/ui
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useSpotDraft } from "@/hooks/useSpotDraft";
 import { useWizardBack } from "@/hooks/useWizardBack";
+import { useWizardContinue } from "@/hooks/useWizardContinue";
 import { useSession } from "@/providers/SessionProvider";
 import { TOTAL_STEPS, nextStepPath, stepNumber } from "@/constants/wizard";
+import { NAME_EXAMPLE, nameProblem } from "@/lib/listingRules";
 import { colors, space, type } from "@/theme";
 import type { SpaceType } from "@/types/api.types";
 
@@ -45,22 +47,41 @@ const SPACE_TYPES: {
     label: "Car park bay",
     description: "An allotted bay in a society or commercial car park.",
   },
+  {
+    value: "PRIVATE_LOT",
+    label: "Private parking lot",
+    description: "A privately managed parking area.",
+  },
+  {
+    value: "SOCIETY",
+    label: "Apartment / Society parking",
+    description: "A parking space inside a residential society.",
+  },
+  {
+    value: "COMMERCIAL",
+    label: "Commercial parking",
+    description: "A parking space in a commercial property.",
+  },
 ];
 
 export default function SpaceTypeScreen() {
   const { spot, loading, isRestoring, token } = useSpotDraft();
   const { user, setUser } = useSession();
   const back = useWizardBack("type", spot?.id);
+  const proceed = useWizardContinue("type");
 
   const [spaceType, setSpaceType] = useState<SpaceType | null>(null);
   const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
 
   // Only when editing an existing spot. A new one starts empty, and a `spot`
   // that is null is exactly that -- there is nothing to prefill from.
   useEffect(() => {
     if (!spot) return;
-    setSpaceType(spot.spaceType);
+    // OTHER is only on older listings; asking again is better than keeping it.
+    setSpaceType(spot.spaceType === "OTHER" ? null : spot.spaceType);
     setName(spot.name);
+    setDescription(spot.description ?? "");
   }, [spot]);
 
   const { run: save, busy, error } = useAsyncAction(async () => {
@@ -70,11 +91,12 @@ export default function SpaceTypeScreen() {
       name: name.trim(),
       venueName: spot?.venueName?.trim() || name.trim(),
       spaceType,
+      description: description.trim() || null,
     };
 
     if (spot) {
       await spotListingApi.saveType(token, spot.id, input);
-      router.push(nextStepPath("type", spot.id));
+      proceed(spot);
       return;
     }
 
@@ -94,6 +116,15 @@ export default function SpaceTypeScreen() {
   if (isRestoring || loading) return <RestoringScreen />;
   if (!token) return <Redirect href="/" />;
 
+  const nameIssue = nameProblem(name);
+  const missing = !spaceType
+    ? "Select a parking type to continue."
+    : !name.trim()
+      ? "Name your listing to continue."
+      : nameIssue
+        ? "Fix the listing name to continue."
+        : null;
+
   return (
     <WizardShell
       title="Your space"
@@ -102,12 +133,10 @@ export default function SpaceTypeScreen() {
       totalSteps={TOTAL_STEPS}
       onBack={back}
       onContinue={save}
-      canContinue={Boolean(spaceType && name.trim())}
+      canContinue={missing === null}
       busy={busy}
       error={error}
-      footerNote={
-        spot ? undefined : "Nothing is saved until you continue from here."
-      }
+      footerNote={missing ?? (spot ? undefined : "Nothing is saved until you continue from here. After that, your listing is kept as a draft.")}
     >
       {SPACE_TYPES.map((option) => (
         <OptionCard
@@ -124,11 +153,26 @@ export default function SpaceTypeScreen() {
       </Text>
 
       <Field
-        label="Name this listing"
-        hint="Drivers see this in search. Something like “Covered garage near Kothrud bus stop”."
+        label="Name your listing"
+        placeholder={NAME_EXAMPLE}
+        hint="Choose a clear name that helps drivers identify your parking space."
+        error={nameIssue}
         value={name}
         onChangeText={setName}
-        maxLength={120}
+        maxLength={80}
+        returnKeyType="next"
+      />
+
+      <Field
+        label="Short description"
+        optional
+        placeholder="Covered parking inside a gated residential society."
+        value={description}
+        onChangeText={setDescription}
+        multiline
+        maxLength={300}
+        style={s.description}
+        hint={`Shown to drivers · ${description.length}/300`}
       />
     </WizardShell>
   );
@@ -136,4 +180,5 @@ export default function SpaceTypeScreen() {
 
 const s = StyleSheet.create({
   note: { ...type.caption, color: colors.inkFaint, lineHeight: 18 },
+  description: { minHeight: 72 },
 });

@@ -21,7 +21,8 @@ import { firstStepPath } from "@/constants/wizard";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { clockTime } from "@/lib/booking";
-import { formatRupees } from "@/lib/money";
+import { listingStatus } from "@/lib/listingRules";
+import { formatRupees, rateLine } from "@/lib/money";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, radius, space } from "@/theme";
 import type { HostSummary, PayoutAccount, SpotListing } from "@/types/api.types";
@@ -211,32 +212,28 @@ function TodayCard({ summary }: { summary: HostSummary }) {
 
 /** Where a space stands, in a chip and a line, and the one next step. */
 function statusOf(spot: SpotListing): { label: string; tone: ChipTone; line: string | null } {
+  const { label, tone } = listingStatus(spot);
   switch (spot.status) {
     case "DRAFT":
-      return { label: "Draft", tone: "neutral", line: "Not finished yet" };
+      return { label, tone, line: "Not finished yet — your progress is saved" };
     case "PENDING_REVIEW":
-      return { label: "In review", tone: "warning", line: "Documents being checked · usually 48 hours" };
+      return {
+        label,
+        tone,
+        line: spot.docApprovedAt ? "Goes live once your payout account is active" : "Documents being checked · usually 48 hours",
+      };
     case "REJECTED":
-      return { label: "Not approved", tone: "danger", line: spot.rejectionReason ?? "Edit the listing and submit it again" };
+      return { label, tone, line: spot.rejectionReason ?? "Edit the listing and submit it again" };
     case "SUSPENDED":
-      return { label: "Suspended", tone: "danger", line: spot.rejectionReason ?? "Contact support to put it back" };
+      return { label, tone, line: spot.rejectionReason ?? "Contact support to put it back" };
     default:
-      return spot.bookingsPausedAt
-        ? { label: "Paused", tone: "warning", line: "Not taking new bookings" }
-        : { label: "Active", tone: "success", line: null };
+      return { label, tone, line: spot.bookingsPausedAt ? "Not taking new bookings" : null };
   }
 }
 
 function priceLine(spot: SpotListing): string {
   const rate = spot.pricing.find((row) => row.vehicleType === "CAR") ?? spot.pricing[0];
-  if (!rate) return "Prices not set yet";
-  return [
-    `${formatRupees(rate.pricePerHour)}/hour`,
-    rate.pricePerDay ? `${formatRupees(rate.pricePerDay)}/day` : null,
-    rate.pricePerMonth ? `${formatRupees(rate.pricePerMonth)}/month` : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  return rate ? rateLine(rate) || "Prices not set yet" : "Prices not set yet";
 }
 
 function SpaceCard({
@@ -268,15 +265,15 @@ function SpaceCard({
         </View>
         <View style={s.cta}>
           <Button
-            label={live ? "Manage" : draft ? "Continue" : "View"}
-            variant={live ? "primary" : "ghost"}
+            label={live ? "Manage" : spot.status === "DRAFT" ? "Continue your listing" : spot.status === "REJECTED" ? "Fix and resubmit" : "View"}
+            variant={live || draft ? "primary" : "ghost"}
             onPress={() =>
               router.push(
                 live
                   ? { pathname: "/host/listing/[id]", params: { id: spot.id } }
-                  : draft
-                    ? firstStepPath(spot.id)
-                    : { pathname: "/host/spot", params: { id: spot.id } }
+                  : // The status page resumes a draft at its first unfinished step,
+                    // and shows a rejection's reason and section.
+                    { pathname: "/host/spot", params: { id: spot.id } }
               )
             }
           />

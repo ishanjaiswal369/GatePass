@@ -13,14 +13,14 @@ import {
   RATING_CHOICES,
   type SearchFilters,
 } from "@/lib/searchFilters";
-import { AMENITY_LABELS, SPACE_LABELS } from "@/lib/spotLabels";
+import { AMENITY_LABELS, FILTERABLE_SPACE_TYPES, SPACE_LABELS } from "@/lib/spotLabels";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, radius, space } from "@/theme";
 import type { SpaceType } from "@/types/api.types";
 
 const PRICE_CAPS = [30, 50, 100];
-const TYPES: SpaceType[] = ["DRIVEWAY", "GARAGE", "CAR_PARK", "OTHER"];
-const FEATURES: Amenity[] = ["COVERED", "SECURITY_GUARD", "CCTV", "EV_CHARGING", "WELL_LIT", "WASHROOM"];
+const TYPES: SpaceType[] = FILTERABLE_SPACE_TYPES;
+const FEATURES: Amenity[] = ["COVERED", "SECURITY_GUARD", "CCTV", "GATED", "EV_CHARGING", "WELL_LIT", "EASY_ACCESS", "WASHROOM"];
 
 /**
  * Narrowing a search.

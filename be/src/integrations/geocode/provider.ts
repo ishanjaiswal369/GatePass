@@ -8,6 +8,9 @@
  */
 export interface AddressParts {
   addressLine?: string;
+  /** The road on its own, and the locality ("Kothrud"), when the provider names them. */
+  street?: string;
+  area?: string;
   city?: string;
   state?: string;
   pincode?: string;

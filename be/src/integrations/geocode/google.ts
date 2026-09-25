@@ -371,6 +371,10 @@ function toAddressParts(
     // Empty rather than undefined would blank a field the host filled in by
     // hand, and an address that is only a city genuinely has no street line.
     addressLine: addressLine || undefined,
+    street: pick("route"),
+    // The locality a driver would name: sublocality level 1 in Indian cities
+    // ("Kothrud"), falling back to the neighbourhood.
+    area: pick("sublocality_level_1") ?? pick("sublocality") ?? pick("neighborhood"),
     city,
     state,
     pincode,

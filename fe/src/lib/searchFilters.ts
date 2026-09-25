@@ -34,7 +34,7 @@ export const NO_FILTERS: SearchFilters = {
   minRating: null,
 };
 
-const SPACE_TYPES: SpaceType[] = ["DRIVEWAY", "GARAGE", "CAR_PARK", "OTHER"];
+const SPACE_TYPES: SpaceType[] = ["DRIVEWAY", "GARAGE", "CAR_PARK", "PRIVATE_LOT", "SOCIETY", "COMMERCIAL"];
 
 export function filtersToParams(filters: SearchFilters): Record<string, string> {
   const out: Record<string, string> = {};

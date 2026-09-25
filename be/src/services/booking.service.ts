@@ -1,5 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { Prisma } from "@prisma/client";
+import { bookingRuleSelect, ruleViolation } from "../lib/booking-rules.js";
+import { coarsen } from "../lib/location-privacy.js";
 import { conflict, badRequest, notFound } from "../lib/errors.js";
 import {
   DEFAULT_PAGE_SIZE,
@@ -226,7 +228,14 @@ function canReview(row: BookingRow, phase: BookingPhase): boolean {
 
 function present(row: BookingRow, now = new Date()): BookingView {
   const phase = phaseOf(row, now);
-  return { ...row, phase, effectiveEndsAt: effectiveEnd(row), canReview: canReview(row, phase) };
+  // The street line and exact pin come with payment (lib/location-privacy);
+  // an unpaid hold sees what the public spot page shows.
+  const listing = row.listing && !isPaidFor(row) ? coarsen(row.listing) : row.listing;
+  return { ...row, listing, phase, effectiveEndsAt: effectiveEnd(row), canReview: canReview(row, phase) };
+}
+
+function isPaidFor(row: Pick<BookingRow, "status" | "payment">): boolean {
+  return row.status === "CONFIRMED" || row.status === "COMPLETED" || row.payment?.status === "CAPTURED";
 }
 
 function stripOwner(
@@ -389,6 +398,9 @@ export async function getActiveForDriver(
  */
 export interface BookingAccess {
   accessInstructions: string | null;
+  /** Which bay, and how to recognise it (host onboarding v2). */
+  bayNumber: string | null;
+  parkingMarker: string | null;
 }
 
 export async function getForDriver(
@@ -400,7 +412,10 @@ export async function getForDriver(
     // "does not exist" must be indistinguishable, or booking ids become an
     // enumeration oracle.
     where: { id: bookingId, driverId },
-    select: { ...bookingView, listing: { select: { ...bookingView.listing.select, accessInstructions: true } } },
+    select: {
+      ...bookingView,
+      listing: { select: { ...bookingView.listing.select, accessInstructions: true, bayNumber: true, parkingMarker: true } },
+    },
   });
 
   if (!booking) {
@@ -414,9 +429,9 @@ export async function getForDriver(
   let access: BookingAccess | null = null;
 
   if (listing) {
-    const { accessInstructions, ...shown } = listing;
+    const { accessInstructions, bayNumber, parkingMarker, ...shown } = listing;
     publicListing = shown;
-    access = paid ? { accessInstructions } : null;
+    access = paid ? { accessInstructions, bayNumber, parkingMarker } : null;
   }
 
   return { ...present({ ...rest, listing: publicListing }), access };
@@ -711,6 +726,7 @@ export async function createSpotBooking(
         select: {
           id: true,
           bookingsPausedAt: true,
+          ...bookingRuleSelect,
           pricing: { select: { vehicleType: true, pricePerHour: true, pricePerDay: true } },
           availability: {
             where: { isActive: true },
@@ -750,10 +766,16 @@ export async function createSpotBooking(
         (input.endsAt.getTime() - input.startsAt.getTime()) / 60_000
       );
 
+      // The host's own rules: shortest and longest stay, how far ahead.
+      const broken = ruleViolation(spot, { startsAt: input.startsAt, minutes });
+      if (broken) throw conflict(broken);
+
       // The same price the checkout quoted: the cheaper of hourly and daily,
       // by the minute. Plus GatePass's fee and its GST, fixed now so a later
       // change to the fee never reprices a booking already made.
-      const { amount } = stayPrice(rate, minutes);
+      const price = stayPrice(rate, minutes);
+      if (!price) throw conflict("This space is only rented monthly.");
+      const { amount } = price;
       const { platformFee, taxAmount } = driverFees();
 
       const created = await tx.booking.create({

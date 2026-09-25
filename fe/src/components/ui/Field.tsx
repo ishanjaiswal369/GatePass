@@ -22,6 +22,7 @@ const webFocusReset =
 export function Field({
   label,
   hint,
+  error,
   optional,
   icon,
   focused,
@@ -31,6 +32,8 @@ export function Field({
 }: TextInputProps & {
   label: string;
   hint?: string;
+  /** What's wrong with the value, inline and in red; replaces the hint while set. */
+  error?: string | null;
   /** Marks the label so a blank value never reads as a mistake. */
   optional?: boolean;
   icon?: ReactNode;
@@ -50,6 +53,7 @@ export function Field({
           s.box,
           multiline && s.boxMultiline,
           (focused || hasValue) && s.boxFilled,
+          error ? s.boxError : null,
         ]}
       >
         {icon ? <View style={s.icon}>{icon}</View> : null}
@@ -63,11 +67,21 @@ export function Field({
           multiline={multiline}
           style={[s.input, multiline && s.inputMultiline, webFocusReset, style]}
           placeholderTextColor={colors.inkFaint}
+          // The visible label, as the input's name: without it a screen
+          // reader announces only "text field".
+          accessibilityLabel={label}
+          accessibilityHint={error ?? undefined}
           {...props}
         />
       </View>
 
-      {hint ? <Text style={s.hint}>{hint}</Text> : null}
+      {error ? (
+        <Text style={s.error} accessibilityLiveRegion="polite">
+          {error}
+        </Text>
+      ) : hint ? (
+        <Text style={s.hint}>{hint}</Text>
+      ) : null}
     </View>
   );
 }
@@ -104,4 +118,7 @@ const s = StyleSheet.create({
   },
   inputMultiline: { width: "100%", textAlignVertical: "top" },
   hint: { ...type.caption, color: colors.inkFaint },
+  boxError: { borderColor: colors.danger },
+  // The darker red the app uses for text: #ef4444 is under 4.5:1 on white.
+  error: { ...type.caption, color: "#b91c1c" },
 });

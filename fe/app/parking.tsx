@@ -118,7 +118,12 @@ export default function ParkingScreen() {
               <ParkedCard row={active} now={now} compact />
               <ParkingActions row={active} />
               {isSpotBooking(active) ? (
-                <AccessCard instructions={active.access?.accessInstructions ?? null} released={active.access !== null} />
+                <AccessCard
+                  instructions={active.access?.accessInstructions ?? null}
+                  bayNumber={active.access?.bayNumber}
+                  parkingMarker={active.access?.parkingMarker}
+                  released={active.access !== null}
+                />
               ) : null}
               <View style={s.card}>
                 <DataRow label="Location" value={bookingListing(active)?.addressLine ?? bookingListing(active)?.venueName} />

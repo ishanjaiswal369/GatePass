@@ -1,19 +1,23 @@
-import { Redirect, router } from "expo-router";
+import { Redirect } from "expo-router";
 import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Switch, Text, View } from "react-native";
 import { spotListingApi } from "@/api";
 import {
+  ChevronDownIcon,
+  Field,
   OptionCard,
   RestoringScreen,
   TimeRangeField,
   WizardShell,
   formatMinute,
 } from "@/components/ui";
+import { durationText } from "@/lib/listingRules";
+import type { OutsideHours } from "@/types/api.types";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useSpotDraft } from "@/hooks/useSpotDraft";
 import { useWizardBack } from "@/hooks/useWizardBack";
-import { continueAfter } from "@/lib/wizardFlow";
-import { TOTAL_STEPS, firstStepPath, nextStepPath, stepNumber } from "@/constants/wizard";
+import { useWizardContinue } from "@/hooks/useWizardContinue";
+import { TOTAL_STEPS, firstStepPath, stepNumber } from "@/constants/wizard";
 import { colors, radius, space, type } from "@/theme";
 
 /**
@@ -28,7 +32,18 @@ import { colors, radius, space, type } from "@/theme";
  * spots are. "Different hours on some days" opens a row per day for the
  * garage that is free all Sunday but only evenings midweek -- the API has
  * always stored per-day windows, this is the screen catching up with it.
+ *
+ * Booking rules (shortest and longest stay, how far ahead) are optional and
+ * folded under the hours. New hours never cancel a booking already paid for;
+ * when some fall outside them the screen says how many before moving on.
  */
+
+/** Rule choices in minutes (stays) or days (advance); null = no rule of the host's own. */
+const MIN_CHOICES = [null, 60, 120, 240];
+const MAX_CHOICES = [null, 240, 480, 720, 1440];
+const ADVANCE_CHOICES = [null, 7, 14, 30, 60];
+
+type RuleChoice = number | null | "custom";
 
 const DAYS = [
   { value: 0, label: "Sun", long: "Sunday" },
@@ -64,12 +79,20 @@ function presetFor(days: number[]): Preset {
 export default function AvailabilityScreen() {
   const { spot, loading, isRestoring, token } = useSpotDraft();
   const back = useWizardBack("availability", spot?.id);
+  const proceed = useWizardContinue("availability");
 
   const [preset, setPreset] = useState<Preset>("always");
   const [days, setDays] = useState<number[]>(ALL_DAYS);
   const [shared, setShared] = useState<Hours>(ALL_DAY);
   const [perDay, setPerDay] = useState(false);
   const [dayHours, setDayHours] = useState<Record<number, Hours>>({});
+  const [minStay, setMinStay] = useState<RuleChoice>(null);
+  const [minCustom, setMinCustom] = useState("");
+  const [maxStay, setMaxStay] = useState<RuleChoice>(null);
+  const [maxCustom, setMaxCustom] = useState("");
+  const [advance, setAdvance] = useState<number | null>(null);
+  const [rulesOpen, setRulesOpen] = useState(false);
+  const [outside, setOutside] = useState<OutsideHours | null>(null);
 
   /**
    * Rebuilds the controls from what the server holds.
@@ -80,6 +103,20 @@ export default function AvailabilityScreen() {
    * PUT does anyway, and why the screen has to show the truth it is about to
    * overwrite rather than a blank default.
    */
+  // The rules, read back as a preset or a custom number of hours.
+  useEffect(() => {
+    if (!spot) return;
+    const choice = (minutes: number | null, presets: (number | null)[], setCustom: (v: string) => void): RuleChoice => {
+      if (presets.includes(minutes)) return minutes;
+      setCustom(String((minutes ?? 0) / 60));
+      return "custom";
+    };
+    setMinStay(choice(spot.minStayMinutes, MIN_CHOICES, setMinCustom));
+    setMaxStay(choice(spot.maxStayMinutes, MAX_CHOICES, setMaxCustom));
+    setAdvance(spot.advanceDays);
+    setRulesOpen(Boolean(spot.minStayMinutes || spot.maxStayMinutes || spot.advanceDays));
+  }, [spot]);
+
   useEffect(() => {
     const windows = spot?.availability?.filter((window) => window.isActive) ?? [];
     if (windows.length === 0) return;
@@ -137,10 +174,33 @@ export default function AvailabilityScreen() {
     }
   };
 
+  // Any change after the notice means Continue has to save again.
+  useEffect(() => {
+    setOutside(null);
+  }, [days, shared, perDay, dayHours, minStay, minCustom, maxStay, maxCustom, advance]);
+
+  const minutesOf = (choice: RuleChoice, custom: string) =>
+    choice === "custom" ? (custom.trim() ? Math.round(Number(custom) * 60) : NaN) : choice;
+  const minMinutes = minutesOf(minStay, minCustom);
+  const maxMinutes = minutesOf(maxStay, maxCustom);
+  const customBad = (v: number | null) => v !== null && (!Number.isFinite(v) || v < 60 || v > 720 * 60);
+  const rulesProblem = customBad(minMinutes) || customBad(maxMinutes)
+    ? "A custom duration is between 1 and 720 hours."
+    : minMinutes !== null && maxMinutes !== null && minMinutes > maxMinutes
+      ? "The longest stay can't be shorter than the shortest."
+      : null;
+  const badHours = (perDay ? days.map(hoursFor) : [shared]).some((h) => h.startMinute >= h.endMinute);
+
   const { run: save, busy, error } = useAsyncAction(async () => {
     if (!token || !spot) return;
 
-    await spotListingApi.saveAvailability(
+    // Saved already, and the host has read which bookings fall outside.
+    if (outside) {
+      proceed(spot);
+      return;
+    }
+
+    const saved = await spotListingApi.saveAvailability(
       token,
       spot.id,
       days.map((dayOfWeek) => ({
@@ -148,8 +208,20 @@ export default function AvailabilityScreen() {
         ...(perDay ? hoursFor(dayOfWeek) : shared),
       }))
     );
+    await spotListingApi.saveBookingRules(token, spot.id, {
+      minStayMinutes: minMinutes,
+      maxStayMinutes: maxMinutes,
+      advanceDays: advance,
+    });
 
-    continueAfter("availability", spot);
+    // Never silent: paid bookings the new hours leave out still go ahead,
+    // and the host is told so before moving on.
+    if (saved.outsideHours.bookings > 0 || saved.outsideHours.monthlyDays > 0) {
+      setOutside(saved.outsideHours);
+      return;
+    }
+
+    proceed(spot);
   });
 
   if (isRestoring || loading) return <RestoringScreen />;
@@ -164,10 +236,16 @@ export default function AvailabilityScreen() {
       totalSteps={TOTAL_STEPS}
       onBack={back}
       onContinue={save}
-      canContinue={days.length > 0}
+      canContinue={days.length > 0 && !rulesProblem && !badHours}
       busy={busy}
       error={error}
-      footerNote={days.length === 0 ? "Pick at least one day." : undefined}
+      footerNote={
+        days.length === 0
+          ? "Pick at least one day."
+          : badHours
+            ? "Closing time has to be after opening time."
+            : rulesProblem ?? undefined
+      }
     >
       <OptionCard
         label="Every day"
@@ -197,6 +275,7 @@ export default function AvailabilityScreen() {
               onPress={() => toggleDay(day.value)}
               accessibilityRole="checkbox"
               accessibilityState={{ checked: on }}
+                    aria-checked={on}
               accessibilityLabel={day.long}
               style={[s.day, on && s.dayOn]}
             >
@@ -270,6 +349,87 @@ export default function AvailabilityScreen() {
         </Text>
       ) : null}
 
+      <View style={s.rules}>
+        <Pressable
+          onPress={() => setRulesOpen(!rulesOpen)}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: rulesOpen }}
+        aria-expanded={rulesOpen}
+          style={s.rulesHead}
+        >
+          <Text style={s.rulesTitle}>
+            Booking rules <Text style={s.optional}>optional</Text>
+          </Text>
+          <View style={rulesOpen ? s.flip : undefined}>
+            <ChevronDownIcon size={18} color={colors.ink} />
+          </View>
+        </Pressable>
+
+        {rulesOpen ? (
+          <View style={s.rulesBody}>
+            <RuleRow
+              label="Minimum booking duration"
+              choices={MIN_CHOICES}
+              value={minStay}
+              onChange={setMinStay}
+              none="No minimum"
+              unit={(m) => durationText(m)}
+            />
+            {minStay === "custom" ? (
+              <Field
+                label="Minimum (hours)"
+                value={minCustom}
+                onChangeText={(t) => setMinCustom(t.replace(/[^0-9.]/g, "").slice(0, 5))}
+                keyboardType="decimal-pad"
+                placeholder="3"
+              />
+            ) : null}
+            <RuleRow
+              label="Maximum booking duration"
+              choices={MAX_CHOICES}
+              value={maxStay}
+              onChange={setMaxStay}
+              none="No maximum"
+              unit={(m) => (m === 1440 ? "24 hours" : durationText(m))}
+            />
+            {maxStay === "custom" ? (
+              <Field
+                label="Maximum (hours)"
+                value={maxCustom}
+                onChangeText={(t) => setMaxCustom(t.replace(/[^0-9.]/g, "").slice(0, 5))}
+                keyboardType="decimal-pad"
+                placeholder="48"
+              />
+            ) : null}
+            <RuleRow
+              label="How far ahead can drivers book?"
+              choices={ADVANCE_CHOICES}
+              value={advance}
+              onChange={(v) => setAdvance(v === "custom" ? null : v)}
+              none="Any time"
+              unit={(d) => `${d} days`}
+              noCustom
+            />
+          </View>
+        ) : null}
+      </View>
+
+      {outside ? (
+        <View style={s.outside} accessibilityLiveRegion="polite">
+          <Text style={s.outsideTitle}>Saved. Some bookings fall outside these hours</Text>
+          <Text style={s.outsideBody}>
+            {[
+              outside.bookings ? `${outside.bookings} upcoming paid ${outside.bookings === 1 ? "booking" : "bookings"}` : null,
+              outside.monthlyDays ? `${outside.monthlyDays} monthly ${outside.monthlyDays === 1 ? "day" : "days"}` : null,
+            ]
+              .filter(Boolean)
+              .join(" and ")}{" "}
+            still go ahead as booked — changing hours never cancels a driver. If you can't honour them, cancel them from
+            your bookings.
+          </Text>
+        </View>
+      ) : null}
+
       <Text style={s.note}>
         You can switch any day off later without taking the listing down — this
         is the schedule, not a commitment.
@@ -278,7 +438,82 @@ export default function AvailabilityScreen() {
   );
 }
 
+function RuleRow({
+  label,
+  choices,
+  value,
+  onChange,
+  none,
+  unit,
+  noCustom,
+}: {
+  label: string;
+  choices: (number | null)[];
+  value: RuleChoice;
+  onChange: (value: RuleChoice) => void;
+  none: string;
+  unit: (value: number) => string;
+  noCustom?: boolean;
+}) {
+  const options: { key: string; value: RuleChoice; text: string }[] = [
+    ...choices.map((c) => ({ key: String(c), value: c, text: c === null ? none : unit(c) })),
+    ...(noCustom ? [] : [{ key: "custom", value: "custom" as const, text: "Custom" }]),
+  ];
+  return (
+    <View style={s.ruleRow}>
+      <Text style={s.ruleLabel}>{label}</Text>
+      <View style={s.ruleChips} accessibilityRole="radiogroup">
+        {options.map((option) => {
+          const on = option.value === value;
+          return (
+            <Pressable
+              key={option.key}
+              onPress={() => onChange(option.value)}
+              accessibilityRole="radio"
+              accessibilityState={{ checked: on }}
+                    aria-checked={on}
+              style={[s.ruleChip, on && s.ruleChipOn]}
+            >
+              <Text style={[s.ruleChipText, on && s.ruleChipTextOn]}>{option.text}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
 const s = StyleSheet.create({
+  rules: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.md },
+  rulesHead: {
+    minHeight: 52,
+    paddingHorizontal: space.lg,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  rulesTitle: { fontSize: 15, fontWeight: "600", color: colors.ink },
+  optional: { fontSize: 11, fontWeight: "400", color: colors.inkFaint },
+  flip: { transform: [{ rotate: "180deg" }] },
+  rulesBody: { gap: space.lg, paddingHorizontal: space.lg, paddingBottom: space.lg },
+  ruleRow: { gap: space.sm },
+  ruleLabel: { ...type.label, color: colors.ink },
+  ruleChips: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
+  ruleChip: {
+    minHeight: 40,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.border,
+    justifyContent: "center",
+    backgroundColor: colors.surface,
+  },
+  ruleChipOn: { backgroundColor: colors.ink, borderColor: colors.ink },
+  ruleChipText: { fontSize: 13, fontWeight: "600", color: colors.ink },
+  ruleChipTextOn: { color: colors.onInk },
+  outside: { backgroundColor: colors.accentSurface, borderRadius: radius.md, padding: space.lg, gap: 4 },
+  outsideTitle: { fontSize: 14, fontWeight: "700", color: colors.accentInk },
+  outsideBody: { fontSize: 13, lineHeight: 19, color: colors.accentInk },
   dayRow: { flexDirection: "row", gap: 6, marginTop: space.sm },
   day: {
     flex: 1,

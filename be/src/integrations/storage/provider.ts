@@ -27,3 +27,14 @@ export interface StorageProvider {
    */
   ownsUrl(url: string): boolean;
 }
+
+/**
+ * Folders whose files are private: never served from their public URL, only
+ * through an authenticated route that checks who is asking (the ownership
+ * document: its host and admins).
+ */
+export const PRIVATE_PREFIXES = ["ownership-docs/"];
+
+export function isPrivateKey(key: string): boolean {
+  return PRIVATE_PREFIXES.some((prefix) => key.startsWith(prefix));
+}

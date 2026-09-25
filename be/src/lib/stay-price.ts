@@ -10,33 +10,43 @@ import { pricing } from "../config/pricing.js";
  */
 
 export interface SpotRates {
-  pricePerHour: Prisma.Decimal;
+  /** Null when the host doesn't rent by the hour. */
+  pricePerHour: Prisma.Decimal | null;
   pricePerDay: Prisma.Decimal | null;
 }
 
 export type PriceBasis = "HOURLY" | "DAILY";
 
 /**
- * The parking amount for `minutes` on these rates.
+ * The parking amount for `minutes` on these rates, or null when these rates
+ * don't sell a stay at all (a monthly-only space).
  *
  * Whole days are charged the day rate when the host offers one; what is left
  * over is charged the cheaper of its hours and one more day. So a 7-hour stay
  * at ₹50/h with a ₹250 day rate costs ₹250, not ₹350, and a 30-hour stay
  * costs a day plus six hours. Hours are billed by the minute: rounding a part
- * hour up would make a 61-minute stay cost two.
+ * hour up would make a 61-minute stay cost two. A space with a day rate and
+ * no hourly rate charges each started day.
  */
-export function stayPrice(rates: SpotRates, minutes: number): { amount: Prisma.Decimal; basis: PriceBasis } {
-  const hourly = (mins: number) => rates.pricePerHour.mul(mins).div(60);
+export function stayPrice(rates: SpotRates, minutes: number): { amount: Prisma.Decimal; basis: PriceBasis } | null {
+  const { pricePerHour, pricePerDay } = rates;
+  if (!pricePerHour && !pricePerDay) return null;
 
-  if (!rates.pricePerDay) {
+  if (!pricePerHour) {
+    return { amount: pricePerDay!.mul(Math.ceil(minutes / (24 * 60))).toDecimalPlaces(2), basis: "DAILY" };
+  }
+
+  const hourly = (mins: number) => pricePerHour.mul(mins).div(60);
+
+  if (!pricePerDay) {
     return { amount: hourly(minutes).toDecimalPlaces(2), basis: "HOURLY" };
   }
 
   const fullDays = Math.floor(minutes / (24 * 60));
   const rest = minutes % (24 * 60);
   const restHourly = hourly(rest);
-  const restCharge = Prisma.Decimal.min(restHourly, rest > 0 ? rates.pricePerDay : new Prisma.Decimal(0));
-  const amount = rates.pricePerDay.mul(fullDays).add(restCharge).toDecimalPlaces(2);
+  const restCharge = Prisma.Decimal.min(restHourly, rest > 0 ? pricePerDay : new Prisma.Decimal(0));
+  const amount = pricePerDay.mul(fullDays).add(restCharge).toDecimalPlaces(2);
   const usedDayRate = fullDays > 0 || (rest > 0 && restCharge.lessThan(restHourly));
 
   return { amount, basis: usedDayRate ? "DAILY" : "HOURLY" };
@@ -67,7 +77,8 @@ export function monthlyFees(amount: Prisma.Decimal): Fees {
 /** Of rates across vehicle types, the one that makes this stay cheapest. */
 export function cheapestStay(rows: SpotRates[], minutes: number): Prisma.Decimal | null {
   return rows.reduce<Prisma.Decimal | null>((best, row) => {
-    const { amount } = stayPrice(row, minutes);
-    return best === null || amount.lessThan(best) ? amount : best;
+    const price = stayPrice(row, minutes);
+    if (!price) return best;
+    return best === null || price.amount.lessThan(best) ? price.amount : best;
   }, null);
 }

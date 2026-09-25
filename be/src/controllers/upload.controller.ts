@@ -3,6 +3,7 @@ import { stat } from "node:fs/promises";
 import path from "node:path";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { getLocalStorage } from "../integrations/storage/index.js";
+import { isPrivateKey } from "../integrations/storage/provider.js";
 import { badRequest, notFound, serviceUnavailable } from "../lib/errors.js";
 
 /**
@@ -65,6 +66,12 @@ export const uploadController = {
     const storage = getLocalStorage();
 
     if (!storage) {
+      throw notFound("Not found");
+    }
+
+    // Ownership documents are not public: the host and admins read them
+    // through their own authenticated routes. Same answer as a missing file.
+    if (isPrivateKey(keyFrom(request))) {
       throw notFound("Not found");
     }
 

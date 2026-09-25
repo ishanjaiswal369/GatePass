@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PAYOUT_KYC_STATUSES } from "../constants/enums/index.js";
+import { LISTING_SECTIONS, PAYOUT_KYC_STATUSES } from "../constants/enums/index.js";
 import type { RequestInput, RequestSchemas } from "../lib/request.js";
 
 const listingId = z.object({ id: z.string().uuid() });
@@ -18,6 +18,14 @@ const reasonBody = z.object({
   reason: z.string().trim().min(1).max(500),
 });
 
+/** A rejection says what and where: the reason, and the wizard step to fix it in. */
+const rejectBody = z
+  .object({
+    reason: z.string().trim().min(1).max(500),
+    section: z.enum(LISTING_SECTIONS).optional(),
+  })
+  .strict();
+
 const payoutStatusBody = z.object({
   hostProfileId: z.string().uuid(),
   status: z.enum(PAYOUT_KYC_STATUSES),
@@ -28,7 +36,8 @@ export const adminSpotRequests = {
   list: { query: listQuery } satisfies RequestSchemas,
   getById: { params: listingId } satisfies RequestSchemas,
   approve: { params: listingId } satisfies RequestSchemas,
-  reject: { params: listingId, body: reasonBody } satisfies RequestSchemas,
+  reject: { params: listingId, body: rejectBody } satisfies RequestSchemas,
+  ownershipDocument: { params: listingId } satisfies RequestSchemas,
   suspend: { params: listingId, body: reasonBody } satisfies RequestSchemas,
   setPayoutStatus: { body: payoutStatusBody } satisfies RequestSchemas,
 };
@@ -41,3 +50,4 @@ export type SuspendSpotInput = RequestInput<typeof adminSpotRequests.suspend>;
 export type SetPayoutStatusInput = RequestInput<
   typeof adminSpotRequests.setPayoutStatus
 >;
+export type AdminOwnershipDocumentInput = RequestInput<typeof adminSpotRequests.ownershipDocument>;

@@ -14,7 +14,13 @@ import type {
   SubmitSpotInput,
   SaveFeaturesInput,
   SaveLimitsInput,
+  SaveDetailsInput,
+  SaveBookingRulesInput,
+  SavePermissionInput,
+  OwnershipDocumentInput,
 } from "../requests/spot-listing.request.js";
+import { sendFile } from "../lib/send-file.js";
+import { audit } from "../lib/security-log.js";
 import * as hostPayoutService from "../services/host-payout.service.js";
 import * as spotListingService from "../services/spot-listing.service.js";
 
@@ -218,6 +224,31 @@ export const spotListingController = {
     );
   },
 
+  saveDetails: async (input: SaveDetailsInput, request: FastifyRequest, reply: FastifyReply) => {
+    return reply.send(
+      await spotListingService.saveDetails(input.params.id, hostProfileId(request), request.user.userId, input.body)
+    );
+  },
+
+  saveBookingRules: async (input: SaveBookingRulesInput, request: FastifyRequest, reply: FastifyReply) => {
+    return reply.send(
+      await spotListingService.saveBookingRules(input.params.id, hostProfileId(request), request.user.userId, input.body)
+    );
+  },
+
+  savePermission: async (input: SavePermissionInput, request: FastifyRequest, reply: FastifyReply) => {
+    return reply.send(
+      await spotListingService.savePermission(input.params.id, hostProfileId(request), request.user.userId, input.body)
+    );
+  },
+
+  /** The host's own ownership document. Its public URL is closed (storage PRIVATE_PREFIXES). */
+  ownershipDocument: async (input: OwnershipDocumentInput, request: FastifyRequest, reply: FastifyReply) => {
+    const file = await spotListingService.ownershipDocumentFile(input.params.id, hostProfileId(request));
+    audit("OWNERSHIP_DOC_VIEWED", { userId: request.user.userId, listingId: input.params.id, as: "host" });
+    return sendFile(reply, file);
+  },
+
   savePricing: async (
     input: SavePricingInput,
     request: FastifyRequest,
@@ -241,12 +272,9 @@ export const spotListingController = {
     request: FastifyRequest,
     reply: FastifyReply
   ) => {
-    const missing = await spotListingService.missingForSubmit(
-      input.params.id,
-      hostProfileId(request)
-    );
+    const items = await spotListingService.readiness(input.params.id, hostProfileId(request));
 
-    return reply.send({ ready: missing.length === 0, missing });
+    return reply.send({ ready: items.length === 0, missing: items.map((item) => item.message), items });
   },
 
   submit: async (

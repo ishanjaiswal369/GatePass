@@ -65,6 +65,8 @@ export const AMENITIES = [
   "EV_CHARGING",
   "WELL_LIT",
   "WASHROOM",
+  "GATED",
+  "EASY_ACCESS",
 ] as const;
 export type Amenity = (typeof AMENITIES)[number];
 
