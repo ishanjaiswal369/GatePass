@@ -1,30 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Button, PickerField, type SheetOption, minuteOptions } from "@/components/ui";
 import {
-  Button,
-  OptionCard,
-  PickerField,
-  SegmentedControl,
-  type SheetOption,
-  formatMinute,
-  minuteOptions,
-} from "@/components/ui";
-import {
-  EVERY_DAY,
   MAX_DAYS_AHEAD,
   MAX_STAY_DAYS,
   MIN_STAY_MINUTES,
-  MONTH_CHOICES,
-  WEEKDAYS,
   addDays,
   atMinute,
   dayLabel,
   fromDateKey,
   nextStepMinute,
   toDateKey,
-  type DayPattern,
   type SearchCriteria,
-  type SearchMode,
   type SearchPlace,
 } from "@/lib/searchCriteria";
 import { colors, radius, space, type } from "@/theme";
@@ -38,31 +25,10 @@ import {
 } from "./searchDraft";
 
 /**
- * What the driver is looking for.
- *
- * Two modes, because they are two different questions. Hourly asks "between
- * these two instants"; monthly asks "these weekdays, every week, from this
- * date" -- the same shape a host's availability is stored in, which is what
- * makes matching one against the other possible at all.
- *
- * Location is shared rather than duplicated per mode: it is the same question
- * either way, and asking it twice invites two answers.
+ * What the driver is looking for: where, and from when until when. A stay
+ * can run from fifteen minutes to several days; it is priced by the hour or
+ * the day, whichever is cheaper.
  */
-
-const MODES: { value: SearchMode; label: string }[] = [
-  { value: "hourly", label: "Hourly / Daily" },
-  { value: "monthly", label: "Monthly" },
-];
-
-const DAYS = [
-  { value: 0, label: "Sun", long: "Sunday" },
-  { value: 1, label: "Mon", long: "Monday" },
-  { value: 2, label: "Tue", long: "Tuesday" },
-  { value: 3, label: "Wed", long: "Wednesday" },
-  { value: 4, label: "Thu", long: "Thursday" },
-  { value: 5, label: "Fri", long: "Friday" },
-  { value: 6, label: "Sat", long: "Saturday" },
-];
 
 /** A driver books to the quarter hour; a host sets opening hours by the half. */
 const DRIVER_STEP_MINUTES = 15;
@@ -76,12 +42,6 @@ function dayOptions(count: number): SheetOption<string>[] {
   });
 }
 
-function patternFor(days: number[]): DayPattern {
-  if (days.length === 7) return "everyday";
-  if (days.join() === WEEKDAYS.join()) return "weekdays";
-  return "custom";
-}
-
 export function BookParkingForm({
   token,
   onSearch,
@@ -92,7 +52,7 @@ export function BookParkingForm({
   const now = useMemo(() => new Date(), []);
   const days = useMemo(() => dayOptions(MAX_DAYS_AHEAD), []);
 
-  // Hourly defaults to the next quarter hour, for two hours -- the shape of
+  // The next quarter hour, for two hours -- the shape of
   // almost every hourly booking, so most drivers change nothing here.
   //
   // The end is derived as an instant and read back, rather than clamped to
@@ -103,17 +63,11 @@ export function BookParkingForm({
     const end = new Date(start.getTime() + 2 * 60 * 60_000);
 
     return {
-      mode: "hourly",
       place: null,
       fromDate: toDateKey(start),
       fromMinute: start.getHours() * 60 + start.getMinutes(),
       toDate: toDateKey(end),
       toMinute: end.getHours() * 60 + end.getMinutes(),
-      monthlyDays: WEEKDAYS,
-      startDate: toDateKey(addDays(now, 1)),
-      startMinute: 9 * 60,
-      endMinute: 18 * 60,
-      months: 3,
     };
   }, [now]);
 
@@ -125,19 +79,12 @@ export function BookParkingForm({
     return held ? freshen(held, defaults, now) : defaults;
   });
 
-  const [mode, setMode] = useState<SearchMode>(initial.mode);
   const [place, setPlace] = useState<SearchPlace | null>(initial.place);
 
   const [fromDate, setFromDate] = useState(initial.fromDate);
   const [fromMinute, setFromMinute] = useState(initial.fromMinute);
   const [toDate, setToDate] = useState(initial.toDate);
   const [toMinute, setToMinute] = useState(initial.toMinute);
-
-  const [monthlyDays, setMonthlyDays] = useState<number[]>(initial.monthlyDays);
-  const [startDate, setStartDate] = useState(initial.startDate);
-  const [startMinute, setStartMinute] = useState(initial.startMinute);
-  const [endMinute, setEndMinute] = useState(initial.endMinute);
-  const [months, setMonths] = useState(initial.months);
 
   /**
    * Whether the stored draft has been taken into account. Until it has,
@@ -156,17 +103,11 @@ export function BookParkingForm({
 
       if (stored) {
         const d = freshen(stored, defaults, now);
-        setMode(d.mode);
         setPlace(d.place);
         setFromDate(d.fromDate);
         setFromMinute(d.fromMinute);
         setToDate(d.toDate);
         setToMinute(d.toMinute);
-        setMonthlyDays(d.monthlyDays);
-        setStartDate(d.startDate);
-        setStartMinute(d.startMinute);
-        setEndMinute(d.endMinute);
-        setMonths(d.months);
       }
 
       setReady(true);
@@ -180,33 +121,8 @@ export function BookParkingForm({
   useEffect(() => {
     if (!ready) return;
 
-    saveDraft({
-      mode,
-      place,
-      fromDate,
-      fromMinute,
-      toDate,
-      toMinute,
-      monthlyDays,
-      startDate,
-      startMinute,
-      endMinute,
-      months,
-    });
-  }, [
-    ready,
-    mode,
-    place,
-    fromDate,
-    fromMinute,
-    toDate,
-    toMinute,
-    monthlyDays,
-    startDate,
-    startMinute,
-    endMinute,
-    months,
-  ]);
+    saveDraft({ place, fromDate, fromMinute, toDate, toMinute });
+  }, [ready, place, fromDate, fromMinute, toDate, toMinute]);
 
   const from = atMinute(fromDate, fromMinute);
   const to = atMinute(toDate, toMinute);
@@ -215,7 +131,7 @@ export function BookParkingForm({
   // Leaving on a later day is a choice the driver makes, not a guess.
   const multiDay = toDate !== fromDate;
 
-  const hourlyProblem =
+  const problem =
     stayMinutes <= 0
       ? multiDay
         ? "You're leaving before you arrive."
@@ -223,217 +139,81 @@ export function BookParkingForm({
       : stayMinutes < MIN_STAY_MINUTES
       ? `Minimum stay is ${MIN_STAY_MINUTES} minutes.`
       : stayMinutes > MAX_STAY_DAYS * 24 * 60
-        ? `For longer than ${MAX_STAY_DAYS} days, try Monthly.`
+        ? `A stay can be up to ${MAX_STAY_DAYS} days.`
         : null;
 
-  const monthlyProblem =
-    monthlyDays.length === 0
-      ? "Pick at least one day."
-      : startMinute >= endMinute
-        ? "The end time has to be after the start."
-        : null;
-
-  const problem = mode === "hourly" ? hourlyProblem : monthlyProblem;
   const canSearch = place !== null && problem === null;
 
   const search = () => {
     if (!place) return;
 
-    onSearch(
-      mode === "hourly"
-        ? { mode, place, from: from.toISOString(), to: to.toISOString() }
-        : {
-            mode,
-            place,
-            days: [...monthlyDays].sort((a, b) => a - b),
-            startDate,
-            startMinute,
-            endMinute,
-            months,
-          }
-    );
+    onSearch({ place, from: from.toISOString(), to: to.toISOString() });
   };
-
-  const toggleDay = (day: number) =>
-    setMonthlyDays((current) =>
-      current.includes(day)
-        ? current.filter((value) => value !== day)
-        : [...current, day].sort((a, b) => a - b)
-    );
-
-  const choosePattern = (next: DayPattern) => {
-    if (next === "everyday") setMonthlyDays(EVERY_DAY);
-    if (next === "weekdays") setMonthlyDays(WEEKDAYS);
-  };
-
-  const pattern = patternFor(monthlyDays);
 
   return (
     <View style={s.wrap}>
-      <SegmentedControl segments={MODES} value={mode} onChange={setMode} />
-
       <View style={s.card}>
         <Text style={s.cardHeading}>Where</Text>
         <LocationField token={token} place={place} onChange={setPlace} />
       </View>
 
-      {mode === "hourly" ? (
-        <View style={s.card}>
-          <Text style={s.cardHeading}>When</Text>
+      <View style={s.card}>
+        <Text style={s.cardHeading}>When</Text>
 
+        <PickerField
+          label="Date"
+          title="Parking on"
+          value={fromDate}
+          options={days}
+          onChange={(next) => {
+            setFromDate(next);
+            // A same-day stay follows the date; a later-day stay keeps its
+            // end date unless the start overtakes it.
+            if (!multiDay) setToDate(next);
+            else if (next >= toDate) setToDate(toDateKey(addDays(fromDateKey(next), 1)));
+          }}
+        />
+
+        <View style={s.row}>
           <PickerField
-            label="Date"
-            title="Parking on"
-            value={fromDate}
-            options={days}
-            onChange={(next) => {
-              setFromDate(next);
-              // A same-day stay follows the date; a later-day stay keeps its
-              // end date unless the start overtakes it.
-              if (!multiDay) setToDate(next);
-              else if (next >= toDate) setToDate(toDateKey(addDays(fromDateKey(next), 1)));
-            }}
+            label="Start"
+            title="Arriving at"
+            value={fromMinute}
+            options={minuteOptions(0, 24 * 60 - DRIVER_STEP_MINUTES, DRIVER_STEP_MINUTES)}
+            onChange={setFromMinute}
           />
-
-          <View style={s.row}>
-            <PickerField
-              label="Start"
-              title="Arriving at"
-              value={fromMinute}
-              options={minuteOptions(0, 24 * 60 - DRIVER_STEP_MINUTES, DRIVER_STEP_MINUTES)}
-              onChange={setFromMinute}
-            />
-            <PickerField
-              label="End"
-              title="Leaving at"
-              value={toMinute}
-              options={minuteOptions(DRIVER_STEP_MINUTES, 24 * 60, DRIVER_STEP_MINUTES)}
-              onChange={setToMinute}
-            />
-          </View>
-
-          {multiDay ? (
-            <PickerField
-              label="Leaving on"
-              value={toDate}
-              options={days.filter((day) => day.value > fromDate)}
-              onChange={setToDate}
-            />
-          ) : null}
-
-          <Pressable
-            onPress={() => setToDate(multiDay ? fromDate : toDateKey(addDays(fromDateKey(fromDate), 1)))}
-            accessibilityRole="switch"
-            accessibilityState={{ checked: multiDay }}
-            style={s.laterDay}
-          >
-            <Text style={s.laterDayText}>{multiDay ? "Leaving the same day" : "Leaving on a later day?"}</Text>
-          </Pressable>
-
-          {problem ? null : <Text style={s.summary}>{describeStay(stayMinutes)}</Text>}
+          <PickerField
+            label="End"
+            title="Leaving at"
+            value={toMinute}
+            options={minuteOptions(DRIVER_STEP_MINUTES, 24 * 60, DRIVER_STEP_MINUTES)}
+            onChange={setToMinute}
+          />
         </View>
-      ) : (
-        <View style={s.card}>
-          <Text style={s.cardHeading}>Which days</Text>
 
-          <OptionCard
-            label="Every day"
-            description="All seven days of the week."
-            selected={pattern === "everyday"}
-            onPress={() => choosePattern("everyday")}
+        {multiDay ? (
+          <PickerField
+            label="Leaving on"
+            value={toDate}
+            options={days.filter((day) => day.value > fromDate)}
+            onChange={setToDate}
           />
-          <OptionCard
-            label="Monday to Friday"
-            description="The working week."
-            selected={pattern === "weekdays"}
-            onPress={() => choosePattern("weekdays")}
-          />
-          <OptionCard
-            label="Custom"
-            description="Pick the days yourself."
-            selected={pattern === "custom"}
-            onPress={() => undefined}
-          />
+        ) : null}
 
-          <View style={s.dayRow}>
-            {DAYS.map((day) => {
-              const on = monthlyDays.includes(day.value);
-              return (
-                <Pressable
-                  key={day.value}
-                  onPress={() => toggleDay(day.value)}
-                  accessibilityRole="checkbox"
-                  accessibilityState={{ checked: on }}
-                  accessibilityLabel={day.long}
-                  style={[s.day, on && s.dayOn]}
-                >
-                  <Text style={[s.dayLabel, on && s.dayLabelOn]}>{day.label}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
+        <Pressable
+          onPress={() => setToDate(multiDay ? fromDate : toDateKey(addDays(fromDateKey(fromDate), 1)))}
+          accessibilityRole="switch"
+          accessibilityState={{ checked: multiDay }}
+          style={s.laterDay}
+        >
+          <Text style={s.laterDayText}>{multiDay ? "Leaving the same day" : "Leaving on a later day?"}</Text>
+        </Pressable>
 
-          <View style={s.row}>
-            <PickerField
-              label="Starting on"
-              value={startDate}
-              options={days}
-              onChange={setStartDate}
-            />
-          </View>
-
-          <Text style={s.fieldLabel}>Duration</Text>
-          <View style={s.months}>
-            {MONTH_CHOICES.map((count) => {
-              const on = months === count;
-              return (
-                <Pressable
-                  key={count}
-                  onPress={() => setMonths(count)}
-                  accessibilityRole="radio"
-                  accessibilityState={{ checked: on }}
-                  style={[s.month, on && s.monthOn]}
-                >
-                  <Text style={[s.monthText, on && s.monthTextOn]}>
-                    {count} {count === 1 ? "Month" : "Months"}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-          <Text style={s.fine}>Paid once for the whole term. It doesn't renew on its own.</Text>
-
-          <View style={s.row}>
-            <PickerField
-              label="From"
-              title="Each day from"
-              value={startMinute}
-              options={minuteOptions(0, 24 * 60 - DRIVER_STEP_MINUTES, DRIVER_STEP_MINUTES)}
-              onChange={setStartMinute}
-            />
-            <PickerField
-              label="Until"
-              title="Each day until"
-              value={endMinute}
-              options={minuteOptions(DRIVER_STEP_MINUTES, 24 * 60, DRIVER_STEP_MINUTES)}
-              onChange={setEndMinute}
-            />
-          </View>
-
-          {problem ? null : (
-            <Text style={s.summary}>
-              {monthlyDays.length === 7
-                ? "Every day"
-                : monthlyDays.map((day) => DAYS[day].label).join(", ")}
-              {"  ·  "}
-              {formatMinute(startMinute)}–{formatMinute(endMinute)}
-            </Text>
-          )}
-        </View>
-      )}
+        {problem ? null : <Text style={s.summary}>{describeStay(stayMinutes)}</Text>}
+      </View>
 
       <Button
-        label={mode === "hourly" ? "Find Parking" : "Find Monthly Parking"}
+        label="Find Parking"
         size="lg"
         disabled={!canSearch}
         onPress={search}
@@ -463,21 +243,6 @@ const s = StyleSheet.create({
   wrap: { gap: space.lg },
   laterDay: { minHeight: 40, justifyContent: "center", alignSelf: "flex-start" },
   laterDayText: { fontSize: 14, fontWeight: "600", color: colors.ink, textDecorationLine: "underline" },
-  fieldLabel: { ...type.label, color: colors.ink },
-  months: { flexDirection: "row", gap: space.sm },
-  month: {
-    flex: 1,
-    minHeight: 48,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  monthOn: { backgroundColor: colors.ink, borderColor: colors.ink },
-  monthText: { fontSize: 13, fontWeight: "600", color: colors.ink },
-  monthTextOn: { color: colors.onInk },
-  fine: { fontSize: 12, color: colors.inkMuted },
   card: {
     gap: space.md,
     backgroundColor: colors.surface,
@@ -493,20 +258,6 @@ const s = StyleSheet.create({
     letterSpacing: 0.6,
   },
   row: { flexDirection: "row", gap: space.md },
-  dayRow: { flexDirection: "row", gap: 6 },
-  day: {
-    flex: 1,
-    minHeight: 44,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  dayOn: { backgroundColor: colors.ink, borderColor: colors.ink },
-  dayLabel: { fontSize: 12, fontWeight: "600", color: colors.inkMuted },
-  dayLabelOn: { color: colors.onInk },
   summary: { fontSize: 13, fontWeight: "600", color: colors.accent },
   note: { ...type.caption, color: colors.inkFaint, textAlign: "center" },
 });

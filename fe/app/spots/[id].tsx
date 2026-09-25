@@ -1,7 +1,7 @@
 import { Redirect, router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { ApiError, monthlyApi, profileApi, spotsApi } from "@/api";
+import { ApiError, profileApi, spotsApi } from "@/api";
 import {
   Button,
   CalendarIcon,
@@ -31,8 +31,7 @@ import { distanceKm, distanceLabel } from "@/lib/geo";
 import { groupByHours } from "@/lib/hours";
 import { durationText } from "@/lib/listingRules";
 import { formatRupees, rateLine } from "@/lib/money";
-import { monthsLabel, termRange, termSchedule } from "@/lib/monthly";
-import { describeCriteria, fromParams, toParams, type HourlyCriteria, type MonthlyCriteria } from "@/lib/searchCriteria";
+import { describeCriteria, fromParams, toParams } from "@/lib/searchCriteria";
 import {
   AMENITY_LABELS,
   ENTRY_METHOD_LABELS,
@@ -44,7 +43,7 @@ import {
 } from "@/lib/spotLabels";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, radius, space } from "@/theme";
-import type { MonthlyQuote, PublicSpot, StayQuote } from "@/types/api.types";
+import type { PublicSpot, StayQuote } from "@/types/api.types";
 
 /**
  * A host's spot, for a driver deciding whether to take it.
@@ -64,15 +63,12 @@ export default function SpotDetailScreen() {
   const params = useLocalSearchParams() as Record<string, string | string[] | undefined>;
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
   const criteria = fromParams(params);
-  const hourly: HourlyCriteria | null = criteria?.mode === "hourly" ? criteria : null;
-  const monthly: MonthlyCriteria | null = criteria?.mode === "monthly" ? criteria : null;
 
   const [spot, setSpot] = useState<PublicSpot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [photo, setPhoto] = useState(0);
   const [vehicleType, setVehicleType] = useState<VehicleType | null>(null);
   const [quote, setQuote] = useState<StayQuote | null>(null);
-  const [termQuote, setTermQuote] = useState<MonthlyQuote | null>(null);
 
   const load = useCallback(async () => {
     if (!token || !id) return;
@@ -82,45 +78,26 @@ export default function SpotDetailScreen() {
       // Price for the vehicle the driver will bring: their default if this
       // spot takes it, else the first vehicle the spot prices.
       const mine = (vehicles.find((v) => v.isDefault) ?? vehicles[0])?.vehicleType;
-      // A monthly search prices the term, so only types with a monthly rate count.
-      const priced = found.pricing.filter((p) => !monthly || p.pricePerMonth !== null).map((p) => p.vehicleType);
+      const priced = found.pricing.map((p) => p.vehicleType);
       setVehicleType(mine && priced.includes(mine) ? mine : priced[0] ?? null);
       setError(null);
     } catch (err) {
       setError(err instanceof ApiError && err.status === 404 ? "This spot is no longer available." : "Could not load this spot.");
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, id, criteria?.mode]);
+  }, [token, id]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   useEffect(() => {
-    if (!token || !id || !hourly || !vehicleType) return;
+    if (!token || !id || !criteria || !vehicleType) return;
     spotsApi
-      .quote(token, id, { vehicleType, startsAt: hourly.from, endsAt: hourly.to })
+      .quote(token, id, { vehicleType, startsAt: criteria.from, endsAt: criteria.to })
       .then(setQuote)
       .catch(() => setQuote(null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, id, vehicleType, hourly?.from, hourly?.to]);
-
-  const termKey = monthly ? `${monthly.startDate}|${monthly.months}|${monthly.days.join(",")}|${monthly.startMinute}|${monthly.endMinute}` : null;
-  useEffect(() => {
-    if (!token || !id || !monthly || !vehicleType) return;
-    monthlyApi
-      .quote(token, id, {
-        vehicleType,
-        startDate: monthly.startDate,
-        months: monthly.months,
-        days: monthly.days,
-        startMinute: monthly.startMinute,
-        endMinute: monthly.endMinute,
-      })
-      .then(setTermQuote)
-      .catch(() => setTermQuote(null));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, id, vehicleType, termKey]);
+  }, [token, id, vehicleType, criteria?.from, criteria?.to]);
 
   const toggleSave = async () => {
     if (!token || !spot) return;
@@ -242,11 +219,11 @@ export default function SpotDetailScreen() {
               {spot.description ? <Text style={s.description}>{spot.description}</Text> : null}
             </View>
 
-            {hourly ? (
+            {criteria ? (
               <View style={s.stay}>
                 <CalendarIcon size={20} color={colors.ink} />
                 <View style={s.flex}>
-                  <Text style={s.stayWhen}>{describeCriteria(hourly)}</Text>
+                  <Text style={s.stayWhen}>{describeCriteria(criteria)}</Text>
                   {quote ? (
                     quote.available ? (
                       <View style={s.row}>
@@ -264,37 +241,11 @@ export default function SpotDetailScreen() {
               </View>
             ) : null}
 
-            {monthly ? (
-              <View style={s.stay}>
-                <CalendarIcon size={20} color={colors.ink} />
-                <View style={s.flex}>
-                  <Text style={s.stayWhen}>
-                    {termQuote ? termRange(termQuote.startDate, termQuote.lastDate, termQuote.months) : describeCriteria(monthly)}
-                  </Text>
-                  <Text style={s.muted}>{termSchedule(monthly)}</Text>
-                  {termQuote ? (
-                    termQuote.available ? (
-                      <View style={s.row}>
-                        <CheckIcon size={13} color="#166534" />
-                        <Text style={s.ok}>Free for every day of your term</Text>
-                      </View>
-                    ) : (
-                      <Text style={s.bad}>{termQuote.reason}</Text>
-                    )
-                  ) : null}
-                </View>
-                <Pressable onPress={() => router.replace("/home")} accessibilityRole="button" style={s.change}>
-                  <Text style={s.changeText}>Change</Text>
-                </Pressable>
-              </View>
-            ) : null}
-
             {rate ? (
               <Section title={`PRICING${spot.pricing.length > 1 ? ` · ${VEHICLE_LABELS[rate.vehicleType].toUpperCase()}` : ""}`}>
                 <View style={s.tiles}>
                   {rate.pricePerHour ? <Tile amount={formatRupees(rate.pricePerHour)} unit="per hour" /> : null}
                   {rate.pricePerDay ? <Tile amount={formatRupees(rate.pricePerDay)} unit="per day" /> : null}
-                  {rate.pricePerMonth ? <Tile amount={formatRupees(rate.pricePerMonth)} unit="per month" /> : null}
                 </View>
                 {quote?.available && quote.basis === "DAILY" && quote.hourlyAmount ? (
                   <Text style={s.note}>
@@ -415,20 +366,18 @@ export default function SpotDetailScreen() {
             <View style={s.policy}>
               <Text style={s.policyTitle}>Cancellation</Text>
               <Text style={s.policyText}>
-                {monthly
-                  ? "Monthly: cancel before your term starts for a full refund. After it starts, the parking for whole months not yet begun comes back."
-                  : "Free until an hour before your parking starts. After that, half the parking amount back until it starts. Nothing once it has started."}
+                Free until an hour before your parking starts. After that, half the parking amount back until it starts. Nothing once it has started.
               </Text>
             </View>
           </View>
         </ScrollView>
 
         <View style={[s.bar, { paddingBottom: 18 + insets.bottom }]}>
-          {hourly ? (
+          {criteria ? (
             <>
               <View style={s.flex}>
                 <Text style={s.barPrice}>{quote ? formatRupees(quote.total) : "—"}</Text>
-                <Text style={s.barSub}>incl. fees · {describeCriteria(hourly)}</Text>
+                <Text style={s.barSub}>incl. fees · {describeCriteria(criteria)}</Text>
               </View>
               <View style={s.barCta}>
                 <Button
@@ -438,25 +387,8 @@ export default function SpotDetailScreen() {
                   onPress={() =>
                     router.push({
                       pathname: "/spots/checkout",
-                      params: { id: spot.id, from: hourly.from, to: hourly.to, ...(criteria ? toParams(criteria) : {}) },
+                      params: { id: spot.id, ...toParams(criteria) },
                     })
-                  }
-                />
-              </View>
-            </>
-          ) : monthly ? (
-            <>
-              <View style={s.flex}>
-                <Text style={s.barPrice}>{termQuote?.available ? formatRupees(termQuote.total) : "—"}</Text>
-                <Text style={s.barSub}>incl. fees · {monthsLabel(monthly.months)}, paid once</Text>
-              </View>
-              <View style={s.barCta}>
-                <Button
-                  label="Reserve Monthly"
-                  size="lg"
-                  disabled={!termQuote?.available}
-                  onPress={() =>
-                    router.push({ pathname: "/spots/checkout-monthly", params: { id: spot.id, ...toParams(monthly) } })
                   }
                 />
               </View>

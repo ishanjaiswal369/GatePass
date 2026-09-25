@@ -13,11 +13,7 @@ import type {
 import { request } from "./client";
 
 /**
- * Spots bookable around a point.
- *
- * Two shapes of question through one endpoint. `at` + `durationMinutes` asks
- * about one stay; `days` + `startMinute` + `endMinute` asks about a recurring
- * one, and only returns spots open across that range on *every* listed day.
+ * Spots bookable around a point, for one stay: `at` + `durationMinutes`.
  */
 export const nearby = (
   token: string,
@@ -27,12 +23,6 @@ export const nearby = (
     radiusKm?: number;
     at?: string;
     durationMinutes?: number;
-    days?: number[];
-    startMinute?: number;
-    endMinute?: number;
-    /** Monthly: the term, so the API checks every occurrence, not just the first week. */
-    startDate?: string;
-    months?: number;
     /** Prices the cards for this vehicle, and hides spots that don't take it. */
     vehicleType?: VehicleType;
     /** The driver's car size: spaces that only fit a smaller car are left out. */
@@ -56,13 +46,6 @@ export const nearby = (
   if (input.at) params.set("at", input.at);
   if (input.durationMinutes !== undefined) {
     params.set("durationMinutes", String(input.durationMinutes));
-  }
-  if (input.days?.length) {
-    params.set("days", input.days.join(","));
-    params.set("startMinute", String(input.startMinute));
-    params.set("endMinute", String(input.endMinute));
-    if (input.startDate) params.set("startDate", input.startDate);
-    if (input.months) params.set("months", String(input.months));
   }
   if (input.vehicleType) params.set("vehicleType", input.vehicleType);
   if (input.vehicleSize) params.set("vehicleSize", input.vehicleSize);

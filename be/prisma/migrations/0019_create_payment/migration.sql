@@ -1,9 +1,8 @@
--- Migration: Create the Payment table -- money in, for a booking or a monthly term
+-- Migration: Create the Payment table -- money in, for a booking
 
 CREATE TABLE "Payment" (
     "id" TEXT NOT NULL,
-    "bookingId" TEXT,
-    "monthlyReservationId" TEXT,
+    "bookingId" TEXT NOT NULL,
     "razorpayOrderId" TEXT,
     "razorpayPaymentId" TEXT,
     "amount" DECIMAL(65,30) NOT NULL,
@@ -17,11 +16,9 @@ CREATE TABLE "Payment" (
 );
 
 CREATE UNIQUE INDEX "Payment_bookingId_key" ON "Payment"("bookingId");
-CREATE UNIQUE INDEX "Payment_monthlyReservationId_key" ON "Payment"("monthlyReservationId");
 CREATE INDEX "Payment_createdBy_idx" ON "Payment"("createdBy");
 CREATE INDEX "Payment_updatedBy_idx" ON "Payment"("updatedBy");
 
 ALTER TABLE "Payment" ADD CONSTRAINT "Payment_bookingId_fkey" FOREIGN KEY ("bookingId") REFERENCES "Booking"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-ALTER TABLE "Payment" ADD CONSTRAINT "Payment_monthlyReservationId_fkey" FOREIGN KEY ("monthlyReservationId") REFERENCES "MonthlyReservation"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "Payment" ADD CONSTRAINT "Payment_createdBy_fkey" FOREIGN KEY ("createdBy") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 ALTER TABLE "Payment" ADD CONSTRAINT "Payment_updatedBy_fkey" FOREIGN KEY ("updatedBy") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;

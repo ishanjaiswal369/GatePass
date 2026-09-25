@@ -13,14 +13,11 @@ import { colors, radius, space } from "@/theme";
 export function AccessCard({
   instructions,
   released,
-  noun = "booking",
   bayNumber,
   parkingMarker,
 }: {
   instructions: string | null;
   released: boolean;
-  /** What was paid for: "booking", or "reservation" for a monthly term. */
-  noun?: string;
   /** Which bay, and how to recognise it -- released with the instructions. */
   bayNumber?: string | null;
   parkingMarker?: string | null;
@@ -42,13 +39,13 @@ export function AccessCard({
           {parkingMarker ? <Text style={s.marker}>{parkingMarker}</Text> : null}
           <Text style={s.body}>
             {instructions?.trim() ||
-              `The host hasn't added instructions. Show this ${noun} to security or the host at the gate.`}
+              "The host hasn't added instructions. Show this booking to security or the host at the gate."}
           </Text>
         </>
       ) : (
         <View style={s.locked}>
           <LockIcon size={15} color={colors.inkMuted} />
-          <Text style={s.lockedText}>Shared as soon as this {noun} is paid.</Text>
+          <Text style={s.lockedText}>Shared as soon as this booking is paid.</Text>
         </View>
       )}
     </View>

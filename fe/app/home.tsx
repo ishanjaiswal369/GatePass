@@ -20,8 +20,8 @@ import { colors, space } from "@/theme";
  * Two questions a driver arrives with, and nothing else.
  *
  * "Am I parked?" -- Already parked opens the running stay, or asks what they
- * mean when there isn't one. And "where do I park?" -- the search, hourly or
- * monthly. The Bookings tab keeps the full history.
+ * mean when there isn't one. And "where do I park?" -- the search. The
+ * Bookings tab keeps the full history.
  *
  * Event parking no longer has a list here: the product leads with a search,
  * not a feed. Its API and data are untouched.

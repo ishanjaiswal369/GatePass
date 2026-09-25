@@ -27,8 +27,6 @@ function distanceLabel(km: number): string {
 export function SpotListItem({
   spot,
   stayLabel,
-  monthly,
-  months,
   selected,
   onToggleSave,
   onView,
@@ -36,9 +34,6 @@ export function SpotListItem({
   spot: NearbySpot;
   /** "for 7 hours" -- what `stayTotal` covers. */
   stayLabel: string;
-  monthly?: boolean;
-  /** Monthly: the term's length, for "₹12,000 for 3 months". */
-  months?: number;
   selected?: boolean;
   onToggleSave: () => void;
   onView: () => void;
@@ -91,34 +86,20 @@ export function SpotListItem({
 
         <View style={s.foot}>
           <View style={s.flex}>
-            {monthly && spot.pricePerMonth !== null ? (
-              <Text style={s.price}>
-                {formatRupees(spot.pricePerMonth)}
-                <Text style={s.unit}>/month</Text>
-              </Text>
-            ) : (
-              <Text style={s.price}>
-                {leadRate(spot)?.amount ?? "—"}
-                <Text style={s.unit}>{leadRate(spot)?.unit}</Text>
-                {spot.pricePerHour !== null && spot.pricePerDay !== null ? (
-                  <Text style={s.unit}>
-                    {" · "}
-                    <Text style={s.priceSmall}>{formatRupees(spot.pricePerDay)}</Text>/day
-                  </Text>
-                ) : null}
-              </Text>
-            )}
-            {monthly && months && spot.pricePerMonth !== null ? (
-              <Text style={s.total}>
-                {formatRupees(spot.pricePerMonth * months)} for {months} {months === 1 ? "month" : "months"}
-              </Text>
-            ) : null}
-            {!monthly && spot.stayTotal !== null ? (
-              <Text style={s.total}>
-                {spot.vehicleTypes.length > 1 ? "from " : ""}
-                {formatRupees(spot.stayTotal)} {stayLabel}
-              </Text>
-            ) : null}
+            <Text style={s.price}>
+              {leadRate(spot)?.amount ?? "—"}
+              <Text style={s.unit}>{leadRate(spot)?.unit}</Text>
+              {spot.pricePerHour !== null && spot.pricePerDay !== null ? (
+                <Text style={s.unit}>
+                  {" · "}
+                  <Text style={s.priceSmall}>{formatRupees(spot.pricePerDay)}</Text>/day
+                </Text>
+              ) : null}
+            </Text>
+            <Text style={s.total}>
+              {spot.vehicleTypes.length > 1 ? "from " : ""}
+              {formatRupees(spot.stayTotal)} {stayLabel}
+            </Text>
           </View>
           <View style={s.view}>
             <Button label="View" variant="ghost" onPress={onView} />

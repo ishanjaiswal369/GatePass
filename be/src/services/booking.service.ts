@@ -10,7 +10,6 @@ import {
   encodeCursor,
 } from "../lib/pagination.js";
 import { assertNotBlocked, lockListing } from "../lib/listing-lock.js";
-import { assertNoMonthlyConflict } from "../lib/monthly-guard.js";
 import { prisma } from "../lib/prisma.js";
 import { audit } from "../lib/security-log.js";
 import { driverFees, stayPrice } from "../lib/stay-price.js";
@@ -706,8 +705,7 @@ export async function createSpotBooking(
         return { booking: stripOwner(existing), replayed: true };
       }
 
-      // Serialises this with blocks (and, later, monthly reservations) on the
-      // same listing -- see lib/listing-lock.
+      // Serialises this with blocks on the same listing -- see lib/listing-lock.
       await lockListing(tx, input.listingId);
 
       // The same three gates the search and the public read apply, so a spot
@@ -760,7 +758,6 @@ export async function createSpotBooking(
 
       await releaseExpiredHolds(tx, input.listingId);
       await assertNotBlocked(tx, input.listingId, input.startsAt, input.endsAt);
-      await assertNoMonthlyConflict(tx, input.listingId, input.startsAt, input.endsAt);
 
       const minutes = Math.round(
         (input.endsAt.getTime() - input.startsAt.getTime()) / 60_000
@@ -774,7 +771,7 @@ export async function createSpotBooking(
       // by the minute. Plus GatePass's fee and its GST, fixed now so a later
       // change to the fee never reprices a booking already made.
       const price = stayPrice(rate, minutes);
-      if (!price) throw conflict("This space is only rented monthly.");
+      if (!price) throw conflict("This space isn't priced for that vehicle yet.");
       const { amount } = price;
       const { platformFee, taxAmount } = driverFees();
 

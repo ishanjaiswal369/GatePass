@@ -67,7 +67,7 @@ model Listing {
   bayWidthCm    Int?
   bayLengthCm   Int?
   /// Booking rules (null = the platform's own limits). Enforced on search,
-  /// quote, booking and extension; advanceDays also on a monthly start.
+  /// quote, booking and extension.
   minStayMinutes Int?
   maxStayMinutes Int?
   advanceDays   Int?
@@ -141,7 +141,6 @@ model Listing {
   favorites     Favorite[]
   reviews       Review[]
   blocks        ListingBlock[]
-  monthlyReservations MonthlyReservation[]
   problems      ProblemReport[]
 
   @@index([organizerId])
@@ -184,14 +183,12 @@ model SpotPricing {
   id            String   @id @default(uuid())
   listingId     String
   vehicleType   String
-  /// Null when the host doesn't rent by the hour (daily- or monthly-only).
-  /// At least one of the three is set, enforced on save.
+  /// Null when the host doesn't rent by the hour (daily only).
+  /// At least one of the two is set, enforced on save.
   pricePerHour  Decimal?
   /// Optional ways to rent the same space. A stay is charged the cheaper of
   /// hourly and daily; null means the host doesn't offer that model.
   pricePerDay   Decimal?
-  /// Paid up front for a whole month (monthly reservations).
-  pricePerMonth Decimal?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @default(now()) @updatedAt
 

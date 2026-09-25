@@ -701,21 +701,20 @@ constraint-for-constraint against a database built the old way.
 | `0008_create_organizer` | `Organizer` |
 | `0009_create_organizer_member` | `OrganizerMember` |
 | `0010_create_host_profile` | `HostProfile` |
-| `0011_create_listing` | `Listing` + `Listing_one_owner` CHECK` |
-| `0012_create_host_availability` | `HostAvailability` + day/minute range CHECKs, `btree_gist`, `HostAvailability_no_overlap` EXCLUDE` |
+| `0011_create_listing` | `Listing` + `Listing_one_owner` CHECK |
+| `0012_create_host_availability` | `HostAvailability` + day/minute range CHECKs, `btree_gist`, `HostAvailability_no_overlap` EXCLUDE |
 | `0013_create_parking_capacity` | `ParkingCapacity` |
 | `0014_create_spot_pricing` | `SpotPricing` |
 | `0015_create_spot_photo` | `SpotPhoto` |
 | `0016_create_favorite` | `Favorite` |
 | `0017_create_listing_block` | `ListingBlock` |
-| `0018_create_booking` | `Booking` + `Booking_one_target` CHECK, `Booking_no_overlap` EXCLUDE` |
-| `0019_create_monthly_reservation` | `MonthlyReservation` |
-| `0020_create_payment` | `Payment` |
-| `0021_create_refund` | `Refund` |
-| `0022_create_problem_report` | `ProblemReport` |
-| `0023_create_review` | `Review` |
-| `0024_create_settlement` | `Settlement` + `Settlement_one_payee` CHECK` |
-| `0025_create_settlement_item` | `SettlementItem` |
+| `0018_create_booking` | `Booking` + `Booking_one_target` CHECK, `Booking_no_overlap` EXCLUDE |
+| `0019_create_payment` | `Payment` |
+| `0020_create_refund` | `Refund` |
+| `0021_create_problem_report` | `ProblemReport` |
+| `0022_create_review` | `Review` |
+| `0023_create_settlement` | `Settlement` + `Settlement_one_payee` CHECK |
+| `0024_create_settlement_item` | `SettlementItem` |
 
 `npx prisma migrate deploy --schema prisma/schema` builds a fresh database;
 `migrate diff --from-migrations … --to-schema-datamodel …` must report no

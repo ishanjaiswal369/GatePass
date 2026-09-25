@@ -6,11 +6,7 @@ import { prisma } from "../lib/prisma.js";
 import { cheapestStay, driverFees, stayPrice } from "../lib/stay-price.js";
 import { daySegments, windowsCover } from "../lib/venue-time.js";
 import * as reviewService from "./review.service.js";
-import * as monthlyService from "./monthly.service.js";
-import { addMonths, termOverlapsRange } from "../lib/monthly.js";
-import { termClaiming, termsTouching } from "../lib/monthly-guard.js";
-import { addDays, startOfVenueDay, venueDate } from "../lib/venue-calendar.js";
-import { bookingRuleSelect, ruleViolation, startTooFar } from "../lib/booking-rules.js";
+import { bookingRuleSelect, ruleViolation } from "../lib/booking-rules.js";
 import { approximate } from "../lib/location-privacy.js";
 
 const KM_PER_LAT_DEGREE = 111.045;
@@ -29,19 +25,6 @@ export interface NearbyFilters {
   /** Only spots priced for this vehicle. Absent means any, at its best rate. */
   vehicleType?: string;
   limit?: number;
-  /**
-   * A recurring search instead of a one-off stay: these weekdays, between
-   * these minutes, every week. Present means monthly.
-   *
-   * A spot qualifies only if it is open across the whole range on *every* one
-   * of these days, and offers a monthly price.
-   */
-  days?: number[];
-  startMinute?: number;
-  endMinute?: number;
-  /** Monthly only: the term's first day (venue date) and length. */
-  startDate?: string;
-  months?: number;
   /** The driver's car size: spaces that fit a smaller car are left out. */
   vehicleSize?: string;
   /** Every one of these must be offered. */
@@ -75,9 +58,8 @@ export interface NearbySpot {
   /** The cheapest of the spot's rates -- "from", when there is more than one. Null when it isn't rented by the hour. */
   pricePerHour: number | null;
   pricePerDay: number | null;
-  pricePerMonth: number | null;
-  /** What this stay costs at the cheapest rate; null on a monthly search. */
-  stayTotal: string | null;
+  /** What this stay costs at the cheapest rate. */
+  stayTotal: string;
   /** Which vehicles it prices, so a car driver can tell a bike stand from a list. */
   vehicleTypes: string[];
   amenities: string[];
@@ -106,57 +88,43 @@ export interface NearbySpot {
  */
 export async function nearby(filters: NearbyFilters, viewerId: string): Promise<NearbySpot[]> {
   const limit = filters.limit ?? 20;
-  const monthly = filters.days !== undefined && filters.days.length > 0;
   const start = filters.at ?? new Date();
   const minutes = filters.durationMinutes ?? 60;
   const end = new Date(start.getTime() + minutes * 60_000);
   const first = daySegments(start, end)[0];
 
-  const availabilityJoin = monthly
-    ? Prisma.sql`
-        AND ha."dayOfWeek" = ANY(${filters.days}::int[])
-        AND ha."startMinute" <= ${filters.startMinute ?? 0}
-        AND ha."endMinute" >= ${filters.endMinute ?? 1440}
-      `
-    : Prisma.sql`
-        AND ha."dayOfWeek" = ${first.dayOfWeek}
-        AND ha."startMinute" <= ${first.startMinute}
-        AND ha."endMinute" >= ${first.endMinute}
-      `;
-
-  const everyDayCovered = monthly
-    ? Prisma.sql`AND COUNT(DISTINCT ha."dayOfWeek") = ${filters.days!.length}`
-    : Prisma.empty;
+  const availabilityJoin = Prisma.sql`
+    AND ha."dayOfWeek" = ${first.dayOfWeek}
+    AND ha."startMinute" <= ${first.startMinute}
+    AND ha."endMinute" >= ${first.endMinute}
+  `;
 
   // Somebody else's paid booking, or a hold still being paid for, over any
   // part of this stay. The same statuses the overlap guard protects.
-  const notTaken = monthly
-    ? Prisma.empty
-    : Prisma.sql`
-        AND NOT EXISTS (
-          SELECT 1 FROM "Booking" b
-          WHERE b."listingId" = l."id"
-            AND tsrange(b."startsAt", b."endsAt") && tsrange(${start}::timestamp, ${end}::timestamp)
-            AND (b."status" = 'CONFIRMED' OR (b."status" = 'PENDING' AND b."holdExpiresAt" > now()))
-        )
-        -- Nor hours the host has blocked.
-        AND NOT EXISTS (
-          SELECT 1 FROM "ListingBlock" lb
-          WHERE lb."listingId" = l."id"
-            AND tsrange(lb."startsAt", lb."endsAt") && tsrange(${start}::timestamp, ${end}::timestamp)
-        )
-      `;
+  const notTaken = Prisma.sql`
+    AND NOT EXISTS (
+      SELECT 1 FROM "Booking" b
+      WHERE b."listingId" = l."id"
+        AND tsrange(b."startsAt", b."endsAt") && tsrange(${start}::timestamp, ${end}::timestamp)
+        AND (b."status" = 'CONFIRMED' OR (b."status" = 'PENDING' AND b."holdExpiresAt" > now()))
+    )
+    -- Nor hours the host has blocked.
+    AND NOT EXISTS (
+      SELECT 1 FROM "ListingBlock" lb
+      WHERE lb."listingId" = l."id"
+        AND tsrange(lb."startsAt", lb."endsAt") && tsrange(${start}::timestamp, ${end}::timestamp)
+    )
+  `;
 
   const latDelta = filters.radiusKm / KM_PER_LAT_DEGREE;
   const lngDelta =
     filters.radiusKm /
     (KM_PER_LAT_DEGREE * Math.max(Math.cos((filters.latitude * Math.PI) / 180), 0.01));
 
-  // A stay needs an hourly or a daily rate; a monthly-only space answers only
-  // monthly searches.
+  // A stay needs an hourly or a daily rate.
   const pricingFilter = Prisma.sql`
     ${filters.vehicleType ? Prisma.sql`AND sp."vehicleType" = ${filters.vehicleType}` : Prisma.empty}
-    ${monthly ? Prisma.sql`AND sp."pricePerMonth" IS NOT NULL` : Prisma.sql`AND (sp."pricePerHour" IS NOT NULL OR sp."pricePerDay" IS NOT NULL)`}
+    AND (sp."pricePerHour" IS NOT NULL OR sp."pricePerDay" IS NOT NULL)
   `;
 
   // SUVs and vans are sizes of car: a space fits the driver's car when it has
@@ -223,7 +191,6 @@ export async function nearby(filters: NearbyFilters, viewerId: string): Promise<
       ${distance} AS "distanceKm",
       MIN(sp."pricePerHour")::float8 AS "pricePerHour",
       MIN(sp."pricePerDay")::float8 AS "pricePerDay",
-      MIN(sp."pricePerMonth")::float8 AS "pricePerMonth",
       -- DISTINCT because the availability join repeats each rate once per
       -- matching window.
       ARRAY_AGG(DISTINCT sp."vehicleType" ORDER BY sp."vehicleType") AS "vehicleTypes",
@@ -259,7 +226,6 @@ export async function nearby(filters: NearbyFilters, viewerId: string): Promise<
       ${notTaken}
     GROUP BY l."id"
     HAVING ${distance} <= ${filters.radiusKm}
-      ${everyDayCovered}
       ${priceCap}
     ORDER BY "distanceKm" ASC
     LIMIT ${CANDIDATE_CAP}
@@ -283,55 +249,30 @@ export async function nearby(filters: NearbyFilters, viewerId: string): Promise<
   const byId = new Map(terms.map((term) => [term.id, term]));
   const ratings = await reviewService.ratingsFor(rows.map((row) => row.id));
 
-  // Monthly reservations aren't Bookings, so the SQL above can't see them.
-  // Hourly: drop spaces a term claims during the stay. Monthly: check the
-  // requested term occurrence by occurrence against everything, the same
-  // check a reservation will face.
-  const ids = rows.map((row) => row.id);
-  const unavailable = new Set<string>();
-  if (monthly) {
-    const startDate = filters.startDate ?? addDays(venueDate(new Date()), 1);
-    const term = {
-      days: filters.days!,
-      startMinute: filters.startMinute ?? 0,
-      endMinute: filters.endMinute ?? 1440,
-      startDate,
-      endDate: addMonths(startDate, filters.months ?? 1),
-    };
-    for (const id of (await monthlyService.termConflicts(prisma, ids, term)).keys()) unavailable.add(id);
-  } else {
-    for (const t of await termsTouching(prisma, ids, start, end)) {
-      if (termOverlapsRange(t, start, end)) unavailable.add(t.listingId);
-    }
-  }
-
   const spots: NearbySpot[] = [];
   for (const row of rows) {
     const term = byId.get(row.id);
-    if (!term || unavailable.has(row.id)) continue;
+    if (!term) continue;
 
-    if (!monthly && !windowsCover(term.availability, start, end)) continue;
-    // The host's own rules: an hourly stay's length and how far ahead; a
-    // term's start (monthly.service checks the same on reserving).
-    if (!monthly && ruleViolation(term, { startsAt: start, minutes })) continue;
-    if (monthly && startTooFar(term, startOfVenueDay(filters.startDate ?? venueDate(new Date())))) continue;
+    if (!windowsCover(term.availability, start, end)) continue;
+    // The host's own rules: the stay's length and how far ahead it starts.
+    if (ruleViolation(term, { startsAt: start, minutes })) continue;
 
     const rates = term.pricing.filter((rate) => !filters.vehicleType || rate.vehicleType === filters.vehicleType);
-    const total = monthly ? null : cheapestStay(rates, minutes);
-    if (!monthly && total === null) continue;
+    const total = cheapestStay(rates, minutes);
+    if (total === null) continue;
 
     const rated = ratings.get(row.id);
     spots.push({
       ...row,
-      stayTotal: total ? total.toString() : null,
+      stayTotal: total.toString(),
       rating: rated?.rating ?? null,
       reviewCount: rated?.reviewCount ?? 0,
     });
   }
 
   if (filters.sort === "price") {
-    const key = (spot: NearbySpot) =>
-      monthly ? spot.pricePerMonth ?? Infinity : Number(spot.stayTotal ?? spot.pricePerHour);
+    const key = (spot: NearbySpot) => Number(spot.stayTotal);
     spots.sort((a, b) => key(a) - key(b) || a.distanceKm - b.distanceKm);
   }
 
@@ -384,7 +325,7 @@ export async function getPublic(listingId: string, viewerId: string) {
         orderBy: { position: "asc" },
       },
       pricing: {
-        select: { id: true, vehicleType: true, pricePerHour: true, pricePerDay: true, pricePerMonth: true },
+        select: { id: true, vehicleType: true, pricePerHour: true, pricePerDay: true },
       },
       availability: {
         where: { isActive: true },
@@ -466,7 +407,7 @@ export async function quote(
   } else if (!rate) {
     reason = "This space doesn't take that vehicle.";
   } else if (!rate.pricePerHour && !rate.pricePerDay) {
-    reason = "This space is only rented monthly.";
+    reason = "This space isn't priced for that vehicle yet.";
   } else if (broken) {
     reason = broken;
   } else if (!windowsCover(spot.availability, input.startsAt, input.endsAt)) {
@@ -488,9 +429,6 @@ export async function quote(
         select: { id: true },
       });
       if (blocked) reason = "The host has blocked some of those hours. Try a different time.";
-      else if (await termClaiming(prisma, listingId, input.startsAt, input.endsAt)) {
-        reason = "This space is reserved monthly for some of those hours. Try a different time.";
-      }
     }
   }
 

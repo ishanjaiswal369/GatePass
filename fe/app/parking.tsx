@@ -91,7 +91,6 @@ export default function ParkingScreen() {
     router.push({
       pathname: "/spots/results",
       params: toParams({
-        mode: "hourly",
         place: { latitude: at.latitude, longitude: at.longitude, label: "Where you are" },
         ...stayFromNow(),
       }),

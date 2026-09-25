@@ -28,23 +28,17 @@ model Settlement {
   @@index([updatedBy])
 }
 
-/// One payee line of a settlement: a booking, or (Phase 6) a monthly
-/// reservation -- exactly one id set, enforced in code. A monthly term can be
-/// settled month by month, so it may appear in several settlements.
 model SettlementItem {
   id                String    @id @default(uuid())
   settlementId      String
-  bookingId         String?
-  monthlyReservationId String?
+  bookingId         String
   amount            Decimal
   commissionDeducted Decimal
   createdAt         DateTime  @default(now())
 
   settlement        Settlement @relation(fields: [settlementId], references: [id])
-  booking           Booking?   @relation(fields: [bookingId], references: [id], onDelete: Restrict)
-  monthlyReservation MonthlyReservation? @relation(fields: [monthlyReservationId], references: [id], onDelete: Restrict)
+  booking           Booking    @relation(fields: [bookingId], references: [id])
 
   @@index([settlementId])
   @@index([bookingId])
-  @@index([monthlyReservationId])
 }

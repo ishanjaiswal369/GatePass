@@ -1,6 +1,5 @@
 import { Prisma } from "@prisma/client";
 import { badRequest, conflict, notFound } from "../lib/errors.js";
-import { allOccurrences } from "../lib/monthly.js";
 import { prisma } from "../lib/prisma.js";
 import { audit } from "../lib/security-log.js";
 import { windowsCover } from "../lib/venue-time.js";
@@ -94,11 +93,10 @@ export interface AvailabilityWindowInput {
 
 export interface PricingRowInput {
   vehicleType: string;
-  /** Absent when the host doesn't rent by the hour. At least one of the three is set. */
+  /** Absent when the host doesn't rent by the hour. At least one of the two is set. */
   pricePerHour?: number;
-  /** Optional ways to rent the same space; absent = not offered. */
+  /** Absent when the host doesn't rent by the day. */
   pricePerDay?: number;
-  pricePerMonth?: number;
 }
 
 export interface PresignInput {
@@ -160,7 +158,7 @@ const spotView = {
     orderBy: { position: "asc" },
   },
   pricing: {
-    select: { id: true, vehicleType: true, pricePerHour: true, pricePerDay: true, pricePerMonth: true },
+    select: { id: true, vehicleType: true, pricePerHour: true, pricePerDay: true },
   },
   // Included in the list read as well as the single one, so the dashboard can
   // show each spot's hours without a second round trip for every card.
@@ -582,8 +580,8 @@ function isOverlapViolation(error: unknown): boolean {
  * 0012_create_host_availability.
  *
  * Bookings already made are never touched by new hours: a driver who paid
- * keeps their time. What the host is told instead is how many paid stays and
- * monthly days now fall outside the hours, so the change is never silent.
+ * keeps their time. What the host is told instead is how many paid stays now
+ * fall outside the hours, so the change is never silent.
  */
 export async function replaceAvailability(
   listingId: string,
@@ -613,31 +611,24 @@ export async function replaceAvailability(
   return { ...(await getForHost(listingId, hostProfileId)), outsideHours: await outsideHours(listingId, windows) };
 }
 
-/** Paid stays still to come, and monthly days still to come, that these hours don't cover. */
+/** Paid stays still to come that these hours don't cover. */
 async function outsideHours(listingId: string, windows: AvailabilityWindowInput[]) {
   const now = new Date();
-  const [stays, terms] = await Promise.all([
-    prisma.booking.findMany({
-      where: { listingId, status: "CONFIRMED", endsAt: { gt: now } },
-      select: { startsAt: true, endsAt: true },
-    }),
-    prisma.monthlyReservation.findMany({
-      where: { listingId, status: "CONFIRMED" },
-      select: { days: true, startMinute: true, endMinute: true, startDate: true, endDate: true },
-    }),
-  ]);
+  const stays = await prisma.booking.findMany({
+    where: { listingId, status: "CONFIRMED", endsAt: { gt: now } },
+    select: { startsAt: true, endsAt: true },
+  });
   const covered = (start: Date, end: Date) => windowsCover(windows, start, end);
   return {
     bookings: stays.filter((b) => b.startsAt && b.endsAt && !covered(b.startsAt < now ? now : b.startsAt, b.endsAt)).length,
-    monthlyDays: terms.flatMap((t) => allOccurrences(t)).filter((o) => o.end > now && !covered(o.start, o.end)).length,
   };
 }
 
 /**
  * Step 6. One row per vehicle type, replacing whatever was there.
  *
- * Any of the three rates may be missing -- a monthly-only space has no hourly
- * rate -- but not all of them. Rows must be for the vehicle types the host
+ * Either rate may be missing -- a daily-only space has no hourly rate -- but
+ * not both. Rows must be for the vehicle types the host
  * said can park (Parking details): a price for bikes on a car-only space
  * would put it in bike searches it can't serve. New prices apply to new
  * bookings; a booking keeps the amount it was made at.
@@ -654,7 +645,7 @@ export async function replacePricing(
     if (seen.has(row.vehicleType)) {
       throw badRequest(`Two rates given for ${row.vehicleType}`);
     }
-    if (row.pricePerHour === undefined && row.pricePerDay === undefined && row.pricePerMonth === undefined) {
+    if (row.pricePerHour === undefined && row.pricePerDay === undefined) {
       throw badRequest(`Set at least one price for ${row.vehicleType === "BIKE" ? "bikes" : "cars"}`);
     }
     seen.add(row.vehicleType);
@@ -678,7 +669,6 @@ export async function replacePricing(
         vehicleType: row.vehicleType,
         pricePerHour: decimal(row.pricePerHour),
         pricePerDay: decimal(row.pricePerDay),
-        pricePerMonth: decimal(row.pricePerMonth),
       })),
     }),
   ]);
@@ -721,7 +711,7 @@ export async function readiness(listingId: string, hostProfileId: string): Promi
       inSociety: true,
       societyPermissionAt: true,
       warrantyAcceptedAt: true,
-      pricing: { select: { vehicleType: true, pricePerHour: true, pricePerDay: true, pricePerMonth: true } },
+      pricing: { select: { vehicleType: true, pricePerHour: true, pricePerDay: true } },
       hostProfile: { select: { payoutKycStatus: true, payoutAccountNumber: true } },
       _count: { select: { photos: true } },
     },
@@ -760,7 +750,7 @@ export async function readiness(listingId: string, hostProfileId: string): Promi
 
   for (const type of vehicleTypes) {
     const row = spot.pricing.find((r) => r.vehicleType === type);
-    if (!row || (!row.pricePerHour && !row.pricePerDay && !row.pricePerMonth)) {
+    if (!row || (!row.pricePerHour && !row.pricePerDay)) {
       need("pricing", `Set a price for ${type === "BIKE" ? "bikes" : "cars"}`);
     }
   }

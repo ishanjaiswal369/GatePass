@@ -17,15 +17,15 @@ import type { SpotPricingRow } from "@/types/api.types";
 /**
  * Step 6. What it costs, for each vehicle the host said can park (step 4).
  *
- * Hourly, daily and monthly are each a switch: a host can rent only by the
- * month, or only by the hour -- but each vehicle needs at least one. Whole
+ * Hourly and daily are each a switch: a host can rent only by the day, or
+ * only by the hour -- but each vehicle needs at least one. Whole
  * rupees, as a host sets a price; the API refuses anything else. The guidance
  * is deliberately not a "market average": a handful of early listings would
  * be noise presented as fact, and hosts anchor hard on a number they're shown.
  */
 
 type Vehicle = "CAR" | "BIKE";
-type Mode = "hour" | "day" | "month";
+type Mode = "hour" | "day";
 
 interface Rate {
   on: Record<Mode, boolean>;
@@ -34,8 +34,8 @@ interface Rate {
 
 const TITLES: Record<Vehicle, string> = { CAR: "CARS", BIKE: "BIKES & SCOOTERS" };
 const EXAMPLES: Record<Vehicle, Record<Mode, string>> = {
-  CAR: { hour: "60", day: "300", month: "5000" },
-  BIKE: { hour: "25", day: "120", month: "2000" },
+  CAR: { hour: "60", day: "300" },
+  BIKE: { hour: "25", day: "120" },
 };
 /** The cars one car price covers, by the largest that fits. */
 const FITS: Record<VehicleSize, string> = {
@@ -48,7 +48,6 @@ const FITS: Record<VehicleSize, string> = {
 const MODES: { key: Mode; label: string; unit: string }[] = [
   { key: "hour", label: "Hourly", unit: "per hour" },
   { key: "day", label: "Daily", unit: "per day" },
-  { key: "month", label: "Monthly", unit: "per month, paid up front" },
 ];
 
 /**
@@ -57,14 +56,14 @@ const MODES: { key: Mode; label: string; unit: string }[] = [
  */
 const HOST_COMMISSION_RATE = 0.1;
 
-const EMPTY: Rate = { on: { hour: true, day: false, month: false }, value: { hour: "", day: "", month: "" } };
+const EMPTY: Rate = { on: { hour: true, day: false }, value: { hour: "", day: "" } };
 
 function rateFrom(row: SpotPricingRow | undefined): Rate {
   if (!row) return EMPTY;
   const text = (v: string | null) => (v ? String(Number(v)) : "");
   return {
-    on: { hour: row.pricePerHour !== null, day: row.pricePerDay !== null, month: row.pricePerMonth !== null },
-    value: { hour: text(row.pricePerHour), day: text(row.pricePerDay), month: text(row.pricePerMonth) },
+    on: { hour: row.pricePerHour !== null, day: row.pricePerDay !== null },
+    value: { hour: text(row.pricePerHour), day: text(row.pricePerDay) },
   };
 }
 
@@ -104,7 +103,7 @@ export default function PricingScreen() {
       spot.id,
       types.map((t) => {
         const rate = rates[t] ?? EMPTY;
-        return { vehicleType: t, pricePerHour: num(rate, "hour"), pricePerDay: num(rate, "day"), pricePerMonth: num(rate, "month") };
+        return { vehicleType: t, pricePerHour: num(rate, "hour"), pricePerDay: num(rate, "day") };
       })
     );
     proceed(spot);
@@ -188,7 +187,7 @@ export default function PricingScreen() {
           </Text>
           <Text style={s.note}>
             GatePass keeps a {Math.round(HOST_COMMISSION_RATE * 100)}% commission. Drivers pay the cheaper of hourly and
-            daily for their stay; monthly is paid up front.
+            daily for their stay.
           </Text>
         </View>
       ) : null}

@@ -3,7 +3,6 @@ import {
   addDays,
   atMinute,
   toDateKey,
-  type SearchMode,
   type SearchPlace,
 } from "@/lib/searchCriteria";
 import { getItem, removeItem, setItem } from "@/lib/storage";
@@ -26,17 +25,11 @@ import { getItem, removeItem, setItem } from "@/lib/storage";
 const KEY = "gatepass.searchDraft";
 
 export interface SearchDraft {
-  mode: SearchMode;
   place: SearchPlace | null;
   fromDate: string;
   fromMinute: number;
   toDate: string;
   toMinute: number;
-  monthlyDays: number[];
-  startDate: string;
-  startMinute: number;
-  endMinute: number;
-  months: number;
 }
 
 let cached: SearchDraft | null = null;
@@ -87,11 +80,10 @@ export async function clearDraft(): Promise<void> {
 /**
  * A draft made usable against the clock as it is now.
  *
- * Mode and place carry over as they are. Times only carry over while they
- * are still bookable: a draft from yesterday afternoon would otherwise offer
- * an arrival in the past, or a date the day pickers no longer list and so
- * would show as a blank. Each group falls back to the caller's defaults on
- * its own, so a stale hourly window does not also cost the monthly days.
+ * The place carries over as it is. Times only carry over while they are
+ * still bookable: a draft from yesterday afternoon would otherwise offer an
+ * arrival in the past, or a date the day pickers no longer list and so would
+ * show as a blank.
  */
 export function freshen(
   draft: SearchDraft,
@@ -110,7 +102,6 @@ export function freshen(
       atMinute(draft.fromDate, draft.fromMinute).getTime();
 
   return {
-    mode: draft.mode,
     place: draft.place,
     ...(hourlyOk
       ? {
@@ -125,15 +116,6 @@ export function freshen(
           toDate: defaults.toDate,
           toMinute: defaults.toMinute,
         }),
-    monthlyDays:
-      draft.monthlyDays.length > 0 ? draft.monthlyDays : defaults.monthlyDays,
-    startDate:
-      listed(draft.startDate) && draft.startDate > first
-        ? draft.startDate
-        : defaults.startDate,
-    startMinute: draft.startMinute,
-    endMinute: draft.endMinute,
-    months: [1, 3, 6, 12].includes(draft.months) ? draft.months : defaults.months,
   };
 }
 
@@ -159,26 +141,23 @@ function readShape(value: unknown): SearchDraft | null {
       typeof place.longitude === "number" &&
       typeof place.label === "string");
 
-  const days = v.monthlyDays;
-  const daysOk =
-    Array.isArray(days) &&
-    days.every((d) => typeof d === "number" && Number.isInteger(d) && d >= 0 && d <= 6);
-
   if (
-    (v.mode !== "hourly" && v.mode !== "monthly") ||
     !placeOk ||
     !isDateKey(v.fromDate) ||
     !isDateKey(v.toDate) ||
-    !isDateKey(v.startDate) ||
     !isMinute(v.fromMinute) ||
-    !isMinute(v.toMinute) ||
-    !isMinute(v.startMinute) ||
-    !isMinute(v.endMinute) ||
-    !daysOk
+    !isMinute(v.toMinute)
   ) {
     return null;
   }
 
-  // Drafts saved before the monthly duration existed have none.
-  return { months: 1, ...(value as Omit<SearchDraft, "months">) } as SearchDraft;
+  // Only the fields this version reads, so nothing else a draft carries
+  // travels back into the form.
+  return {
+    place: place as SearchPlace | null,
+    fromDate: v.fromDate as string,
+    fromMinute: v.fromMinute as number,
+    toDate: v.toDate as string,
+    toMinute: v.toMinute as number,
+  };
 }

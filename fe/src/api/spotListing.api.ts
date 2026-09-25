@@ -190,7 +190,7 @@ export const saveBookingRules = (
 export const savePricing = (
   token: string,
   id: string,
-  rates: { vehicleType: VehicleType; pricePerHour?: number; pricePerDay?: number; pricePerMonth?: number }[]
+  rates: { vehicleType: VehicleType; pricePerHour?: number; pricePerDay?: number }[]
 ) =>
   request<SpotListing>(`/host/spots/${id}/pricing`, {
     method: "PATCH",

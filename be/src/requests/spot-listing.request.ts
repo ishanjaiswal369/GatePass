@@ -224,11 +224,10 @@ const pricingBody = z.object({
         // Whole rupees: a host sets ₹60, not ₹59.99.
         pricePerHour: z.number().int().positive().max(100000).optional(),
         pricePerDay: z.number().int().positive().max(1000000).optional(),
-        pricePerMonth: z.number().int().positive().max(10000000).optional(),
       })
       .strict()
-      .refine((row) => row.pricePerHour !== undefined || row.pricePerDay !== undefined || row.pricePerMonth !== undefined, {
-        message: "set at least one of hourly, daily or monthly",
+      .refine((row) => row.pricePerHour !== undefined || row.pricePerDay !== undefined, {
+        message: "set at least one of hourly or daily",
       })
     )
     .min(1),

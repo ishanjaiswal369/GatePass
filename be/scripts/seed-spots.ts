@@ -58,7 +58,6 @@ interface Window {
 interface Rate {
   hour: number;
   day?: number;
-  month?: number;
 }
 
 interface SeedSpot {
@@ -70,7 +69,7 @@ interface SeedSpot {
   /** Where it sits relative to the centre. */
   km: number;
   bearingDeg: number;
-  /** Per vehicle: hourly, and optionally daily and monthly. */
+  /** Per vehicle: hourly, and optionally daily. */
   rates: { CAR?: Rate; BIKE?: Rate };
   hours: Window[];
   access: string;
@@ -91,7 +90,7 @@ const SPOTS: SeedSpot[] = [
     addressLine: "House 14, lane behind SBI main branch, Bara Chauraha",
     km: 0.4,
     bearingDeg: 0,
-    rates: { CAR: { hour: 30, day: 180, month: 3200 }, BIKE: { hour: 10, day: 60, month: 1000 } },
+    rates: { CAR: { hour: 30, day: 180 }, BIKE: { hour: 10, day: 60 } },
     hours: [{ days: EVERY_DAY, from: h(7), to: h(22) }],
     access: "Blue gate. Ring the bell once; the latch lifts from inside.",
     entry: "Blue gate on the lane behind SBI",
@@ -107,7 +106,7 @@ const SPOTS: SeedSpot[] = [
     addressLine: "Plot 7, second lane, Ab Nagar",
     km: 0.9,
     bearingDeg: 90,
-    rates: { CAR: { hour: 40, day: 250, month: 4000 } },
+    rates: { CAR: { hour: 40, day: 250 } },
     hours: [{ days: MON_TO_SAT, from: h(8), to: h(20) }],
     access: "Shutter is left half-open during listed hours. Duck under, park nose-in.",
     entry: "Shutter on the second lane, Ab Nagar",
@@ -123,7 +122,7 @@ const SPOTS: SeedSpot[] = [
     addressLine: "Shanti Residency, basement bay 12",
     km: 1.5,
     bearingDeg: 225,
-    rates: { CAR: { hour: 20, day: 150, month: 2500 }, BIKE: { hour: 8, day: 50 } },
+    rates: { CAR: { hour: 20, day: 150 }, BIKE: { hour: 8, day: 50 } },
     hours: [{ days: EVERY_DAY, from: 0, to: h(24) }],
     access: "Tell the guard you are parking in bay 12. It is marked in yellow.",
     entry: "Main gate, Shanti Residency",
@@ -138,7 +137,7 @@ const SPOTS: SeedSpot[] = [
     addressLine: "Basement, Gupta Complex, station road",
     km: 2.2,
     bearingDeg: 315,
-    rates: { CAR: { hour: 25, month: 3000 } },
+    rates: { CAR: { hour: 25 } },
     hours: [
       { days: WEEKDAYS, from: h(18), to: h(24) },
       { days: WEEKEND, from: 0, to: h(24) },
@@ -171,7 +170,7 @@ const SPOTS: SeedSpot[] = [
     addressLine: "C-21, Awas Vikas colony",
     km: 4.3,
     bearingDeg: 70,
-    rates: { CAR: { hour: 15, day: 100, month: 1800 } },
+    rates: { CAR: { hour: 15, day: 100 } },
     hours: [{ days: WEEKDAYS, from: h(9), to: h(18) }],
     access: "Colony guard has your booking. Show the name on it at the barrier.",
     entry: "Colony barrier, Awas Vikas",
@@ -185,7 +184,7 @@ const SPOTS: SeedSpot[] = [
     addressLine: "Farmhouse 2, Lucknow road",
     km: 8.5,
     bearingDeg: 20,
-    rates: { CAR: { hour: 10, day: 80, month: 1500 } },
+    rates: { CAR: { hour: 10, day: 80 } },
     hours: [{ days: EVERY_DAY, from: 0, to: h(24) }],
     access: "Second gate after the petrol pump. Open ground, park anywhere.",
     entry: "Second gate after the petrol pump",
@@ -302,7 +301,6 @@ async function main() {
           vehicleType,
           pricePerHour: rate.hour,
           pricePerDay: rate.day ?? null,
-          pricePerMonth: rate.month ?? null,
         })),
       }),
       prisma.hostAvailability.deleteMany({ where: { listingId: spot.id } }),

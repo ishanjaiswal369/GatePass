@@ -3,8 +3,6 @@ import { EXTENSION_STEPS } from "../config/pricing.js";
 import { ruleViolation } from "../lib/booking-rules.js";
 import { conflict, notFound } from "../lib/errors.js";
 import { assertNotBlocked, lockListing } from "../lib/listing-lock.js";
-import { assertNoMonthlyConflict, termClaiming } from "../lib/monthly-guard.js";
-import { occurrencesBetween } from "../lib/monthly.js";
 import { prisma } from "../lib/prisma.js";
 import { audit } from "../lib/security-log.js";
 import { venueDayAndMinute, windowsCover, type WeeklyWindow } from "../lib/venue-time.js";
@@ -45,7 +43,7 @@ type ParentRow = Prisma.BookingGetPayload<{ select: typeof parentRow }>;
 
 interface SpotTerms {
   availability: WeeklyWindow[];
-  /** Null on a space rented only by the day or month: extra time is sold by the hour. */
+  /** Null on a space rented only by the day: extra time is sold by the hour. */
   pricePerHour: Prisma.Decimal | null;
   /** The host's longest stay, which counts the extra time (lib/booking-rules). */
   maxStayMinutes: number | null;
@@ -174,13 +172,6 @@ export async function options(bookingId: string, driverId: string) {
     orderBy: { startsAt: "asc" },
   });
 
-  // Or a monthly reservation's next occurrence, within the longest step.
-  const longest = new Date(end.getTime() + Math.max(...EXTENSION_STEPS) * 60_000);
-  const claiming = await termClaiming(prisma, row.listingId!, end, longest);
-  const monthlyAfter = claiming
-    ? occurrencesBetween(claiming, end, longest).map((o) => (o.start < end ? end : o.start)).sort((a, b) => a.getTime() - b.getTime())[0] ?? null
-    : null;
-
   const opts: ExtensionOption[] = EXTENSION_STEPS.map((minutes) => {
     const endsAt = new Date(end.getTime() + minutes * 60_000);
     let reason: string | null = null;
@@ -192,8 +183,6 @@ export async function options(bookingId: string, driverId: string) {
       reason = tooLong;
     } else if (next?.startsAt && next.startsAt < endsAt) {
       reason = `This space is booked from ${clock(next.startsAt)}.`;
-    } else if (monthlyAfter && monthlyAfter < endsAt) {
-      reason = `This space is reserved monthly from ${clock(monthlyAfter)}.`;
     } else if (nextBlock && nextBlock.startsAt < endsAt) {
       reason = nextBlock.startsAt <= end
         ? "The host has blocked the time after your booking."
@@ -273,7 +262,6 @@ export async function create(
         throw conflict("The space isn't open for that long.");
       }
       await assertNotBlocked(tx, row.listingId!, end, endsAt);
-      await assertNoMonthlyConflict(tx, row.listingId!, end, endsAt);
 
       const created = await tx.booking.create({
         data: {

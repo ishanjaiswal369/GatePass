@@ -10,7 +10,6 @@ import { hostController } from "./controllers/host.controller.js";
 import { hostOperationsController } from "./controllers/host-operations.controller.js";
 import { hostPayoutController } from "./controllers/host-payout.controller.js";
 import { listingController } from "./controllers/listing.controller.js";
-import { monthlyController } from "./controllers/monthly.controller.js";
 import { notificationController } from "./controllers/notification.controller.js";
 import { paymentController } from "./controllers/payment.controller.js";
 import { problemController } from "./controllers/problem.controller.js";
@@ -37,7 +36,6 @@ import { hostRequests } from "./requests/host.request.js";
 import { hostOperationsRequests } from "./requests/host-operations.request.js";
 import { hostPayoutRequests } from "./requests/host-payout.request.js";
 import { listingRequests } from "./requests/listing.request.js";
-import { monthlyRequests } from "./requests/monthly.request.js";
 import { notificationRequests } from "./requests/notification.request.js";
 import { paymentRequests } from "./requests/payment.request.js";
 import { problemRequests } from "./requests/problem.request.js";
@@ -320,38 +318,6 @@ export function registerApi(app: App): void {
     "/bookings/:id/review",
     driver,
     request(reviewRequests.create, reviewController.create)
-  );
-  // Monthly reservations (Phase 6): a weekly pattern for 1-12 months, paid up
-  // front. Its own routes, because it is its own row -- see monthly.service.
-  app.get(
-    "/spots/:id/monthly-quote",
-    driver,
-    request(monthlyRequests.quote, monthlyController.quote)
-  );
-  app.post(
-    "/monthly-reservations",
-    driver,
-    request(monthlyRequests.create, monthlyController.create)
-  );
-  app.get(
-    "/monthly-reservations",
-    driver,
-    request(monthlyRequests.list, monthlyController.list)
-  );
-  app.get(
-    "/monthly-reservations/:id",
-    driver,
-    request(monthlyRequests.get, monthlyController.get)
-  );
-  app.get(
-    "/monthly-reservations/:id/cancellation",
-    driver,
-    request(monthlyRequests.get, monthlyController.cancellation)
-  );
-  app.post(
-    "/monthly-reservations/:id/cancel",
-    driver,
-    request(monthlyRequests.cancel, monthlyController.cancel)
   );
   // A host spot is booked by the hour against its own listing, not by the
   // slot against a ParkingCapacity -- see booking.service.createSpotBooking.

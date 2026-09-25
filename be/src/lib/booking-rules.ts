@@ -31,12 +31,7 @@ export function ruleViolation(
   if (rules.maxStayMinutes && stay.minutes > rules.maxStayMinutes) {
     return `This space takes bookings of up to ${durationText(rules.maxStayMinutes)}.`;
   }
-  return startTooFar(rules, stay.startsAt, now);
-}
-
-/** Just the advance-booking rule: for a monthly term, whose length the host's stay rules don't govern. */
-export function startTooFar(rules: Pick<BookingRules, "advanceDays">, startsAt: Date, now = new Date()): string | null {
-  if (rules.advanceDays && startsAt.getTime() > now.getTime() + rules.advanceDays * 86_400_000) {
+  if (rules.advanceDays && stay.startsAt.getTime() > now.getTime() + rules.advanceDays * 86_400_000) {
     return `This space can be booked up to ${rules.advanceDays} days ahead.`;
   }
   return null;

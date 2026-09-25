@@ -293,9 +293,8 @@ export interface NearbySpot {
   /** The cheapest of the spot's hourly rates; null when it isn't rented by the hour. */
   pricePerHour: number | null;
   pricePerDay: number | null;
-  pricePerMonth: number | null;
-  /** The searched stay at the cheapest rate, as a decimal string; null on a monthly search. */
-  stayTotal: string | null;
+  /** The searched stay at the cheapest rate, as a decimal string. */
+  stayTotal: string;
   vehicleTypes: VehicleType[];
   amenities: Amenity[];
   /** Open all day, every day -- derived from the hours by the API. */
@@ -580,7 +579,6 @@ export interface SpotPricingRow {
   /** Null when the host doesn't rent by the hour. */
   pricePerHour: string | null;
   pricePerDay: string | null;
-  pricePerMonth: string | null;
 }
 
 export interface SpotListing {
@@ -653,10 +651,9 @@ export interface SpotReadiness {
   items: { step: string; message: string }[];
 }
 
-/** What saving new hours reports: paid stays and monthly days they no longer cover (kept, never cancelled). */
+/** What saving new hours reports: paid stays they no longer cover (kept, never cancelled). */
 export interface OutsideHours {
   bookings: number;
-  monthlyDays: number;
 }
 
 export interface PresignedUpload {
@@ -714,15 +711,6 @@ export interface HostBooking {
   problem: { status: "OPEN" | "RESOLVED"; category: string } | null;
   /** Calendar only: an unpaid hold still being paid for. */
   held?: boolean;
-  /** Set on a monthly reservation (Phase 6): the term, shown with a Monthly badge. */
-  monthly: {
-    startDate: string;
-    lastDate: string;
-    months: number;
-    days: number[];
-    startMinute: number;
-    endMinute: number;
-  } | null;
 }
 
 export interface HostSummary {
@@ -775,71 +763,6 @@ export interface HostEarnings {
     at: string | null;
   }[];
   payoutAccount: PayoutAccount;
-}
-
-// ---------- Monthly reservations (Phase 6) ----------
-
-export interface MonthlyQuote {
-  available: boolean;
-  reason: string | null;
-  startDate: string;
-  /** The term's last day, inclusive. */
-  lastDate: string;
-  months: number;
-  pricePerMonth: string | null;
-  parking: string;
-  platformFee: string;
-  /** The fee as a share of the parking (config), for the price line. */
-  platformFeeRate: number;
-  taxAmount: string;
-  total: string;
-  occurrences: number;
-}
-
-export type MonthlyPhase = "PENDING" | "EXPIRED" | "UPCOMING" | "ACTIVE" | "COMPLETED" | "CANCELLED";
-
-export interface MonthlyReservation {
-  id: string;
-  ref: string;
-  status: "PENDING" | "CONFIRMED" | "COMPLETED" | "CANCELLED";
-  phase: MonthlyPhase;
-  days: number[];
-  startMinute: number;
-  endMinute: number;
-  startDate: string;
-  endDate: string;
-  lastDate: string;
-  months: number;
-  pricePerMonth: string;
-  amount: string;
-  platformFee: string;
-  taxAmount: string;
-  vehicleNumber: string;
-  vehicleType: VehicleType;
-  holdExpiresAt: string | null;
-  cancelledAt: string | null;
-  createdAt: string;
-  listing: {
-    id: string;
-    name: string;
-    addressLine: string | null;
-    city: string | null;
-    latitude: string | null;
-    longitude: string | null;
-    entryPoint: string | null;
-  };
-  payment: { status: PaymentStatus; amount: string } | null;
-  refund: { amount: string; status: RefundStatus; policy: string; createdAt: string } | null;
-  /** Detail only: released once paid. */
-  access?: BookingAccess | null;
-}
-
-export interface MonthlyCancellationQuote {
-  cancellable: boolean;
-  reason: string | null;
-  rule: "FULL" | "UNUSED_MONTHS" | "NOTHING_PAID" | null;
-  refundAmount: string;
-  unusedMonths: number | null;
 }
 
 /** How to get in, released with payment: the instructions, the bay and how to recognise it. */

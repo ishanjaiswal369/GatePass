@@ -10,7 +10,7 @@ It is not a rebuild: same routes → requests → controllers → services, same
 |---|---|
 | SUVs / vans | **Sizes of car.** One car price; the largest size that fits is stored (`maxVehicleSize`); a driver's vehicle size filters search. |
 | Location before booking | **Area + approximate pin.** Society, area, city, PIN and a pin rounded to ~100 m before paying; full address, exact pin, bay and marker after. |
-| Hourly rate | **Optional.** Any one of hourly / daily / monthly per vehicle type. Daily-only is charged per started day; monthly-only is only in monthly search; extra time needs an hourly rate. |
+| Hourly rate | **Optional.** Either of hourly / daily per vehicle type. Daily-only is charged per started day; extra time needs an hourly rate. |
 | Statuses | **Mapped to labels.** DB keeps DRAFT / PENDING_REVIEW / REJECTED / PUBLISHED / SUSPENDED. |
 
 ## Flow
@@ -22,7 +22,7 @@ It is not a rebuild: same routes → requests → controllers → services, same
 | 3 | Photos (`photos`) | min 2 (was 1), reorder, choose cover, suggested shots |
 | 4 | **Parking details** (`details`) | new; replaces `features` + `limits` |
 | 5 | Availability (`availability`) | + booking rules (min / max stay, advance) |
-| 6 | Pricing (`pricing`) | per vehicle type from step 4; hourly / daily / monthly toggles |
+| 6 | Pricing (`pricing`) | per vehicle type from step 4; hourly / daily toggles |
 | 7 | Getting in (`access`) | + entry method, bay number, marker |
 | 8 | Proof & permission (`documents`) | + document type, owner vs permission, society/RWA, document states |
 | 9 | Getting paid (`payout`) | four named states, support link |
@@ -91,23 +91,22 @@ ACTIVATED) — `admin-spot.publishIfReady`, unchanged.
   impossible windows (existing EXCLUDE + zod).
 - R18. Optional booking rules: minimum stay (1 / 2 / 4 h / custom), maximum stay (4 / 8 / 12 / 24 h /
   custom, ≥ minimum, ≤ 30 days), advance booking (7 / 14 / 30 / 60 days).
-- R19. When saved hours leave out upcoming paid bookings or monthly days, the system shall say how
+- R19. When saved hours leave out upcoming paid bookings, the system shall say how
   many and that they still go ahead — never cancel them.
 - R20. Search, quote, booking and extension shall enforce the rules: minimum and maximum stay (an
-  extension counts the whole stay), and how far ahead a stay or monthly term may start.
+  extension counts the whole stay), and how far ahead a stay may start.
 
 **Step 6 — Pricing**
-- R21. One section per vehicle type from step 4, each with Hourly / Daily / Monthly switches;
+- R21. One section per vehicle type from step 4, each with Hourly / Daily switches;
   each vehicle type needs at least one rate. Rates are whole rupees, 1–1,00,000.
-- R22. Rates without an hourly price: daily-only stays are charged per started day; a type with only
-  a monthly price is left out of hourly search and quotes ("This space is only rented monthly").
+- R22. Rates without an hourly price: daily-only stays are charged per started day.
 - R23. The screen says new prices apply to new bookings only.
 
 **Step 7 — Getting in**
 - R24. Entry method (Security guard, Gate code, Intercom, Manual gate, Open access, Other) and access
   instructions (≤ 1000) are required; bay number (≤ 20) and parking marker (≤ 120) are optional.
 - R25. Entry gate (existing `entryPoint`) and entry method are public; instructions, bay and marker
-  are released only with a paid booking or reservation.
+  are released only with a paid booking.
 
 **Step 8 — Proof & permission**
 - R26. The host picks the document type (Electricity bill, Property tax receipt, Parking allotment
@@ -142,7 +141,7 @@ ACTIVATED) — `admin-spot.publishIfReady`, unchanged.
 | | |
 |---|---|
 | **Frontend** | `WIZARD_STEPS` → 10 (drop `features`, `limits`; add `details`). New screen `details.tsx`; the rest extended in place. Shared `lib/listingRules.ts` (name check, ft↔cm, status label). Review renders server readiness items with deep links. Host tab "Continue" resumes at the first incomplete step. Dashboard links point at `details`. Spot detail / results show "Approximate location" and area; booking detail shows the exact address once paid. |
-| **Backend** | New nullable columns (below). `saveType` (+ description, name rule), `saveAddress` (parts, compose line, pin confirmation), `saveDetails` (amenities, covered, vehicles, size, dims, notes; prunes pricing), `saveBookingRules`, `saveTerms` (+ entry method, bay, marker), `savePermission`, `replacePhotos` (min on live), `readiness` → items. Pricing: `pricePerHour` nullable through `stay-price`, search, quote, booking, extension, favourites. Rules enforced in search, quote, booking, extension, monthly. Public projections round coordinates and drop private fields. Admin reject takes `section`. Ownership document streamed via authenticated routes; the public upload route refuses that prefix. |
+| **Backend** | New nullable columns (below). `saveType` (+ description, name rule), `saveAddress` (parts, compose line, pin confirmation), `saveDetails` (amenities, covered, vehicles, size, dims, notes; prunes pricing), `saveBookingRules`, `saveTerms` (+ entry method, bay, marker), `savePermission`, `replacePhotos` (min on live), `readiness` → items. Pricing: `pricePerHour` nullable through `stay-price`, search, quote, booking, extension, favourites. Rules enforced in search, quote, booking, extension. Public projections round coordinates and drop private fields. Admin reject takes `section`. Ownership document streamed via authenticated routes; the public upload route refuses that prefix. |
 | **Security** | Every host route: `authenticate` + `requireHost`, `hostProfileId` in the WHERE (`ownedSpot`). zod `.strict()` bodies with enums, lengths, ranges. Private fields listed in R35 never selected in driver projections; exact address released only when the payment is CAPTURED. Ownership document behind owner/admin checks. Audits: `LISTING_SUBMITTED`, `OWNERSHIP_DOC_VIEWED`. |
 
 ## Data (`Listing`, all nullable / defaulted — `db push`, additions only)
@@ -189,7 +188,7 @@ The suggested field names in the request map as: `space_type`→`spaceType`, `ad
 | `PATCH /host/spots/:id/address` | + `societyName`, `building`, `street`, `area`, `pinConfirmed` |
 | `PATCH /host/spots/:id/details` | new: `covered`, `amenities`, `amenityNote`, `vehicleTypes`, `maxVehicleSize`, `maxVehicleHeightCm`, `bayWidthCm`, `bayLengthCm`, `notes` |
 | `PATCH /host/spots/:id/booking-rules` | new: `minStayMinutes`, `maxStayMinutes`, `advanceDays` (null clears) |
-| `PUT /host/spots/:id/availability` | response adds `outsideHours: { bookings, monthlyDays }` |
+| `PUT /host/spots/:id/availability` | response adds `outsideHours: { bookings }` |
 | `PATCH /host/spots/:id/pricing` | `pricePerHour` optional; ≥ 1 rate per row; rows must match `vehicleTypes` |
 | `PATCH /host/spots/:id/terms` | + `entryMethod`, `bayNumber`, `parkingMarker` |
 | `PATCH /host/spots/:id/permission` | new: `ownershipDocType`, `permissionBasis`, `inSociety`, `societyPermission` |
@@ -207,7 +206,7 @@ The suggested field names in the request map as: `space_type`→`spaceType`, `ad
 | Authentication | host routes behind `authenticate` + `requireHost`; admin routes `requireAdmin`; document route same |
 | Authorization | `ownedSpot` / `editableSpot` / `operableSpot` put `hostProfileId` in the WHERE; another host's listing or document is 404 |
 | Input validation | zod `.strict()`: enums (space type, amenity, vehicle type/size, entry method, doc type, permission basis, section); strings trimmed with max lengths; ints in ranges; PIN `^\d{6}$`; `min ≤ max` stay; name rule server-side |
-| Output | driver projections (search, spot, favourites, booking/monthly before payment) omit `street`, `building`, `addressLine`, `bayNumber`, `parkingMarker`, `accessInstructions`, `ownership*`, `permission*`, `inSociety`, `rejection*`; coordinates rounded to 3 dp |
+| Output | driver projections (search, spot, favourites, booking before payment) omit `street`, `building`, `addressLine`, `bayNumber`, `parkingMarker`, `accessInstructions`, `ownership*`, `permission*`, `inSociety`, `rejection*`; coordinates rounded to 3 dp |
 | Sensitive files | ownership documents only through the authenticated route; the public `/uploads/*` GET refuses `ownership-docs/` |
 | Payout data | PAN and account number masked server-side (existing); never in driver projections |
 | Integrity | pricing pruned with vehicle types in one transaction; availability replace keeps bookings; rules enforced server-side on every claim path |
@@ -219,8 +218,8 @@ The suggested field names in the request map as: `space_type`→`spaceType`, `ad
 - [x] Schema: Listing columns, `pricePerHour` nullable; enums (space types, amenities, entry method, doc type, permission basis, sections) — `db push`, additions only
 - [x] spot-listing service + requests: type/description + name rule, address parts + placed pin, details (prunes prices), booking rules, terms extras, permission, photo minimum on live listings, readiness items, availability `outsideHours`
 - [x] Nullable hourly through stay-price, search, quote, booking, extension, favourites, host views
-- [x] Booking rules in search, quote, booking, extension (whole stay) and the monthly start; car size in search (`vehicleSize`)
-- [x] Public projections: approximate pin (3 dp) and public place only; exact address, bay and marker once paid (booking and monthly views)
+- [x] Booking rules in search, quote, booking, extension (whole stay); car size in search (`vehicleSize`)
+- [x] Public projections: approximate pin (3 dp) and public place only; exact address, bay and marker once paid (booking views)
 - [x] Ownership document behind `GET /host/spots/:id/ownership-document` and `/admin/…`; the public upload GET refuses `ownership-docs/`; admin reject takes `section`
 - [x] App: `WIZARD_STEPS` → 10, new `details` step, steps 1–3 and 5–10 extended, status screen (submitted / under review / approved / rejected), Host tab resumes at the first unfinished step, Edit from review returns to review (`useWizardContinue`), driver labels and approximate-location copy
 - [x] Shared UI: `Field` names its input for screen readers and shows inline errors; `WizardShell` keeps the footer above the keyboard; `Checkbox`/`OptionCard` expose `aria-checked` on web
@@ -235,7 +234,7 @@ Routes use PATCH for step saves (the existing convention); availability stays PU
 3. A searched-but-unconfirmed pin can't continue; after "Save this location" it can.
 4. One photo: Continue disabled, "Add at least one more photo."; reorder and Make cover change position 0.
 5. Details: Vans ticked ⇒ size Large; unticking Bikes deletes the bike price.
-6. A space with a ₹250 day rate and no hourly rate charges ₹500 for 26 hours; a monthly-only space is absent from hourly search and in monthly search.
+6. A space with a ₹250 day rate and no hourly rate charges ₹500 for 26 hours.
 7. Minimum 2 h: a 1-hour quote/booking is refused; maximum 8 h: an extension past 8 h total is refused; advance 7 days: a stay 10 days out is refused.
 8. Changing hours around an upcoming paid booking reports it and keeps it.
 9. Submit with gaps returns items with steps; the review lists them and each opens its step.

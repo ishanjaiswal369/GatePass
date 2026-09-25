@@ -12,16 +12,7 @@ export const pricing = {
   platformFeeGstRate: 0.18,
   /** Taken from the host's share of the parking amount. */
   hostCommissionRate: 0.1,
-  /**
-   * A monthly reservation's platform fee: this share of its parking amount
-   * (owner's decision, Phase 6), with platformFeeGstRate GST on top. Hourly
-   * bookings keep the flat platformFee.
-   */
-  monthlyPlatformFeeRate: 0.05,
 };
-
-/** The terms a monthly reservation can run for, in months. */
-export const MONTHLY_TERMS = [1, 3, 6, 12] as const;
 
 /** How much extra time a parked driver can buy at once, in minutes. */
 export const EXTENSION_STEPS = [30, 60, 120] as const;

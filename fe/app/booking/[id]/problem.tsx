@@ -116,7 +116,6 @@ export default function ProblemStatusScreen() {
     router.push({
       pathname: "/spots/results",
       params: toParams({
-        mode: "hourly",
         place: { latitude: Number(listing.latitude), longitude: Number(listing.longitude), label: `Near ${listing.name}` },
         ...alternativeStay(booking),
       }),
@@ -188,7 +187,6 @@ export default function ProblemStatusScreen() {
                               params: {
                                 id: spot.id,
                                 ...toParams({
-                                  mode: "hourly",
                                   place: { latitude: Number(listing!.latitude), longitude: Number(listing!.longitude), label: `Near ${listing!.name}` },
                                   ...alternativeStay(booking),
                                 }),

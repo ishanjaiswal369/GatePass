@@ -16,7 +16,7 @@ import {
 import type { VehicleSize, VehicleType } from "@/constants/enums";
 import { ResultsMap } from "@/features/search/ResultsMap";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
-import { formatRupees, leadRate } from "@/lib/money";
+import { leadRate } from "@/lib/money";
 import { describeCriteria, formatDuration, fromParams, toParams, type SearchCriteria } from "@/lib/searchCriteria";
 import {
   activeFilterCount,
@@ -88,18 +88,8 @@ export default function SpotResultsScreen() {
           latitude: search.place.latitude,
           longitude: search.place.longitude,
           radiusKm: narrow.radiusKm,
-          ...(search.mode === "hourly"
-            ? {
-                at: search.from,
-                durationMinutes: Math.round((Date.parse(search.to) - Date.parse(search.from)) / 60_000),
-              }
-            : {
-                days: search.days,
-                startMinute: search.startMinute,
-                endMinute: search.endMinute,
-                startDate: search.startDate,
-                months: search.months,
-              }),
+          at: search.from,
+          durationMinutes: Math.round((Date.parse(search.to) - Date.parse(search.from)) / 60_000),
           vehicleType: vehicle ?? undefined,
           vehicleSize: vehicleSize ?? undefined,
           amenities: narrow.amenities,
@@ -134,8 +124,7 @@ export default function SpotResultsScreen() {
   if (!token) return <Redirect href="/" />;
   if (!criteria) return <Redirect href="/home" />;
 
-  const monthly = criteria.mode === "monthly";
-  const stayMinutes = monthly ? 0 : Math.round((Date.parse(criteria.to) - Date.parse(criteria.from)) / 60_000);
+  const stayMinutes = Math.round((Date.parse(criteria.to) - Date.parse(criteria.from)) / 60_000);
   const stayLabel = `for ${formatDuration(stayMinutes)}`;
   const filterCount = activeFilterCount(filters);
   const radiusKm = filters.radiusKm;
@@ -219,7 +208,7 @@ export default function SpotResultsScreen() {
               id: spot.id,
               latitude: spot.latitude,
               longitude: spot.longitude,
-              label: pinLabel(spot, monthly),
+              label: pinLabel(spot),
             }))}
           />
         ) : null}
@@ -265,9 +254,7 @@ export default function SpotResultsScreen() {
                 body={
                   filterCount
                     ? "Nothing matches with these filters. Try removing some, a different time, or a wider area."
-                    : monthly
-                      ? "Nothing within range is free on every day you picked. Try fewer days or shorter hours."
-                      : "Every space nearby is booked or closed for those hours. Try a different time, or look further away."
+                    : "Every space nearby is booked or closed for those hours. Try a different time, or look further away."
                 }
               >
                 <View style={s.gap}>
@@ -286,20 +273,11 @@ export default function SpotResultsScreen() {
               </EmptyState>
             )
           ) : (
-            <>
-            {criteria.mode === "monthly" ? (
-              <Text style={s.termNote}>
-                These spaces are free {describeCriteria(criteria).split(", from")[0]} for the whole {criteria.months}{" "}
-                {criteria.months === 1 ? "month" : "months"} — not just the first week.
-              </Text>
-            ) : null}
-            {spots.map((spot) => (
+            spots.map((spot) => (
               <View key={spot.id} onLayout={(event) => (offsets.current[spot.id] = event.nativeEvent.layout.y)}>
                 <SpotListItem
                   spot={spot}
                   stayLabel={stayLabel}
-                  monthly={monthly}
-                  months={criteria.mode === "monthly" ? criteria.months : undefined}
                   selected={spot.id === selected}
                   onToggleSave={() => void toggleSave(spot)}
                   onView={() =>
@@ -307,8 +285,7 @@ export default function SpotResultsScreen() {
                   }
                 />
               </View>
-            ))}
-            </>
+            ))
           )}
         </ScrollView>
       </View>
@@ -337,7 +314,6 @@ function Skeleton() {
 const SK = "#eceef1";
 
 const s = StyleSheet.create({
-  termNote: { fontSize: 13, lineHeight: 19, color: "#166534", backgroundColor: "#f0fdf4", borderRadius: radius.sm, padding: space.md },
   screen: { flex: 1, backgroundColor: colors.surface },
   header: {
     backgroundColor: colors.ink,
@@ -413,9 +389,8 @@ const s = StyleSheet.create({
   skeletonLine: { height: 12, borderRadius: 6, backgroundColor: SK },
 });
 
-/** A map pin's price: the monthly rate on a monthly search, else the rate the space leads with. */
-function pinLabel(spot: NearbySpot, monthly: boolean): string {
-  if (monthly && spot.pricePerMonth !== null) return `${formatRupees(spot.pricePerMonth)}/mo`;
+/** A map pin's price: the rate the space leads with. */
+function pinLabel(spot: NearbySpot): string {
   const lead = leadRate(spot);
   return lead ? `${lead.amount}${lead.unit}` : "—";
 }

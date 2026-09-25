@@ -216,7 +216,7 @@ export default function AvailabilityScreen() {
 
     // Never silent: paid bookings the new hours leave out still go ahead,
     // and the host is told so before moving on.
-    if (saved.outsideHours.bookings > 0 || saved.outsideHours.monthlyDays > 0) {
+    if (saved.outsideHours.bookings > 0) {
       setOutside(saved.outsideHours);
       return;
     }
@@ -418,13 +418,7 @@ export default function AvailabilityScreen() {
         <View style={s.outside} accessibilityLiveRegion="polite">
           <Text style={s.outsideTitle}>Saved. Some bookings fall outside these hours</Text>
           <Text style={s.outsideBody}>
-            {[
-              outside.bookings ? `${outside.bookings} upcoming paid ${outside.bookings === 1 ? "booking" : "bookings"}` : null,
-              outside.monthlyDays ? `${outside.monthlyDays} monthly ${outside.monthlyDays === 1 ? "day" : "days"}` : null,
-            ]
-              .filter(Boolean)
-              .join(" and ")}{" "}
-            still go ahead as booked — changing hours never cancels a driver. If you can't honour them, cancel them from
+            {outside.bookings} upcoming paid {outside.bookings === 1 ? "booking" : "bookings"} still go ahead as booked — changing hours never cancels a driver. If you can't honour them, cancel them from
             your bookings.
           </Text>
         </View>

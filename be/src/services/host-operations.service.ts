@@ -3,14 +3,11 @@ import { pricing } from "../config/pricing.js";
 import { conflict, notFound } from "../lib/errors.js";
 import { bookingRef, clock, day } from "../lib/format.js";
 import { lockListing } from "../lib/listing-lock.js";
-import { occurrencesBetween } from "../lib/monthly.js";
-import { termsTouching } from "../lib/monthly-guard.js";
 import { prisma } from "../lib/prisma.js";
 import { audit } from "../lib/security-log.js";
 import { addDays, startOfVenueDay, startOfVenueMonth, venueDate, weekdayOf } from "../lib/venue-calendar.js";
 import { VENUE_TIME_ZONE } from "../lib/venue-time.js";
 import * as payoutService from "./host-payout.service.js";
-import { occurrenceViews, paidTermsOn, presentTerm, shareStartingBetween, termMoney, termPhase, termsFor } from "./host-monthly.js";
 import * as reviewService from "./review.service.js";
 
 /**
@@ -97,7 +94,7 @@ function phaseOf(row: HostBookingRow, now: Date): "UPCOMING" | "ACTIVE" | "COMPL
 }
 
 /** A driver's saved label for the plate they booked with ("Maruti Swift"), if they gave one. */
-async function vehicleLabels(rows: { driverId: string; vehicleNumber: string }[]): Promise<Map<string, string>> {
+async function vehicleLabels(rows: HostBookingRow[]): Promise<Map<string, string>> {
   if (rows.length === 0) return new Map();
   const vehicles = await prisma.vehicle.findMany({
     where: { OR: rows.map((row) => ({ userId: row.driverId, vehicleNumber: row.vehicleNumber })) },
@@ -132,8 +129,6 @@ function present(row: HostBookingRow, labels: Map<string, string>, now: Date) {
     cancelledAt: row.cancelledAt,
     refundPolicy: row.refund?.policy ?? null,
     problem: row.problem,
-    /** Set on a monthly reservation's card (host-monthly); null for a stay. */
-    monthly: null as ReturnType<typeof presentTerm>["monthly"] | null,
   };
 }
 
@@ -200,20 +195,8 @@ export async function listBookings(hostProfileId: string, options: { listingId?:
     return true;
   });
 
-  // Monthly terms in the same tabs, by where the term stands.
-  const terms = (await termsFor(paidTermsOn(hostProfileId, options.listingId))).filter((t) => {
-    const phase = termPhase(t, now);
-    return options.scope === "upcoming" ? phase === "UPCOMING" : options.scope === "active" ? phase === "ACTIVE" : options.scope === "completed" ? phase === "COMPLETED" : phase === "CANCELLED";
-  });
-
-  const labels = await vehicleLabels([...filtered, ...terms]);
-  const items = [...filtered.map((row) => present(row, labels, now)), ...terms.map((t) => presentTerm(t, labels, now))];
-  items.sort((a, b) =>
-    options.scope === "upcoming"
-      ? (a.startsAt?.getTime() ?? 0) - (b.startsAt?.getTime() ?? 0)
-      : (b.startsAt?.getTime() ?? 0) - (a.startsAt?.getTime() ?? 0)
-  );
-  return { items };
+  const labels = await vehicleLabels(filtered);
+  return { items: filtered.map((row) => present(row, labels, now)) };
 }
 
 // ---------- Space dashboard ----------
@@ -226,7 +209,7 @@ export async function overview(listingId: string, hostProfileId: string) {
   const dayEnd = startOfVenueDay(addDays(today, 1));
   const monthStart = startOfVenueMonth(now);
 
-  const [todays, upcoming, month, ratings, terms] = await Promise.all([
+  const [todays, upcoming, month, ratings] = await Promise.all([
     prisma.booking.findMany({
       where: {
         ...paidOn(hostProfileId, listingId),
@@ -247,20 +230,11 @@ export async function overview(listingId: string, hostProfileId: string) {
       select: hostBookingSelect,
     }),
     reviewService.ratingsFor([listingId]),
-    termsFor({ ...paidTermsOn(hostProfileId, listingId), status: { in: ["CONFIRMED", "COMPLETED", "CANCELLED"] } }),
   ]);
 
-  const labels = await vehicleLabels([...todays, ...terms]);
-  const todayViews = [...todays.map((row) => present(row, labels, now)), ...occurrenceViews(terms, dayStart, dayEnd, labels, now)].sort(
-    (a, b) => (a.startsAt?.getTime() ?? 0) - (b.startsAt?.getTime() ?? 0)
-  );
-  const monthNet = month
-    .reduce((sum, row) => sum.add(earningOf(row).earning), new Prisma.Decimal(0))
-    .add(terms.reduce((sum, t) => sum.add(shareStartingBetween(t, monthStart, now).net), new Prisma.Decimal(0)));
-  const upcomingTerms = terms.filter((t) => termPhase(t, now) === "UPCOMING");
-  const nextStarts = [upcoming[0]?.startsAt, ...upcomingTerms.map((t) => presentTerm(t, labels, now).startsAt)]
-    .filter((d): d is Date => !!d)
-    .sort((a, b) => a.getTime() - b.getTime());
+  const labels = await vehicleLabels(todays);
+  const todayViews = todays.map((row) => present(row, labels, now));
+  const monthNet = month.reduce((sum, row) => sum.add(earningOf(row).earning), new Prisma.Decimal(0));
   const rated = ratings.get(listingId);
 
   return {
@@ -277,7 +251,7 @@ export async function overview(listingId: string, hostProfileId: string) {
       parkedNow: todayViews.filter((b) => b.phase === "ACTIVE").length,
       bookings: todayViews,
     },
-    upcoming: { count: upcoming.length + upcomingTerms.length, nextStartsAt: nextStarts[0] ?? null },
+    upcoming: { count: upcoming.length, nextStartsAt: upcoming[0]?.startsAt ?? null },
     month: { net: monthNet.toString(), commissionRate: pricing.hostCommissionRate },
     rating: { average: rated?.rating ?? null, count: rated?.reviewCount ?? 0 },
   };
@@ -302,7 +276,7 @@ export async function summary(hostProfileId: string) {
   const dayStart = startOfVenueDay(today);
   const dayEnd = startOfVenueDay(addDays(today, 1));
 
-  const [month, todays, listings, terms] = await Promise.all([
+  const [month, todays, listings] = await Promise.all([
     prisma.booking.findMany({
       where: { ...paidOn(hostProfileId), startsAt: { gte: monthStart, lte: now } },
       select: hostBookingSelect,
@@ -313,23 +287,17 @@ export async function summary(hostProfileId: string) {
       orderBy: { startsAt: "asc" },
     }),
     prisma.listing.findMany({ where: { hostProfileId, listingType: "INDEPENDENT_SPOT" }, select: { id: true } }),
-    termsFor({ ...paidTermsOn(hostProfileId), status: { in: ["CONFIRMED", "COMPLETED", "CANCELLED"] } }),
   ]);
   const { available } = await ledgerTotals(hostProfileId, now);
   const ratings = await reviewService.ratingsFor(listings.map((l) => l.id));
 
-  const net = month
-    .reduce((sum, row) => sum.add(earningOf(row).earning), new Prisma.Decimal(0))
-    .add(terms.reduce((sum, t) => sum.add(shareStartingBetween(t, monthStart, now).net), new Prisma.Decimal(0)));
-  const labels = await vehicleLabels([...todays, ...terms]);
-  const termsThisMonth = terms.filter((t) => t.status !== "CANCELLED" && shareStartingBetween(t, monthStart, now).gross.gt(0)).length;
+  const net = month.reduce((sum, row) => sum.add(earningOf(row).earning), new Prisma.Decimal(0));
+  const labels = await vehicleLabels(todays);
 
   return {
-    month: { net: net.toString(), bookings: month.filter((row) => row.status !== "CANCELLED").length + termsThisMonth },
+    month: { net: net.toString(), bookings: month.filter((row) => row.status !== "CANCELLED").length },
     available: available.toString(),
-    today: [...todays.map((row) => present(row, labels, now)), ...occurrenceViews(terms, dayStart, dayEnd, labels, now)].sort(
-      (a, b) => (a.startsAt?.getTime() ?? 0) - (b.startsAt?.getTime() ?? 0)
-    ),
+    today: todays.map((row) => present(row, labels, now)),
     /** Per space, for the list below the card. */
     ratings: Object.fromEntries([...ratings.entries()].map(([id, r]) => [id, r])),
   };
@@ -346,10 +314,7 @@ async function ledgerRows(hostProfileId: string) {
 }
 
 async function ledgerTotals(hostProfileId: string, now: Date) {
-  const [rows, terms] = await Promise.all([
-    ledgerRows(hostProfileId),
-    termsFor({ ...paidTermsOn(hostProfileId), status: { in: ["CONFIRMED", "COMPLETED", "CANCELLED"] } }),
-  ]);
+  const rows = await ledgerRows(hostProfileId);
   let available = new Prisma.Decimal(0);
   let pending = new Prisma.Decimal(0);
   for (const row of rows) {
@@ -358,19 +323,13 @@ async function ledgerTotals(hostProfileId: string, now: Date) {
     if (state === "AVAILABLE") available = available.add(earning);
     if (state === "PENDING") pending = pending.add(earning);
   }
-  // A term releases its share month by month (host-monthly.termMoney).
-  for (const t of terms) {
-    const money = termMoney(t, now);
-    available = available.add(money.available);
-    pending = pending.add(money.pending);
-  }
-  return { rows, terms, available, pending };
+  return { rows, available, pending };
 }
 
 export async function earnings(hostProfileId: string) {
   const now = new Date();
   const monthStart = startOfVenueMonth(now);
-  const { rows, terms, available, pending } = await ledgerTotals(hostProfileId, now);
+  const { rows, available, pending } = await ledgerTotals(hostProfileId, now);
 
   const [payouts, account] = await Promise.all([
     prisma.settlement.findMany({
@@ -389,26 +348,9 @@ export async function earnings(hostProfileId: string) {
     gross = gross.add(kept);
     net = net.add(earningOf(row).earning);
   }
-  for (const t of terms) {
-    const share = shareStartingBetween(t, monthStart, now);
-    gross = gross.add(share.gross);
-    net = net.add(share.net);
-  }
 
-  const labels = await vehicleLabels([...rows.slice(0, 30), ...terms]);
+  const labels = await vehicleLabels(rows.slice(0, 30));
   const transactions = [
-    ...terms.map((t) => {
-      const view = presentTerm(t, labels, now);
-      return {
-        kind: "BOOKING" as const,
-        id: t.id,
-        title: `Monthly ${view.ref}`,
-        sub: `${view.driver} · ${t.months} ${t.months === 1 ? "month" : "months"} from ${day(startOfVenueDay(t.startDate))}`,
-        amount: view.earning,
-        state: view.payout,
-        at: view.startsAt as Date | null,
-      };
-    }),
     ...rows.slice(0, 30).map((row) => {
       const view = present(row, labels, now);
       return {
@@ -459,7 +401,7 @@ export async function calendar(listingId: string, hostProfileId: string, from: s
   const end = startOfVenueDay(addDays(from, span));
   const now = new Date();
 
-  const [bookings, blocks, terms] = await Promise.all([
+  const [bookings, blocks] = await Promise.all([
     prisma.booking.findMany({
       where: {
         listingId,
@@ -480,16 +422,8 @@ export async function calendar(listingId: string, hostProfileId: string, from: s
       select: { id: true, startsAt: true, endsAt: true, reason: true },
       orderBy: { startsAt: "asc" },
     }),
-    // Paid terms, and holds still being paid for (shown as held, like bookings).
-    termsFor({
-      listingId,
-      listing: { hostProfileId },
-      startDate: { lt: addDays(from, span) },
-      endDate: { gt: from },
-      OR: [{ status: "CONFIRMED", payment: { status: "CAPTURED" } }, { status: "PENDING", holdExpiresAt: { gt: now } }],
-    }),
   ]);
-  const labels = await vehicleLabels([...bookings, ...terms]);
+  const labels = await vehicleLabels(bookings);
 
   return {
     listing: { id: listing.id, name: listing.name, paused: listing.bookingsPausedAt !== null },
@@ -505,14 +439,9 @@ export async function calendar(listingId: string, hostProfileId: string, from: s
         windows: listing.availability
           .filter((w) => w.dayOfWeek === weekdayOf(date))
           .map((w) => ({ startMinute: w.startMinute, endMinute: w.endMinute })),
-        bookings: [
-          ...bookings
-            .filter((b) => overlaps(b.startsAt, effectiveEnd(b)))
-            .map((b) => ({ ...present(b, labels, now), held: b.status === "PENDING" })),
-          ...terms.flatMap((t) =>
-            occurrenceViews([t], dayStart, dayEnd, labels, now).map((v) => ({ ...v, held: t.status === "PENDING" }))
-          ),
-        ].sort((a, b) => (a.startsAt?.getTime() ?? 0) - (b.startsAt?.getTime() ?? 0)),
+        bookings: bookings
+          .filter((b) => overlaps(b.startsAt, effectiveEnd(b)))
+          .map((b) => ({ ...present(b, labels, now), held: b.status === "PENDING" })),
         blocks: blocks.filter((b) => overlaps(b.startsAt, b.endsAt)),
       };
     }),
@@ -550,7 +479,7 @@ export async function createBlocks(listingId: string, hostProfileId: string, use
         ? { start: input.startsAt, end: input.endsAt }
         : { start: startOfVenueDay(input.date), end: startOfVenueDay(addDays(input.date, 1)) };
 
-    const [taking, blocked, terms] = await Promise.all([
+    const [taking, blocked] = await Promise.all([
       tx.booking.findMany({
         where: {
           listingId,
@@ -565,12 +494,7 @@ export async function createBlocks(listingId: string, hostProfileId: string, use
         where: { listingId, startsAt: { lt: range.end }, endsAt: { gt: range.start } },
         select: { startsAt: true, endsAt: true },
       }),
-      termsTouching(tx, [listingId], range.start, range.end),
     ]);
-    // Monthly reservations' hours inside the range, like bookings.
-    const termHours = terms.flatMap((term) =>
-      occurrencesBetween(term, range.start, range.end).map((o) => ({ ...o, driver: term.driver }))
-    );
 
     let pieces: { start: Date; end: Date }[];
     if (input.kind === "day" && input.freeOnly) {
@@ -583,7 +507,6 @@ export async function createBlocks(listingId: string, hostProfileId: string, use
         }));
       const taken = [
         ...taking.map((b) => ({ start: b.startsAt!, end: b.endsAt! })),
-        ...termHours.map((o) => ({ start: o.start, end: o.end })),
         ...blocked.map((b) => ({ start: b.startsAt, end: b.endsAt })),
       ];
       pieces = open.flatMap((w) => subtract(w.start, w.end, taken));
@@ -604,15 +527,6 @@ export async function createBlocks(listingId: string, hostProfileId: string, use
               },
             },
           }
-        );
-      }
-      if (termHours.length > 0) {
-        const first = termHours[0]!;
-        throw Object.assign(
-          conflict(
-            `${day(first.start)} has a monthly reservation: ${driverName(first.driver)}, ${clock(first.start)} – ${clock(first.end)}. Blocking won't cancel it; block only the free hours instead.`
-          ),
-          { extra: { booking: { monthly: true, driver: driverName(first.driver), startsAt: first.start, endsAt: first.end } } }
         );
       }
       if (blocked.length > 0) throw conflict("Part of that time is already blocked.");

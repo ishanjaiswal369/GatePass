@@ -5,11 +5,10 @@ import { conflict } from "./errors.js";
  * One writer at a time per listing's calendar, for the rest of a transaction.
  *
  * The Booking_no_overlap EXCLUDE settles booking against booking by itself.
- * It can't see a host's blocks (Phase 5) or monthly reservations (Phase 6),
- * so those are checked in code -- and a check in code is only as good as
- * nothing changing between the check and the insert. Every path that claims
- * time on a listing takes this lock first: two bookings, a booking and a
- * block, or a block and a monthly reservation then run one after the other
+ * It can't see a host's blocks (Phase 5), so those are checked in code -- and
+ * a check in code is only as good as nothing changing between the check and
+ * the insert. Every path that claims time on a listing takes this lock first:
+ * two bookings, or a booking and a block, then run one after the other
  * instead of both reading "free".
  *
  * Transaction-scoped (pg_advisory_xact_lock): released at commit or rollback,

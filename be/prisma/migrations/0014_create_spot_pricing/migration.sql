@@ -6,7 +6,6 @@ CREATE TABLE "SpotPricing" (
     "vehicleType" TEXT NOT NULL,
     "pricePerHour" DECIMAL(65,30),
     "pricePerDay" DECIMAL(65,30),
-    "pricePerMonth" DECIMAL(65,30),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 

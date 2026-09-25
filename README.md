@@ -33,11 +33,11 @@ npm run dev                                          # API on :3000
 ```
 
 - **Migrations are one `CREATE` per table** (`be/prisma/migrations/0001_create_user`
-  … `0025_create_settlement_item`), in foreign-key order. The raw SQL Prisma
+  … `0024_create_settlement_item`), in foreign-key order. The raw SQL Prisma
   can't model (`btree_gist`, the `CHECK`s and the two `EXCLUDE` overlap
   guards) lives in its table's migration.
-- **A database built from the old migrations (0001_enums … 0026) must be
-  reset.** `migrate deploy` on it stops with `relation "User" already exists`.
+- **A database built from an earlier set of migrations must be reset.**
+  `migrate deploy` on it stops with `relation "…" already exists`.
   In `be/`: `npx prisma migrate reset --schema prisma/schema --force`, then
   `npm run seed:spots`. With Docker's `be` service: `docker compose down -v`
   (drops the dev volume), then `docker compose up`.

@@ -32,23 +32,21 @@ export function hourlyAmount(
 type Rate = number | string | null | undefined;
 
 /**
- * A space's rates in one line: "₹60/hr · ₹300/day · ₹5,000/month", leaving
- * out whatever the host doesn't offer (a monthly-only space has no hourly).
+ * A space's rates in one line: "₹60/hr · ₹300/day", leaving out whatever the
+ * host doesn't offer (a daily-only space has no hourly).
  */
-export function rateLine(rates: { pricePerHour?: Rate; pricePerDay?: Rate; pricePerMonth?: Rate }): string {
+export function rateLine(rates: { pricePerHour?: Rate; pricePerDay?: Rate }): string {
   return [
     rates.pricePerHour != null ? `${formatRupees(rates.pricePerHour)}/hr` : null,
     rates.pricePerDay != null ? `${formatRupees(rates.pricePerDay)}/day` : null,
-    rates.pricePerMonth != null ? `${formatRupees(rates.pricePerMonth)}/month` : null,
   ]
     .filter(Boolean)
     .join(" · ");
 }
 
-/** The one rate to lead with: hourly when offered, else daily, else monthly. */
-export function leadRate(rates: { pricePerHour?: Rate; pricePerDay?: Rate; pricePerMonth?: Rate }): { amount: string; unit: string } | null {
+/** The one rate to lead with: hourly when offered, else daily. */
+export function leadRate(rates: { pricePerHour?: Rate; pricePerDay?: Rate }): { amount: string; unit: string } | null {
   if (rates.pricePerHour != null) return { amount: formatRupees(rates.pricePerHour), unit: "/hr" };
   if (rates.pricePerDay != null) return { amount: formatRupees(rates.pricePerDay), unit: "/day" };
-  if (rates.pricePerMonth != null) return { amount: formatRupees(rates.pricePerMonth), unit: "/mo" };
   return null;
 }

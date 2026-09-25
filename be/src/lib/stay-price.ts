@@ -19,7 +19,7 @@ export type PriceBasis = "HOURLY" | "DAILY";
 
 /**
  * The parking amount for `minutes` on these rates, or null when these rates
- * don't sell a stay at all (a monthly-only space).
+ * don't sell a stay at all (no hourly or daily rate).
  *
  * Whole days are charged the day rate when the host offers one; what is left
  * over is charged the cheaper of its hours and one more day. So a 7-hour stay
@@ -60,16 +60,6 @@ export interface Fees {
 /** GatePass's fee to the driver and the GST on it (config/pricing.ts). */
 export function driverFees(): Fees {
   const platformFee = new Prisma.Decimal(pricing.platformFee);
-  const taxAmount = platformFee.mul(pricing.platformFeeGstRate).toDecimalPlaces(2);
-  return { platformFee, taxAmount };
-}
-
-/**
- * A monthly reservation's fees: a share of the parking amount rather than the
- * hourly booking's flat fee (config/pricing.ts), with GST on it.
- */
-export function monthlyFees(amount: Prisma.Decimal): Fees {
-  const platformFee = amount.mul(pricing.monthlyPlatformFeeRate).toDecimalPlaces(2);
   const taxAmount = platformFee.mul(pricing.platformFeeGstRate).toDecimalPlaces(2);
   return { platformFee, taxAmount };
 }

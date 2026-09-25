@@ -8,24 +8,16 @@
  * those.
  */
 
-export type SearchMode = "hourly" | "monthly";
-
-/** Which days a monthly reservation covers. */
-export type DayPattern = "everyday" | "weekdays" | "custom";
-
-export const EVERY_DAY = [0, 1, 2, 3, 4, 5, 6];
-export const WEEKDAYS = [1, 2, 3, 4, 5];
-
 /**
  * The shortest stay worth selling. Below this the fee is smaller than the
  * cost of the driver walking to the spot.
  */
 export const MIN_STAY_MINUTES = 15;
 
-/** How far ahead either mode can be booked. */
+/** How far ahead a stay can be booked. */
 export const MAX_DAYS_AHEAD = 60;
 
-/** The longest single hourly stay. Anything longer is a monthly question. */
+/** The longest single stay. */
 export const MAX_STAY_DAYS = 30;
 
 export interface SearchPlace {
@@ -35,30 +27,12 @@ export interface SearchPlace {
   label: string;
 }
 
-export interface HourlyCriteria {
-  mode: "hourly";
+export interface SearchCriteria {
   place: SearchPlace;
   /** Instants, so a device in another timezone still asks about the right moment. */
   from: string;
   to: string;
 }
-
-export interface MonthlyCriteria {
-  mode: "monthly";
-  place: SearchPlace;
-  /** 0 = Sunday .. 6 = Saturday, matching JS getDay() and HostAvailability. */
-  days: number[];
-  /** The first day of the reservation, as YYYY-MM-DD. */
-  startDate: string;
-  startMinute: number;
-  endMinute: number;
-  /** How long the reservation runs: 1, 3, 6 or 12 months, paid up front. */
-  months: number;
-}
-
-export const MONTH_CHOICES = [1, 3, 6, 12];
-
-export type SearchCriteria = HourlyCriteria | MonthlyCriteria;
 
 // ------------------------------------------------------------------ dates --
 
@@ -114,24 +88,12 @@ export function nextStepMinute(from: Date, step: number): number {
 // ----------------------------------------------------------------- params --
 
 export function toParams(criteria: SearchCriteria): Record<string, string> {
-  const shared = {
-    mode: criteria.mode,
+  return {
     latitude: String(criteria.place.latitude),
     longitude: String(criteria.place.longitude),
     place: criteria.place.label,
-  };
-
-  if (criteria.mode === "hourly") {
-    return { ...shared, from: criteria.from, to: criteria.to };
-  }
-
-  return {
-    ...shared,
-    days: criteria.days.join(","),
-    startDate: criteria.startDate,
-    startMinute: String(criteria.startMinute),
-    endMinute: String(criteria.endMinute),
-    months: String(criteria.months),
+    from: criteria.from,
+    to: criteria.to,
   };
 }
 
@@ -162,40 +124,6 @@ export function fromParams(
     label: read("place") ?? "Selected area",
   };
 
-  if (read("mode") === "monthly") {
-    const startDate = read("startDate");
-    const days = (read("days") ?? "")
-      .split(",")
-      .map(Number)
-      .filter((day) => Number.isInteger(day) && day >= 0 && day <= 6);
-
-    const startMinute = Number(read("startMinute"));
-    const endMinute = Number(read("endMinute"));
-
-    if (
-      !startDate ||
-      days.length === 0 ||
-      !Number.isFinite(startMinute) ||
-      !Number.isFinite(endMinute) ||
-      startMinute >= endMinute
-    ) {
-      return null;
-    }
-
-    // Older links carry no duration; a month is the least surprising reading.
-    const months = Number(read("months"));
-
-    return {
-      mode: "monthly",
-      place,
-      days,
-      startDate,
-      startMinute,
-      endMinute,
-      months: MONTH_CHOICES.includes(months) ? months : 1,
-    };
-  }
-
   const from = read("from");
   const to = read("to");
 
@@ -205,7 +133,7 @@ export function fromParams(
 
   if (Date.parse(to) - Date.parse(from) < MIN_STAY_MINUTES * 60_000) return null;
 
-  return { mode: "hourly", place, from, to };
+  return { place, from, to };
 }
 
 /**
@@ -235,17 +163,5 @@ export function formatDuration(minutes: number): string {
 
 /** How the search reads back to the driver, on the results screen. */
 export function describeCriteria(criteria: SearchCriteria): string {
-  if (criteria.mode === "hourly") {
-    return describeRange(new Date(criteria.from), new Date(criteria.to));
-  }
-
-  const names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  const pattern =
-    criteria.days.length === 7
-      ? "Every day"
-      : criteria.days.join() === WEEKDAYS.join()
-        ? "Mon–Fri"
-        : criteria.days.map((day) => names[day]).join(", ");
-
-  return `${pattern}, from ${dayLabel(fromDateKey(criteria.startDate))} · ${criteria.months} ${criteria.months === 1 ? "month" : "months"}`;
+  return describeRange(new Date(criteria.from), new Date(criteria.to));
 }

@@ -29,7 +29,6 @@ model User {
   problemReports  ProblemReport[] @relation("ProblemReportDriver")
   resolvedProblems ProblemReport[] @relation("ProblemReportResolver")
   notifications   Notification[]
-  monthlyReservations MonthlyReservation[] @relation("MonthlyReservationDriver")
   listingBlocks   ListingBlock[] @relation("ListingBlockCreatedBy")
   notificationPreference NotificationPreference?
   address         UserAddress?
