@@ -9,7 +9,9 @@ import { healthController } from "./controllers/health.controller.js";
 import { hostController } from "./controllers/host.controller.js";
 import { hostPayoutController } from "./controllers/host-payout.controller.js";
 import { listingController } from "./controllers/listing.controller.js";
+import { notificationController } from "./controllers/notification.controller.js";
 import { paymentController } from "./controllers/payment.controller.js";
+import { problemController } from "./controllers/problem.controller.js";
 import { reviewController } from "./controllers/review.controller.js";
 import { settlementController } from "./controllers/settlement.controller.js";
 import { spotController } from "./controllers/spot.controller.js";
@@ -32,7 +34,9 @@ import { geocodeRequests } from "./requests/geocode.request.js";
 import { hostRequests } from "./requests/host.request.js";
 import { hostPayoutRequests } from "./requests/host-payout.request.js";
 import { listingRequests } from "./requests/listing.request.js";
+import { notificationRequests } from "./requests/notification.request.js";
 import { paymentRequests } from "./requests/payment.request.js";
+import { problemRequests } from "./requests/problem.request.js";
 import { reviewRequests } from "./requests/review.request.js";
 import { settlementRequests } from "./requests/settlement.request.js";
 import { spotRequests } from "./requests/spot.request.js";
@@ -119,6 +123,25 @@ export function registerApi(app: App): void {
     "/auth/me",
     driver,
     request(authRequests.updateProfile, authController.updateMe)
+  );
+
+  // Inbox. Always the caller's own: userId comes from the token.
+  app.get(
+    "/notifications",
+    driver,
+    request(notificationRequests.list, notificationController.list)
+  );
+  app.get("/notifications/unread-count", driver, notificationController.unreadCount);
+  app.post(
+    "/notifications/read",
+    driver,
+    request(notificationRequests.read, notificationController.read)
+  );
+  app.get("/notifications/preferences", driver, notificationController.getPreferences);
+  app.put(
+    "/notifications/preferences",
+    driver,
+    request(notificationRequests.preferences, notificationController.updatePreferences)
   );
 
   // Profile
@@ -270,6 +293,23 @@ export function registerApi(app: App): void {
     "/bookings/:id/extensions",
     driver,
     request(bookingRequests.createExtension, bookingController.createExtension)
+  );
+  // "I can't use this parking": one report per booking, see problem.service.
+  // The photo URL comes from the presign route below and nowhere else.
+  app.post(
+    "/bookings/:id/problem",
+    driver,
+    request(problemRequests.create, problemController.create)
+  );
+  app.get(
+    "/bookings/:id/problem",
+    driver,
+    request(problemRequests.get, problemController.get)
+  );
+  app.post(
+    "/bookings/:id/problem/photo-upload-url",
+    driver,
+    request(problemRequests.presignPhoto, problemController.presignPhoto)
   );
   // Rating the spot after a paid stay: one per booking, see review.service.
   app.post(
@@ -459,6 +499,17 @@ export function registerApi(app: App): void {
     "/admin/spots/:id/suspend",
     admin,
     request(adminSpotRequests.suspend, adminSpotController.suspend)
+  );
+  // Support's queue of problem reports, and the decision on one.
+  app.get(
+    "/admin/problems",
+    admin,
+    request(problemRequests.adminList, problemController.adminList)
+  );
+  app.post(
+    "/admin/problems/:id/resolve",
+    admin,
+    request(problemRequests.resolve, problemController.resolve)
   );
   app.post(
     "/admin/host-payout-status",

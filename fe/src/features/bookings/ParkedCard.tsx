@@ -20,8 +20,8 @@ const MINT = "#86efac";
  * dark card in a light list, with the time left in the largest type on the
  * screen.
  *
- * `compact` drops the "open" button, for the parking screen that already is
- * the open view.
+ * `compact` drops the "open" button and the inline actions, for the parking
+ * screen and the booking screen, which carry their own.
  */
 export function ParkedCard({
   row,
@@ -79,6 +79,14 @@ export function ParkedCard({
         </>
       ) : null}
 
+      {end && new Date(end).getTime() > now ? (
+        <Text style={s.remind}>
+          We'll remind you at {clockTime(new Date(new Date(end).getTime() - 30 * 60_000).toISOString())}, 30 minutes before it
+          ends.
+        </Text>
+      ) : null}
+
+      {compact ? null : (
       <View style={s.actions}>
         {directions ? (
           <Action
@@ -95,6 +103,7 @@ export function ParkedCard({
           />
         ) : null}
       </View>
+      )}
 
       {compact ? null : (
         <Pressable
@@ -142,6 +151,7 @@ const s = StyleSheet.create({
   track: { height: 6, borderRadius: 3, backgroundColor: colors.inkRaisedBorder, overflow: "hidden" },
   fill: { height: 6, borderRadius: 3, backgroundColor: MINT },
   actions: { flexDirection: "row", gap: space.sm },
+  remind: { fontSize: 12, color: colors.onInkMuted },
   action: {
     flex: 1,
     minHeight: 64,

@@ -12,7 +12,9 @@ import {
   StarIcon,
   Stars,
   StatusChip,
+  WarningIcon,
 } from "@/components/ui";
+import { problemShort } from "./problemLabels";
 import {
   bookingListing,
   bookingTotal,
@@ -37,7 +39,9 @@ const GREEN = "#166534";
  */
 export function BookingCard({ row, now }: { row: BookingRow; now: number }) {
   const listing = bookingListing(row);
-  const chip = phaseChip(row);
+  // An open report outranks the phase: "Under review" is what the driver is waiting on.
+  const disputed = row.problem?.status === "OPEN";
+  const chip = disputed ? { label: "Under review", tone: "danger" as const } : phaseChip(row);
   const paid = row.payment?.status === "CAPTURED" ? row.payment.amount : bookingTotal(row);
   const directions =
     row.phase === "UPCOMING" && isSpotBooking(row) ? directionsUrl(listing) : null;
@@ -77,6 +81,15 @@ export function BookingCard({ row, now }: { row: BookingRow; now: number }) {
             tone="success"
           />
         ) : null}
+        {disputed ? (
+          <>
+            <Line
+              icon={<WarningIcon size={15} color={colors.danger} />}
+              text={`You reported: ${problemShort(row.problem!.category)}`}
+            />
+            <Line icon={<ClockIcon size={15} color={colors.inkMuted} />} text="Refund decision within 24 hours" muted />
+          </>
+        ) : null}
         {row.review ? (
           <View style={s.line} accessible accessibilityLabel={`Reviewed: ${row.review.rating} out of 5 stars`}>
             <CheckIcon size={15} color={GREEN} />
@@ -86,7 +99,7 @@ export function BookingCard({ row, now }: { row: BookingRow; now: number }) {
         ) : null}
       </View>
 
-      {row.canReview ? (
+      {row.canReview && !disputed ? (
         <Button
           label="Rate Parking"
           variant="ghost"
@@ -110,9 +123,11 @@ export function BookingCard({ row, now }: { row: BookingRow; now: number }) {
           ) : null}
           <View style={s.cta}>
             <Button
-              label={row.phase === "PENDING" ? "Complete Payment" : "View Booking"}
+              label={disputed ? "View report" : row.phase === "PENDING" ? "Complete Payment" : "View Booking"}
               variant={row.phase === "PENDING" || row.phase === "UPCOMING" ? "primary" : "ghost"}
-              onPress={open}
+              onPress={
+                disputed ? () => router.push({ pathname: "/booking/[id]/problem", params: { id: row.id } }) : open
+              }
             />
           </View>
         </View>

@@ -32,6 +32,7 @@ async function meResponse(userId: string) {
   }
 
   const { vehicles, address, hostProfile } = user;
+  const { savedCount, liveSpaces } = await userService.profileCounts(userId, hostProfile !== null);
 
   return {
     ...userService.toAuthUser(user),
@@ -39,6 +40,8 @@ async function meResponse(userId: string) {
     hasHostProfile: hostProfile !== null,
     vehicles,
     address,
+    savedCount,
+    liveSpaces,
   };
 }
 

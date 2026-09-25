@@ -83,3 +83,29 @@ export const LISTING_STATUSES = [
   "CANCELLED",
 ] as const;
 export type ListingStatus = (typeof LISTING_STATUSES)[number];
+
+/** Mirrors be/src/constants/enums/problem.ts, in the Report screen's order. */
+export const PROBLEM_CATEGORIES = [
+  "CANT_FIND",
+  "OCCUPIED",
+  "GATE_LOCKED",
+  "NOT_AS_LISTED",
+  "HOST_UNRESPONSIVE",
+  "OTHER",
+] as const;
+export type ProblemCategory = (typeof PROBLEM_CATEGORIES)[number];
+
+/** Mirrors be/src/constants/enums/notification-kind.ts. */
+export const NOTIFICATION_PREFERENCES = [
+  "startingSoon",
+  "endingSoon",
+  "refunds",
+  "reviewReminders",
+  "hostNewBookings",
+  "hostPayouts",
+  "hostListing",
+  "push",
+  "email",
+  "offers",
+] as const;
+export type NotificationPreferenceKey = (typeof NOTIFICATION_PREFERENCES)[number];

@@ -1,11 +1,20 @@
 import { Redirect, router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
-import { ScrollView, StyleSheet, View } from "react-native";
-import { ApiError, authApi } from "@/api";
+import Constants from "expo-constants";
+import { Linking, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ApiError, authApi, notificationsApi } from "@/api";
 import {
+  BellIcon,
   BottomNav,
   Button,
   Card,
+  CardIcon,
+  CarIcon,
+  ChatIcon,
+  HeartIcon,
+  PinIcon,
+  ShieldIcon,
+  StatusChip,
   ErrorNotice,
   HeaderAction,
   LockIcon,
@@ -18,10 +27,13 @@ import {
   UserIcon,
   type NavKey,
 } from "@/components/ui";
+import { LEGAL_BASE_URL, SUPPORT_EMAIL, supportMailto } from "@/constants/support";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, space } from "@/theme";
 import type { MeResult, UserAddress, Vehicle } from "@/types/api.types";
+
+const APP_VERSION = Constants.expoConfig?.version ?? "dev";
 
 /** +919876543210 reads better as +91 98765 43210. */
 function formatPhone(phone: string | null): string | null {
@@ -38,10 +50,7 @@ function formatAddress(address: UserAddress | null): string | null {
 function formatVehicles(vehicles: Vehicle[]): string | null {
   if (vehicles.length === 0) return null;
   const preferred = vehicles.find((v) => v.isDefault) ?? vehicles[0]!;
-  const others = vehicles.length - 1;
-  return others > 0
-    ? `${preferred.vehicleNumber} +${others} more`
-    : preferred.vehicleNumber;
+  return `${vehicles.length} saved · ${preferred.label ?? preferred.vehicleNumber} is default`;
 }
 
 /**
@@ -54,6 +63,7 @@ export default function AccountScreen() {
 
   const [me, setMe] = useState<MeResult | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [unread, setUnread] = useState(0);
 
   // One request: /auth/me eager-loads vehicles and address with the user.
   const vehicles = me?.vehicles ?? [];
@@ -63,7 +73,12 @@ export default function AccountScreen() {
     if (!token) return;
 
     try {
-      setMe(await authApi.getMe(token));
+      const [profile, inbox] = await Promise.all([
+        authApi.getMe(token),
+        notificationsApi.unreadCount(token).catch(() => ({ unread: 0 })),
+      ]);
+      setMe(profile);
+      setUnread(inbox.unread);
       setLoadError(null);
     } catch (err) {
       setLoadError(
@@ -115,7 +130,7 @@ export default function AccountScreen() {
       <View style={s.screen}>
         <ScreenHeader
           title={fullName || "Your profile"}
-          sub={me?.email}
+          sub={[me?.email, formatPhone(me?.phone ?? null)].filter(Boolean).join(" · ") || null}
           initial={initial}
           leading={
             <HeaderAction
@@ -130,46 +145,92 @@ export default function AccountScreen() {
         <ScrollView contentContainerStyle={s.body}>
           {loadError ? <ErrorNotice message={loadError} /> : null}
 
+          <View style={s.chips}>
+            <StatusChip label="Driver" tone="ink" />
+            {me?.hasHostProfile ? (
+              <StatusChip
+                label={`Host · ${me.liveSpaces} live ${me.liveSpaces === 1 ? "space" : "spaces"}`}
+                tone="neutral"
+              />
+            ) : null}
+          </View>
+
           <Card heading="Account">
             <SettingsRow
-              label="Personal details"
-              value={
-                fullName
-                  ? `${fullName}${me?.phone ? ` · ${formatPhone(me.phone)}` : ""}`
-                  : null
-              }
+              label="Personal Information"
+              value={fullName ? "Name, email, phone" : null}
               icon={<UserIcon />}
               onPress={() => router.push("/account/details")}
+            />
+            <SettingsRow
+              label="My Vehicles"
+              value={formatVehicles(vehicles)}
+              icon={<CarIcon />}
+              onPress={() => router.push("/account/vehicles")}
+            />
+            <SettingsRow
+              label="Saved Parking"
+              value={me ? `${me.savedCount} ${me.savedCount === 1 ? "space" : "spaces"}` : null}
+              icon={<HeartIcon size={18} />}
+              onPress={() => router.push("/account/saved")}
+            />
+            <SettingsRow
+              label="Payment Methods"
+              value="UPI, cards and netbanking"
+              icon={<CardIcon />}
+              onPress={() => router.push("/account/payments")}
+            />
+            <SettingsRow
+              label="Notifications"
+              value={unread > 0 ? `${unread} new` : "Reminders, bookings, payouts"}
+              icon={<BellIcon />}
+              onPress={() => router.push("/notifications")}
+            />
+            <SettingsRow
+              label="Language"
+              value="English · हिन्दी coming soon"
+              icon={<ChatIcon />}
+              onPress={() => undefined}
             />
             <SettingsRow
               label="Password"
               value={me?.hasPassword ? "Set" : null}
               icon={<LockIcon />}
               onPress={() => router.push("/password")}
-              last
-            />
-          </Card>
-
-          <Card heading="Driving">
-            <SettingsRow
-              label="Vehicles"
-              value={formatVehicles(vehicles)}
-              onPress={() => router.push("/account/vehicles")}
-            />
-            <SettingsRow
-              label="Saved parking"
-              value="Spaces you've saved for later"
-              onPress={() => router.push("/account/saved")}
             />
             <SettingsRow
               label="Address"
               value={formatAddress(address)}
+              icon={<PinIcon size={18} color={colors.ink} />}
               onPress={() => router.push("/account/address")}
               last
             />
           </Card>
 
+          <Card heading="Support">
+            <SettingsRow
+              label="Help & Support"
+              value={SUPPORT_EMAIL ? `Email ${SUPPORT_EMAIL}` : "Not set up in this build"}
+              icon={<ChatIcon />}
+              onPress={() => {
+                const mail = supportMailto("Help with GatePass");
+                if (mail) void Linking.openURL(mail);
+              }}
+            />
+            <SettingsRow
+              label="Terms & Privacy"
+              value={LEGAL_BASE_URL ? "How we handle bookings, refunds and your data" : "Not set up in this build"}
+              icon={<ShieldIcon />}
+              onPress={() => {
+                if (LEGAL_BASE_URL) void Linking.openURL(`${LEGAL_BASE_URL.replace(/\/$/, "")}/terms.html`);
+              }}
+              last
+            />
+          </Card>
+
           <View style={s.spacer} />
+
+          <Text style={s.version}>GatePass · version {APP_VERSION}</Text>
 
           <Button
             label="Delete account"
@@ -187,6 +248,8 @@ export default function AccountScreen() {
 }
 
 const s = StyleSheet.create({
+  chips: { flexDirection: "row", gap: space.sm },
+  version: { fontSize: 12, color: colors.inkMuted, textAlign: "center" },
   screen: { flex: 1, backgroundColor: colors.surface },
   body: {
     paddingHorizontal: 20,

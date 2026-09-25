@@ -6,6 +6,11 @@ model Vehicle {
   /// Stored normalised: uppercase, no spaces or hyphens.
   vehicleNumber String
   vehicleType   String
+  /// Make and model as the driver writes it ("Hyundai Creta"). Optional.
+  label         String?
+  /// HATCHBACK / SEDAN / SUV / VAN for a CAR -- the values a spot's size
+  /// limit uses. Null for a bike or when not given.
+  size          String?
   /// Pre-selected at checkout. At most one per user, enforced in the service.
   isDefault     Boolean  @default(false)
   createdAt     DateTime @default(now())

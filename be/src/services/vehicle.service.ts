@@ -7,6 +7,8 @@ export interface SaveVehicleInput {
   /** Already normalised by the request layer. */
   vehicleNumber: string;
   vehicleType: VehicleType;
+  label?: string | null;
+  size?: string | null;
   isDefault?: boolean;
 }
 
@@ -60,6 +62,8 @@ export async function create(userId: string, input: SaveVehicleInput) {
           userId,
           vehicleNumber: input.vehicleNumber,
           vehicleType: input.vehicleType,
+          label: input.label ?? null,
+          size: input.vehicleType === "CAR" ? (input.size ?? null) : null,
           isDefault,
         },
       });
@@ -97,7 +101,9 @@ export async function update(
         await clearOtherDefaults(tx, userId, id);
       }
 
-      return tx.vehicle.update({ where: { id }, data: input });
+      // Turning a car into a bike drops its body size with it.
+      const data = input.vehicleType && input.vehicleType !== "CAR" ? { ...input, size: null } : input;
+      return tx.vehicle.update({ where: { id }, data });
     });
   } catch (error) {
     if (

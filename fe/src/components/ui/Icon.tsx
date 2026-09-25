@@ -279,6 +279,62 @@ export function HeartIcon({ size = 20, color, filled }: IconProps & { filled?: b
   );
 }
 
+/** Handset: calling someone. */
+export function PhoneIcon({ size = 18, color = colors.ink }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
+/** Speech bubble: support. */
+export function ChatIcon({ size = 18, color = colors.ink }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M4 5h16v11H9l-5 4z" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
+export function CameraIcon({ size = 22, color = colors.ink }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M4 8h3l2-3h6l2 3h3v11H4z" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      <Circle cx={12} cy={13} r={3.5} stroke={color} strokeWidth={2} />
+    </Svg>
+  );
+}
+
+export function BellIcon({ size = 18, color = colors.ink }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M6 16v-5a6 6 0 0 1 12 0v5l2 2H4z" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M10 20a2 2 0 0 0 4 0" stroke={color} strokeWidth={2} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+/** Warning triangle: something went wrong. */
+export function WarningIcon({ size = 18, color = colors.ink }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M12 3 2 20h20z" stroke={color} strokeWidth={2} strokeLinejoin="round" />
+      <Path d="M12 10v4M12 17h.01" stroke={color} strokeWidth={2} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+/** Two cards: a payment method. */
+export function CardIcon({ size = 18, color = colors.ink }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Rect x={3} y={5} width={18} height={14} rx={2} stroke={color} strokeWidth={2} />
+      <Path d="M3 10h18" stroke={color} strokeWidth={2} />
+    </Svg>
+  );
+}
+
 /** A five-point star, outlined or filled: ratings, shown and given. */
 export function StarIcon({ size = 16, color = colors.star, filled = true }: IconProps & { filled?: boolean }) {
   return (

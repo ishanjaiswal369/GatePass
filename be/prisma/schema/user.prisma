@@ -26,6 +26,10 @@ model User {
   vehicles        Vehicle[]
   favorites       Favorite[]
   reviews         Review[]
+  problemReports  ProblemReport[] @relation("ProblemReportDriver")
+  resolvedProblems ProblemReport[] @relation("ProblemReportResolver")
+  notifications   Notification[]
+  notificationPreference NotificationPreference?
   address         UserAddress?
   organizerMemberships OrganizerMember[]
   bookings        Booking[]

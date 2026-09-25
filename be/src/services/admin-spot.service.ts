@@ -1,5 +1,18 @@
 import { badRequest, notFound } from "../lib/errors.js";
 import { prisma } from "../lib/prisma.js";
+import { audit } from "../lib/security-log.js";
+import { notify } from "./notification.service.js";
+
+/** Tells the listing's host what the review decided. The reason is support's words, not a driver's. */
+async function tellHost(listingId: string, title: (name: string) => string, body: string) {
+  const listing = await prisma.listing.findUnique({
+    where: { id: listingId },
+    select: { name: true, hostProfile: { select: { userId: true } } },
+  });
+  const userId = listing?.hostProfile?.userId;
+  if (!userId) return;
+  await notify(userId, "HOST_LISTING_STATUS", { title: title(listing.name), body, listingId });
+}
 
 /**
  * Review and publication of host spots.
@@ -178,6 +191,15 @@ export async function approve(listingId: string, adminUserId: string) {
 
   const result = await publishIfReady(listingId);
 
+  audit("LISTING_APPROVED", { userId: adminUserId, listingId, published: result.published });
+  await tellHost(
+    listingId,
+    (name) => (result.published ? `${name} is live` : `${name}: documents approved`),
+    result.published
+      ? "Drivers can find and book it now."
+      : "We're waiting on your payout account before it goes live."
+  );
+
   return {
     ...result,
     // Says plainly why an approved spot is still not live, so the admin UI
@@ -207,6 +229,9 @@ export async function reject(
   if (spot.status !== "PENDING_REVIEW") {
     throw badRequest(`Cannot reject a spot that is ${spot.status}`);
   }
+
+  audit("LISTING_REJECTED", { userId: adminUserId, listingId });
+  await tellHost(listingId, (name) => `${name} needs changes`, reason);
 
   return prisma.listing.update({
     where: { id: listingId },
@@ -242,6 +267,9 @@ export async function suspend(
   if (!["PUBLISHED", "ONGOING"].includes(spot.status)) {
     throw badRequest(`Cannot suspend a spot that is ${spot.status}`);
   }
+
+  audit("LISTING_SUSPENDED", { userId: adminUserId, listingId });
+  await tellHost(listingId, (name) => `${name} is paused`, reason);
 
   return prisma.listing.update({
     where: { id: listingId },

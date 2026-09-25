@@ -80,3 +80,23 @@ export async function updateProfile(id: string, input: UpdateProfileInput) {
     throw error;
   }
 }
+
+/**
+ * The Profile hub's counts: spaces saved, and live spaces for the Host chip.
+ * Counted, not listed -- the hub only says how many.
+ */
+export async function profileCounts(userId: string, isHost: boolean) {
+  const [savedCount, liveSpaces] = await Promise.all([
+    prisma.favorite.count({ where: { userId } }),
+    isHost
+      ? prisma.listing.count({
+          where: {
+            hostProfile: { userId },
+            listingType: "INDEPENDENT_SPOT",
+            status: { in: ["PUBLISHED", "ONGOING"] },
+          },
+        })
+      : Promise.resolve(0),
+  ]);
+  return { savedCount, liveSpaces };
+}

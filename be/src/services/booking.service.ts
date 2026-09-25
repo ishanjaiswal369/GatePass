@@ -110,6 +110,9 @@ const bookingView = {
   // The driver's own rating of the stay, once given. Only the stars and
   // when: the words are theirs and are shown on the spot, not here.
   review: { select: { rating: true, createdAt: true } },
+  // A report against this stay: "Under review" while open. Not its details --
+  // those are on the report's own screen.
+  problem: { select: { id: true, category: true, status: true, refunded: true, createdAt: true } },
   // Read for `canReview` -- extra time is not a stay of its own.
   extendsBookingId: true,
   refund: {

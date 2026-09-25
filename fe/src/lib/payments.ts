@@ -38,3 +38,24 @@ export async function payForBooking(_input: {
   // PaymentOutcome. The amount is set by the API, not taken from here.
   return { status: "NOT_CONFIGURED" };
 }
+
+/** A method the gateway has saved for this driver, as it describes it. */
+export interface SavedPaymentMethod {
+  id: string;
+  kind: "UPI" | "CARD";
+  /** "ishan@okhdfcbank", "Visa •••• 3012" -- the gateway's masked form, never raw. */
+  label: string;
+  /** "Expires 08/28", "Used last on 18 Sep". */
+  detail?: string;
+  isDefault?: boolean;
+}
+
+/**
+ * Methods the gateway holds for this driver. Card numbers and UPI handles
+ * live with the gateway (tokenised), not in GatePass's database, so this is
+ * a gateway call like payForBooking. Empty until one is wired.
+ */
+export async function listSavedMethods(_token: string): Promise<SavedPaymentMethod[]> {
+  // Cashfree: fetch the customer's saved instruments and map them here.
+  return [];
+}

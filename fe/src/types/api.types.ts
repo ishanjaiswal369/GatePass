@@ -8,7 +8,9 @@ import type {
   BookingStatus,
   ListingStatus,
   ListingType,
+  NotificationPreferenceKey,
   PaymentStatus,
+  ProblemCategory,
   RefundStatus,
   Role,
   VehicleSize,
@@ -52,6 +54,11 @@ export interface MeResult extends AuthUser {
   profileComplete: boolean;
   vehicles: Vehicle[];
   address: UserAddress | null;
+  hasHostProfile: boolean;
+  /** Spaces saved, for the Profile row. */
+  savedCount: number;
+  /** Published spaces, for the Host chip. */
+  liveSpaces: number;
 }
 
 export interface DeletionStatus {
@@ -180,6 +187,14 @@ export interface BookingRow {
   review: { rating: number; createdAt: string } | null;
   /** A paid, finished host-spot stay not yet rated: offer "Rate Parking". */
   canReview: boolean;
+  /** A problem report against this stay; OPEN reads as "Under review". */
+  problem: {
+    id: string;
+    category: ProblemCategory;
+    status: "OPEN" | "RESOLVED";
+    refunded: boolean | null;
+    createdAt: string;
+  } | null;
   parkingCapacity: {
     id: string;
     vehicleType: VehicleType;
@@ -364,9 +379,40 @@ export interface Vehicle {
   id: string;
   vehicleNumber: string;
   vehicleType: VehicleType;
+  /** Make and model, as the driver wrote it. */
+  label: string | null;
+  /** Body size for a car -- the values a spot's size limit uses. */
+  size: VehicleSize | null;
   isDefault: boolean;
   createdAt: string;
 }
+
+/** A problem report, as its driver sees it. */
+export interface ProblemReport {
+  id: string;
+  bookingId: string;
+  category: ProblemCategory;
+  details: string | null;
+  photoUrl: string | null;
+  status: "OPEN" | "RESOLVED";
+  refunded: boolean | null;
+  resolutionNote: string | null;
+  resolvedAt: string | null;
+  createdAt: string;
+}
+
+export interface InboxEntry {
+  id: string;
+  kind: string;
+  title: string;
+  body: string;
+  bookingId: string | null;
+  listingId: string | null;
+  readAt: string | null;
+  createdAt: string;
+}
+
+export type NotificationPreferences = Record<NotificationPreferenceKey, boolean>;
 
 export interface UserAddress {
   id: string;

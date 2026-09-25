@@ -17,19 +17,32 @@ import {
   PhoneFrame,
   ScreenHeader,
   RestoringScreen,
-  SegmentedControl,
   TrashIcon,
 } from "@/components/ui";
-import { VEHICLE_TYPES, type VehicleType } from "@/constants/enums";
+import type { VehicleSize, VehicleType } from "@/constants/enums";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, radius, space } from "@/theme";
 import type { Vehicle } from "@/types/api.types";
 
-const TYPE_SEGMENTS = VEHICLE_TYPES.map((value) => ({
-  value,
-  label: value.charAt(0) + value.slice(1).toLowerCase(),
-}));
+/**
+ * The prototype's five body types. Pricing is per vehicle type (car or bike),
+ * so four of these are a CAR with a size -- the same sizes a spot's limit is
+ * given in -- and Bike is a BIKE.
+ */
+const BODY_TYPES: { key: string; label: string; vehicleType: VehicleType; size: VehicleSize | null }[] = [
+  { key: "HATCHBACK", label: "Hatchback", vehicleType: "CAR", size: "HATCHBACK" },
+  { key: "SEDAN", label: "Sedan", vehicleType: "CAR", size: "SEDAN" },
+  { key: "SUV", label: "SUV", vehicleType: "CAR", size: "SUV" },
+  { key: "BIKE", label: "Bike", vehicleType: "BIKE", size: null },
+  { key: "VAN", label: "Van", vehicleType: "CAR", size: "VAN" },
+];
+
+/** "SUV", "Bike", "Car": what a saved vehicle is, in words. */
+function bodyLabel(vehicle: Vehicle): string {
+  if (vehicle.size) return BODY_TYPES.find((t) => t.key === vehicle.size)?.label ?? vehicle.size;
+  return vehicle.vehicleType === "BIKE" ? "Bike" : vehicle.vehicleType === "CAR" ? "Car" : "Other";
+}
 
 export default function VehiclesScreen() {
   const { token, isRestoring } = useSession();
@@ -38,7 +51,8 @@ export default function VehiclesScreen() {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [number, setNumber] = useState("");
-  const [vehicleType, setVehicleType] = useState<VehicleType>("CAR");
+  const [label, setLabel] = useState("");
+  const [body, setBody] = useState(BODY_TYPES[2]!);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -64,10 +78,13 @@ export default function VehiclesScreen() {
 
     await profileApi.addVehicle(token, {
       vehicleNumber: number.trim(),
-      vehicleType,
+      vehicleType: body.vehicleType,
+      size: body.size,
+      ...(label.trim() ? { label: label.trim() } : {}),
     });
 
     setNumber("");
+    setLabel("");
     await load();
   });
 
@@ -94,7 +111,7 @@ export default function VehiclesScreen() {
   return (
     <PhoneFrame>
       <View style={s.screen}>
-        <ScreenHeader title="Vehicles" sub={"Saved vehicles save you typing a number plate at every booking."} onBack={() => router.back()} />
+        <ScreenHeader title="My Vehicles" sub={"Your default vehicle is picked for you at checkout. You can switch before paying."} onBack={() => router.back()} />
 
         <ScrollView contentContainerStyle={s.body}>
         {loadError ? <ErrorNotice message={loadError} /> : null}
@@ -108,11 +125,11 @@ export default function VehiclesScreen() {
             {vehicles.map((vehicle) => (
               <View key={vehicle.id} style={s.row}>
                 <View style={s.rowCopy}>
-                  <Text style={s.number}>{vehicle.vehicleNumber}</Text>
+                  <Text style={s.number}>{vehicle.label ?? vehicle.vehicleNumber}</Text>
                   <Text style={s.type}>
-                    {vehicle.vehicleType.charAt(0) +
-                      vehicle.vehicleType.slice(1).toLowerCase()}
-                    {vehicle.isDefault ? " · default" : ""}
+                    {vehicle.label ? `${vehicle.vehicleNumber} · ` : ""}
+                    {bodyLabel(vehicle)}
+                    {vehicle.isDefault ? " · Default for bookings" : ""}
                   </Text>
                 </View>
 
@@ -148,27 +165,48 @@ export default function VehiclesScreen() {
           <Text style={s.addHeading}>ADD A VEHICLE</Text>
 
           <Field
-            label="Vehicle number"
+            label="Make and model"
+            optional
+            value={label}
+            onChangeText={setLabel}
+            placeholder="e.g. Hyundai Creta"
+            maxLength={60}
+          />
+
+          <Field
+            label="Registration number"
+            hint="As printed on your RC. Security checks it at the gate."
             value={number}
             // Uppercased as it is typed, which is how the API stores it, so
             // what the driver sees is what gets saved.
             onChangeText={(next) => setNumber(next.toUpperCase())}
-            placeholder="MH01AB1234"
+            placeholder="e.g. MH 12 AB 1234"
             autoCapitalize="characters"
             autoCorrect={false}
             maxLength={15}
           />
 
-          <SegmentedControl
-            segments={TYPE_SEGMENTS}
-            value={vehicleType}
-            onChange={setVehicleType}
-          />
+          <View style={s.types} accessibilityRole="radiogroup" accessibilityLabel="Type">
+            {BODY_TYPES.map((type) => {
+              const on = type.key === body.key;
+              return (
+                <Pressable
+                  key={type.key}
+                  onPress={() => setBody(type)}
+                  accessibilityRole="radio"
+                  accessibilityState={{ checked: on }}
+                  style={[s.typeChip, on && s.typeChipOn]}
+                >
+                  <Text style={[s.typeText, on && s.typeTextOn]}>{type.label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
 
           {error ? <ErrorNotice message={error} /> : null}
 
           <Button
-            label="Add vehicle"
+            label="Save Vehicle"
             size="lg"
             onPress={add}
             busy={busy}
@@ -182,6 +220,19 @@ export default function VehiclesScreen() {
 }
 
 const s = StyleSheet.create({
+  types: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
+  typeChip: {
+    minHeight: 44,
+    paddingHorizontal: 16,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    justifyContent: "center",
+    backgroundColor: colors.surface,
+  },
+  typeChipOn: { backgroundColor: colors.ink, borderColor: colors.ink },
+  typeText: { fontSize: 14, fontWeight: "600", color: colors.ink },
+  typeTextOn: { color: colors.onInk },
   screen: { flex: 1, backgroundColor: colors.surface },
   body: {
     paddingHorizontal: 20,

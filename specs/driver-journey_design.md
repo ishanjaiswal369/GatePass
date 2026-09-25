@@ -303,3 +303,135 @@ a public review.
 5. A spot's search card and detail show the average and count once reviewed,
    and *New* before; the breakdown sums to the count; a hidden review is in
    neither.
+
+## Phase 4 in detail — problems, notifications, profile
+
+Prototype boards: *Report a problem*, *Problem · support & alternatives*,
+*Active parking* (its action grid), *Bookings · past* (the disputed card),
+*Notifications* (Inbox, Settings), *Profile*, *My vehicles*, *Payment methods*.
+
+### Requirements (EARS)
+
+- R1. While a paid (Payment CAPTURED) host-spot booking is CONFIRMED or
+  COMPLETED, from 1 h before its start until 24 h after its effective end,
+  when its driver picks what's wrong (can't find it, occupied, gate locked,
+  doesn't match the listing, host not responding, other) and optionally adds
+  details and a photo, the system shall log one report, alert the host, and
+  show *We're on it* with what happens next.
+- R2. When a driver reports a booking that already has a report, the system
+  shall return the existing report (409 with it), never a second one.
+- R3. While a report is open, the system shall show the booking as *Under
+  review* on its Past card and detail, with "You reported: …" and a link to
+  the report.
+- R4. When support resolves a report with a refund, the system shall create
+  the booking's refund for the full amount paid and notify the driver; when
+  without, it shall close the report and notify the driver.
+- R5. When a driver opens a report, the system shall offer up to two spaces
+  free now near the booked one (not the booked one) and a search.
+- R6. When something happens to a driver's or host's booking, refund, report,
+  payout or listing, the system shall add an inbox entry unless the
+  recipient turned that kind off; booking confirmations and cancellations
+  are always on.
+- R7. When a driver opens the inbox within 30 min of a paid stay starting
+  or ending, or the day after a stay they haven't rated, the system shall
+  show that reminder once (unless turned off).
+- R8. When a user opens Notifications, the system shall show unread entries
+  first-class, grouped Today / Earlier, and mark what they opened as read.
+- R9. When a user changes a notification setting, the system shall store it
+  and apply it to entries created from then on.
+- R10. When a driver adds a vehicle, the system shall take its make and
+  model (optional), plate and type (Hatchback, Sedan, SUV, Bike, Van).
+- R11. The Profile screen shall show name, email, phone, a Driver chip, a
+  Host chip with live-space count when hosting, and rows for personal
+  information, vehicles (count · default), saved parking (count), payment
+  methods, notifications, language, help and terms, and log out.
+
+### Three perspectives
+
+| | |
+|---|---|
+| **Frontend** | Active parking: a 2×2 grid — Extend, Directions, Contact Host, Report a Problem — and the "we'll remind you" line. `booking/[id]/report` (six radio options, details ≤ 500, optional photo, *Choose what's wrong* until one is picked) → `booking/[id]/problem` (status, timeline, contact, alternatives). Past card and booking detail: *Under review*. `notifications` (Inbox / Settings tabs, a switch per kind). Profile hub restyled; `account/vehicles` gains make/model and body type; `account/payments` from the payments seam. |
+| **Backend** | `ProblemReport`, `Notification`, `NotificationPreference`; `Vehicle.label`, `Vehicle.size`. Routes below. `notify()` is the one writer of inbox entries and applies preferences; reminders are materialised lazily on inbox read with a per-user dedupe key (the lazy-sweep pattern, no scheduler). |
+| **Security** | All routes behind `authenticate`; every read/write filters `driverId`/`userId`; host alerts carry the driver's first name and initial only; the report photo URL must be one the API minted under `problem-photos/<bookingId>/`; zod `.strict()` bodies; `write` rate limit; audits `PROBLEM_REPORTED`, `PROBLEM_RESOLVED`, `VEHICLE_*`, `NOTIFICATION_PREFS_CHANGED`. |
+
+### Data
+
+- `ProblemReport`: `bookingId` **unique** (one per booking; races produce one
+  row), `driverId`, `listingId` (copied from the booking), `category`,
+  `details?` ≤ 500, `photoUrl?`, `status` OPEN → RESOLVED, `refunded?`,
+  `resolutionNote?`, `resolvedAt?`, `resolvedBy?`.
+- `Notification`: `userId`, `kind`, `title`, `body`, `bookingId?`,
+  `listingId?`, `dedupeKey?` (unique with `userId`), `readAt?`,
+  `createdAt`. Index `(userId, createdAt)`.
+- `NotificationPreference`: one row per user, created on first write;
+  absent means defaults (everything on except *offers*).
+- `Vehicle.label?` (make and model, ≤ 60) and `Vehicle.size?`
+  (HATCHBACK/SEDAN/SUV/VAN — the same values a spot's size limit uses, so
+  "fits here" can be checked later). The prototype's *Bike* chip is
+  `vehicleType BIKE`; the four others are `CAR` with that size, so pricing,
+  which is per vehicle type, is unchanged.
+
+### API
+
+| Route | Who | Notes |
+|---|---|---|
+| `POST /bookings/:id/problem` | owner | `{ category, details?, photoUrl? }` → 201 report. 409 when not reportable (reason) or already reported (with the report) |
+| `GET /bookings/:id/problem` | owner | the report, 404 when none |
+| `POST /bookings/:id/problem/photo-upload-url` | owner | presigned PUT under `problem-photos/<bookingId>/`, images only, size-capped |
+| `POST /admin/problems/:id/resolve` | admin | `{ refund, note? }`; refund = full captured amount, in one transaction with closing the report |
+| `GET /admin/problems?status=OPEN` | admin | the queue |
+| `GET /notifications?cursor` | self | materialises due reminders, then newest first |
+| `GET /notifications/unread-count` | self | for the Profile row |
+| `POST /notifications/read` | self | `{ ids?: uuid[] }`, none = all |
+| `GET` / `PUT /notifications/preferences` | self | the Settings switches |
+| booking views | owner | add `problem: { id, category, status, refunded, createdAt } \| null` |
+| `GET /auth/me` | self | adds `savedCount`, `liveSpaces` |
+
+### What is deliberately not built
+
+- **Push and email delivery.** Preferences for both channels are stored; no
+  FCM credentials exist and there is no scheduler, so only the in-app inbox
+  is delivered. Flagged for production.
+- **Masked calls to the host.** No telephony provider. *Contact Host* is shown
+  disabled with that reason; *Contact Support* opens email.
+- **Saved payment methods.** Payments are front-end only, through
+  `fe/src/lib/payments.ts`; the screen lists what the gateway will offer and
+  reads saved methods from that seam, which returns none until it is wired.
+- **Languages.** *हिन्दी coming soon*, as the prototype says.
+
+### Security checklist (Phase 4)
+
+| Check | How |
+|---|---|
+| Auth | every route `driver` (authenticate); resolve/queue `admin` |
+| Authz | report reads/writes: `id` + `driverId` in the WHERE; notifications: `userId` in every WHERE including `read` (updateMany scoped to the caller); a host's alert names the driver by first name + initial only |
+| Input | zod `.strict()`: category enum, details trimmed ≤ 500 with control chars stripped, photoUrl must match the minted prefix; preference body all booleans; ids uuid |
+| Output | no driver contact to hosts; no host contact to drivers; notification bodies built server-side from ids, never from user text (a report's details never appear in the host's alert) |
+| Integrity | unique `bookingId` on reports; refund and resolution in one transaction; `Refund.bookingId` unique so a report can't refund a booking twice |
+| Rate limit | `write` bucket; reminders materialise at most once per key |
+| Logging | audits as above; refusals via the shared handler |
+
+### Implementation plan
+
+- [x] Schema: `ProblemReport`, `Notification`, `NotificationPreference`,
+      `Vehicle.label/size` (db push; `migrate diff` showed additions only)
+- [x] `notify()` + state sync; hooks in cancel, report, resolve, listing review
+- [x] Problem service (report, photo presign, resolve with refund), routes
+- [x] Active-parking grid, Report and *We're on it* screens, disputed card
+- [x] Notifications (Inbox / Settings), Profile hub, Vehicles, Payment methods
+- [x] Live-DB suite (50 checks) and browser pass
+
+### Acceptance criteria
+
+1. A paid, active booking can be reported once; a second report is 409 with
+   the first; an unpaid, cancelled, far-future or long-finished booking is
+   refused; another driver's booking is 404.
+2. The host gets an inbox entry that names the driver's first name and the
+   problem kind, and nothing the driver typed.
+3. Resolving with a refund creates exactly one refund of the captured amount
+   and a driver notification; the booking reads *Under review* before and
+   shows the refund after.
+4. Opening the inbox inside the 30-minute window creates one "starts soon"
+   entry however many times it is opened; with the preference off, none.
+5. `POST /notifications/read` with another user's ids changes nothing.
+6. A vehicle round-trips make/model and size; *Bike* is stored as BIKE.

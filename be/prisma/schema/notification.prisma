@@ -1,0 +1,50 @@
+/// One line in a user's inbox (Phase 4).
+///
+/// Written only by notification.service's `notify`, which applies the
+/// recipient's preferences first. Titles and bodies are composed there from
+/// ids and stored facts -- never from text another user typed.
+///
+/// `dedupeKey` makes a reminder idempotent: "starts soon" for booking X is
+/// written once however many times the inbox is opened inside the window.
+model Notification {
+  id         String    @id @default(uuid())
+  userId     String
+  /// See constants/enums/notification-kind.ts.
+  kind       String
+  title      String
+  body       String
+  bookingId  String?
+  listingId  String?
+  dedupeKey  String?
+  readAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, createdAt])
+  @@index([userId, readAt])
+}
+
+/// What a user wants to hear about. One row, created on first change;
+/// absent means the defaults (everything on except offers). Booking
+/// confirmations and cancellations are not switchable, so have no column.
+model NotificationPreference {
+  id              String   @id @default(uuid())
+  userId          String   @unique
+  startingSoon    Boolean  @default(true)
+  endingSoon      Boolean  @default(true)
+  refunds         Boolean  @default(true)
+  reviewReminders Boolean  @default(true)
+  hostNewBookings Boolean  @default(true)
+  hostPayouts     Boolean  @default(true)
+  hostListing     Boolean  @default(true)
+  /// Channels. Stored now; only the in-app inbox is delivered today.
+  push            Boolean  @default(true)
+  email           Boolean  @default(true)
+  offers          Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}

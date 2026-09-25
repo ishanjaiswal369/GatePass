@@ -53,6 +53,7 @@ model Booking {
   payment         Payment?
   refund          Refund?
   review          Review?
+  problem         ProblemReport?
   settlementItems SettlementItem[]
   extendsBooking  Booking?        @relation("BookingExtensions", fields: [extendsBookingId], references: [id], onDelete: Restrict)
   extensions      Booking[]       @relation("BookingExtensions")

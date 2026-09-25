@@ -1,5 +1,5 @@
 import type { UserAddress, Vehicle } from "@/types/api.types";
-import type { VehicleType } from "@/constants/enums";
+import type { VehicleSize, VehicleType } from "@/constants/enums";
 import { request } from "./client";
 
 export const listVehicles = (token: string) =>
@@ -7,7 +7,13 @@ export const listVehicles = (token: string) =>
 
 export const addVehicle = (
   token: string,
-  input: { vehicleNumber: string; vehicleType: VehicleType; isDefault?: boolean }
+  input: {
+    vehicleNumber: string;
+    vehicleType: VehicleType;
+    label?: string;
+    size?: VehicleSize | null;
+    isDefault?: boolean;
+  }
 ) => request<Vehicle>("/vehicles", { method: "POST", body: input, token });
 
 export const setDefaultVehicle = (token: string, id: string) =>

@@ -15,6 +15,7 @@ import {
 } from "@/components/ui";
 import { AccessCard } from "@/features/bookings/AccessCard";
 import { ParkedCard } from "@/features/bookings/ParkedCard";
+import { ParkingActions } from "@/features/bookings/ParkingActions";
 import { useNow } from "@/features/bookings/useNow";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useDriverLocation } from "@/hooks/useDriverLocation";
@@ -115,6 +116,7 @@ export default function ParkingScreen() {
           ) : active ? (
             <>
               <ParkedCard row={active} now={now} compact />
+              <ParkingActions row={active} />
               {isSpotBooking(active) ? (
                 <AccessCard instructions={active.access?.accessInstructions ?? null} released={active.access !== null} />
               ) : null}

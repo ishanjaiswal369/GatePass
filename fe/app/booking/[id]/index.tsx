@@ -1,6 +1,6 @@
 import { Redirect, router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useState } from "react";
-import { ActivityIndicator, Linking, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { ApiError, bookingsApi } from "@/api";
 import {
   Button,
@@ -10,6 +10,8 @@ import {
   PhoneFrame,
   RestoringScreen,
   ScreenHeader,
+  ChevronRightIcon,
+  WarningIcon,
   StarIcon,
   Stars,
   StatusChip,
@@ -18,6 +20,8 @@ import {
 } from "@/components/ui";
 import { AccessCard } from "@/features/bookings/AccessCard";
 import { ParkedCard } from "@/features/bookings/ParkedCard";
+import { ParkingActions } from "@/features/bookings/ParkingActions";
+import { problemShort } from "@/features/bookings/problemLabels";
 import { useNow } from "@/features/bookings/useNow";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import {
@@ -46,6 +50,16 @@ import type { BookingDetail } from "@/types/api.types";
  * money is. A cancelled booking shows its refund here rather than on a
  * separate screen, so there is one place to come back to.
  */
+/**
+ * Whether to offer "Report a Problem" on a finished stay: paid, over, and
+ * recent. The active screen has its own tile; the API has the final say.
+ */
+function canReport(booking: BookingDetail): boolean {
+  if (booking.phase !== "COMPLETED" || booking.payment?.status !== "CAPTURED" || !booking.listing) return false;
+  const end = Date.parse(booking.effectiveEndsAt ?? booking.endsAt ?? "");
+  return Number.isFinite(end) && Date.now() - end < 24 * 60 * 60_000;
+}
+
 export default function BookingDetailScreen() {
   const { token, isRestoring } = useSession();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -152,7 +166,33 @@ function Body({
         <Text style={s.when}>{bookingWhen(booking)}</Text>
       </View>
 
-      {booking.phase === "ACTIVE" ? <ParkedCard row={booking} now={now} compact /> : null}
+      {booking.phase === "ACTIVE" ? (
+        <>
+          <ParkedCard row={booking} now={now} compact />
+          <ParkingActions row={booking} />
+        </>
+      ) : null}
+
+      {booking.problem ? (
+        <Pressable
+          onPress={() => router.push({ pathname: "/booking/[id]/problem", params: { id: booking.id } })}
+          accessibilityRole="button"
+          style={[s.rate, s.problem]}
+        >
+          <View style={s.problemHead}>
+            <Text style={s.rateTitle}>{booking.problem.status === "OPEN" ? "Problem under review" : "Problem resolved"}</Text>
+            <ChevronRightIcon />
+          </View>
+          <Text style={s.rateBody}>You reported: {problemShort(booking.problem.category)}</Text>
+        </Pressable>
+      ) : canReport(booking) ? (
+        <Button
+          label="Report a Problem"
+          variant="ghost"
+          icon={<WarningIcon size={16} />}
+          onPress={() => router.push({ pathname: "/booking/[id]/report", params: { id: booking.id } })}
+        />
+      ) : null}
 
       {booking.phase === "PENDING" ? (
         <View style={s.pending}>
@@ -340,6 +380,8 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 const s = StyleSheet.create({
+  problem: { backgroundColor: colors.dangerSurface },
+  problemHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   rate: { backgroundColor: colors.canvas, borderRadius: radius.md, padding: space.lg, gap: space.sm },
   rated: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   rateTitle: { fontSize: 15, fontWeight: "700", color: colors.ink },

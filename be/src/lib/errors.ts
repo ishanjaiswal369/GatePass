@@ -6,6 +6,8 @@ import { securityEvent } from "./security-log.js";
 export class AppError extends Error {
   readonly statusCode: number;
   readonly code: string;
+  /** Extra fields for the response body -- a 409 can carry the thing it conflicts with. */
+  extra?: Record<string, unknown>;
 
   constructor(message: string, statusCode = 400, code = "APP_ERROR") {
     super(message);
@@ -82,7 +84,7 @@ export function registerErrorHandler(app: App): void {
       } else if (error.statusCode === 429) {
         securityEvent(request, "RATE_LIMITED", { reason: error.message });
       }
-      return reply.code(error.statusCode).send({ error: error.message });
+      return reply.code(error.statusCode).send({ error: error.message, ...(error.extra ?? {}) });
     }
 
     const isClientError =

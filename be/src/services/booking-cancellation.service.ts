@@ -3,6 +3,8 @@ import { cancellationPolicy } from "../config/pricing.js";
 import { conflict, notFound } from "../lib/errors.js";
 import { prisma } from "../lib/prisma.js";
 import { audit } from "../lib/security-log.js";
+import { bookingRef, rupees } from "../lib/format.js";
+import { notify } from "./notification.service.js";
 import { getForDriver } from "./booking.service.js";
 
 /**
@@ -178,6 +180,20 @@ export async function cancel(bookingId: string, driverId: string, reason?: strin
         data: { bookingId: row.id, amount: outcome.refund, policy: outcome.rule! },
       });
     }
+
+    await notify(
+      driverId,
+      "BOOKING_CANCELLED",
+      {
+        title: `Booking cancelled · ${bookingRef(row.id)}`,
+        body: outcome.refund.greaterThan(0)
+          ? `Refund of ${rupees(outcome.refund)} started. Usually 5–7 working days, depending on your bank.`
+          : "Nothing was charged, so there's nothing to refund.",
+        bookingId: row.id,
+        dedupeKey: `cancelled:${row.id}`,
+      },
+      tx
+    );
 
     audit("BOOKING_CANCELLED", {
       userId: driverId,

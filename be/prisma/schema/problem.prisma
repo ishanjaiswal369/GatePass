@@ -1,0 +1,36 @@
+/// A driver telling us they couldn't use what they paid for (Phase 4).
+///
+/// One per booking: the unique `bookingId` is the rule, so two taps on
+/// Continue produce one report. `listingId` and `driverId` are copied from
+/// the booking when it is filed, never taken from the request.
+///
+/// OPEN until support decides; RESOLVED with `refunded` saying which way.
+/// The refund itself is a Refund row, written in the same transaction.
+model ProblemReport {
+  id             String    @id @default(uuid())
+  bookingId      String    @unique
+  driverId       String
+  listingId      String
+  /// CANT_FIND / OCCUPIED / GATE_LOCKED / NOT_AS_LISTED / HOST_UNRESPONSIVE / OTHER
+  category       String
+  details        String?
+  /// Minted by the API under problem-photos/<bookingId>/; nothing else accepted.
+  photoUrl       String?
+  status         String    @default("OPEN")
+  refunded       Boolean?
+  resolutionNote String?
+  resolvedAt     DateTime?
+  resolvedBy     String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  booking        Booking   @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  driver         User      @relation("ProblemReportDriver", fields: [driverId], references: [id], onDelete: Restrict)
+  listing        Listing   @relation(fields: [listingId], references: [id], onDelete: Restrict)
+  resolver       User?     @relation("ProblemReportResolver", fields: [resolvedBy], references: [id], onDelete: Restrict)
+
+  @@index([status, createdAt])
+  @@index([driverId])
+  @@index([listingId])
+  @@index([resolvedBy])
+}

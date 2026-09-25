@@ -12,6 +12,10 @@ export { EmptyState } from "./EmptyState";
 export { Field } from "./Field";
 export {
   AlertIcon,
+  BellIcon,
+  CameraIcon,
+  CardIcon,
+  ChatIcon,
   ArrowRightIcon,
   CalendarIcon,
   CarIcon,
@@ -29,6 +33,7 @@ export {
   LogoutIcon,
   MailIcon,
   NavigateIcon,
+  PhoneIcon,
   PinIcon,
   PlusIcon,
   QrIcon,
@@ -39,6 +44,7 @@ export {
   TrashIcon,
   UserIcon,
   WalletIcon,
+  WarningIcon,
 } from "./Icon";
 export { EventListItem } from "./EventListItem";
 export { HeaderAction } from "./HeaderAction";

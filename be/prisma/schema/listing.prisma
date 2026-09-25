@@ -82,6 +82,7 @@ model Listing {
   spotBookings  Booking[]
   favorites     Favorite[]
   reviews       Review[]
+  problems      ProblemReport[]
 
   @@index([organizerId])
   @@index([hostProfileId])

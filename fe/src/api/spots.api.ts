@@ -38,6 +38,8 @@ export const nearby = (
     open24x7?: boolean;
     minRating?: number;
     sort?: "distance" | "price";
+    /** At most this many; the API caps it at 50. */
+    limit?: number;
   }
 ) => {
   const params = new URLSearchParams({
@@ -62,6 +64,7 @@ export const nearby = (
   if (input.open24x7) params.set("open24x7", "true");
   if (input.minRating !== undefined) params.set("minRating", String(input.minRating));
   if (input.sort) params.set("sort", input.sort);
+  if (input.limit !== undefined) params.set("limit", String(input.limit));
 
   return request<{ spots: NearbySpot[] }>(`/spots/nearby?${params}`, { token });
 };

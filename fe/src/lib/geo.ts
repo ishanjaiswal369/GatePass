@@ -10,7 +10,8 @@ export function distanceKm(
   return 6371 * 2 * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
-/** "300 m" under a kilometre, "1.4 km" above. */
+/** "300 m" under a kilometre, "1.4 km" above -- and 998 m, which rounds up, is "1.0 km", not "1000 m". */
 export function distanceLabel(km: number): string {
-  return km < 1 ? `${Math.max(50, Math.round((km * 1000) / 50) * 50)} m` : `${km.toFixed(1)} km`;
+  const metres = Math.max(50, Math.round((km * 1000) / 50) * 50);
+  return metres < 1000 ? `${metres} m` : `${km.toFixed(1)} km`;
 }
