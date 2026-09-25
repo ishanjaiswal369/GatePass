@@ -17,7 +17,7 @@ export interface AvailabilityInput {
 
 /**
  * An address is absent because a host no longer has one: each spot carries
- * its own (migration 0023), and a host with two driveways has two. Payout
+ * its own, and a host with two driveways has two. Payout
  * details never go back over the wire from here -- host-payout.service owns
  * that read, and masks it.
  */

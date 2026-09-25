@@ -27,22 +27,29 @@ cd be
 cp .env.example .env
 # set JWT_SECRET (e.g. `openssl rand -hex 32`); for local work keep
 # EMAIL_PROVIDER=console, SHOW_OTP_IN_RESPONSE=true, STORAGE_PROVIDER=local
-npx prisma migrate deploy --schema prisma/schema   # the committed migrations (incl. the raw-SQL constraints)
-npm run db:push                                      # everything added since, from the .prisma files
+npx prisma migrate deploy --schema prisma/schema   # builds every table, one migration per table
 npm run seed:spots                                   # optional: seven live spots to search
 npm run dev                                          # API on :3000
 ```
 
-- **Don't run `prisma migrate dev`.** The schema moves forward with
-  `db push` (no new migration files), so `migrate dev` sees drift and offers
-  to reset the database. Preview a change with
-  `npx prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema --script`.
-- **`db push` asks once for `--accept-data-loss`** on a fresh or older
-  database: it adds unique indexes on `Payment`/`Refund.monthlyReservationId`
-  and always warns about unique indexes. On new, all-NULL columns nothing is
-  lost: `npm run db:push -- --accept-data-loss`.
-- The raw-SQL constraints `Booking_no_overlap` and `Booking_one_target` come
-  from the migrations; `db push` leaves them alone.
+- **Migrations are one `CREATE` per table** (`be/prisma/migrations/0001_create_user`
+  … `0025_create_settlement_item`), in foreign-key order. The raw SQL Prisma
+  can't model (`btree_gist`, the `CHECK`s and the two `EXCLUDE` overlap
+  guards) lives in its table's migration.
+- **A database built from the old migrations (0001_enums … 0026) must be
+  reset.** `migrate deploy` on it stops with `relation "User" already exists`.
+  In `be/`: `npx prisma migrate reset --schema prisma/schema --force`, then
+  `npm run seed:spots`. With Docker's `be` service: `docker compose down -v`
+  (drops the dev volume), then `docker compose up`.
+- **Changing the schema (dev only):** edit the `.prisma` file, apply it with
+  `npm run db:push`, and update that table's `create_*` migration to match
+  (or add the next `00NN_create_*` for a new table), so a fresh database still
+  builds from migrations alone. Check with
+  `npx prisma migrate diff --from-migrations prisma/migrations --to-schema-datamodel prisma/schema --shadow-database-url <empty db> --exit-code`.
+  Editing a migration in place only works while every database can be reset:
+  before the first production deploy, switch to additive migrations.
+- **Don't run `prisma migrate dev`** on a database you want to keep: if the
+  history and the database disagree it offers to reset.
 
 ### Frontend
 ```bash

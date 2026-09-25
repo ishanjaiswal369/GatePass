@@ -305,9 +305,8 @@ Also driven through the app in the browser.
 
 `POST /auth/account/delete { code }` **soft-deletes**: the `User` row and
 everything attached to it (profile, vehicles, address, bookings, payments,
-host profile) stay exactly as they were, and `User.deletedAt` is stamped
-(migration 0021). Nothing is scrubbed, so restoring an account later is a
-matter of clearing `deletedAt`. A hard delete was not an option anyway:
+host profile) stay exactly as they were, and `User.deletedAt` is stamped.
+Nothing is scrubbed, so restoring an account later is a matter of clearing `deletedAt`. A hard delete was not an option anyway:
 `Booking.driverId` has no cascade, so the database refuses it for anyone who
 has booked, and cascading a host profile would orphan pending payouts.
 
@@ -504,11 +503,10 @@ server on every step, keyed by the `?id=` the steps carry forward.
   one route in this group not behind `requireHost`. There is no separate
   onboarding step and no `POST /host/profile` any more: a `HostProfile` is
   created alongside the listing, in `spotListingService.createSpot`.
-- **`HostProfile` has no address.** Migration 0023 moved a spot's address onto
-  the `Listing` that describes it, because a host with two driveways has two;
-  0024 dropped what was left behind, which by then was whichever spot had
-  saved last. A host profile is now the answer to "is this user a host", and
-  where they live is `UserAddress`.
+- **`HostProfile` has no address.** A spot's address lives on the `Listing`
+  that describes it, because a host with two driveways has two. A host
+  profile is now the answer to "is this user a host", and where they live is
+  `UserAddress`.
 - **Availability is days *and* hours.** The screen offers Every day / Working
   week / Custom for the days, an "open 24 hours" switch, and a from–to range;
   "different hours on some days" opens a row per day, which is what the API
@@ -684,53 +682,47 @@ enum.
 
 ## 7. Migrations
 
-Hand-written SQL, one per concern, so each change is reviewable in isolation.
+One `CREATE TABLE` per table, in foreign-key order: each migration holds its
+table, its indexes, its foreign keys (all to tables created earlier), and any
+raw SQL Prisma cannot model. There are no `ALTER`s or data fixes -- the dev
+history (26 incremental migrations) was squashed while every database could
+still be rebuilt, and the result was checked column-for-column,
+constraint-for-constraint against a database built the old way.
 
-| Migration | Adds | Applied |
-|---|---|---|
-| `0001_enums` | The original Postgres enum types | yes |
-| `0002_user` | `User` | yes |
-| `0003_device_otp` | `DeviceType` + `OtpVerification` | yes |
-| `0004_user_session` | `UserSession` | yes |
-| `0005_base_tables` | `Listing`, `ParkingCapacity`, `Booking`, `Payment`, `Settlement`, `SettlementItem` | yes |
-| `0006_email_auth` | Phone → email as the identifier; `OtpVerification` → `EmailVerification` | yes |
-| `0007_enums_to_text` | All enum columns → `TEXT`; drops all 8 enum types | yes |
-| `0008_split_user_name` | `User.name` → `firstName`/`lastName`; pending name on `EmailVerification` | yes |
-| `0009_verification_attempts` | `EmailVerification.attempts`; `(email, createdAt)` index | yes |
-| `0010_user_google_id` | `User.googleId`, nullable + unique | yes |
-| `0011_parking_capacity_gate` | `ParkingCapacity.gate` for the pass | yes |
-| `0012_host_profile` | `HostProfile` | yes |
-| `0013_organizer` | `Organizer`, `OrganizerMember` | yes |
-| `0014_host_availability` | `HostAvailability` + range `CHECK`s | yes |
-| `0015_listing_host_and_discovery` | host-owned listings, one-owner `CHECK`, feed indexes | yes |
-| `0016_listing_organizer_entity` | repoints `Listing.organizerId` at `Organizer`, with backfill | yes |
-| `0017_settlement_payee` | settlement paid to an organizer or a host, one-payee `CHECK` | yes |
-| `0018_email_verification_purpose` | `purpose` on codes, so login and reset cannot share one | yes |
-| `0019_user_password` | `User.passwordHash`, `passwordSetAt`, both nullable | yes |
-| `0020_user_vehicle_and_address` | `Vehicle`, `UserAddress` | yes |
-| `0021_user_deleted_at` | `User.deletedAt`, for soft account deletion | yes |
-| `0022_host_spot_wizard` | `SpotPhoto`, `SpotPricing`, the listing's wizard columns, payout account columns | yes |
-| `0023_host_spot_multi_listing` | a spot's address and hours move from `HostProfile` onto `Listing`; overlap `EXCLUDE` rescoped | yes |
-| `0024_host_payout_details` | stores the payout details a host submits; drops `HostProfile`'s dead address columns and `bankAccountId` | yes |
+| Migration | Creates |
+|---|---|
+| `0001_create_user` | `User` |
+| `0002_create_email_verification` | `EmailVerification` |
+| `0003_create_user_session` | `UserSession` |
+| `0004_create_vehicle` | `Vehicle` |
+| `0005_create_user_address` | `UserAddress` |
+| `0006_create_notification_preference` | `NotificationPreference` |
+| `0007_create_notification` | `Notification` |
+| `0008_create_organizer` | `Organizer` |
+| `0009_create_organizer_member` | `OrganizerMember` |
+| `0010_create_host_profile` | `HostProfile` |
+| `0011_create_listing` | `Listing` + `Listing_one_owner` CHECK` |
+| `0012_create_host_availability` | `HostAvailability` + day/minute range CHECKs, `btree_gist`, `HostAvailability_no_overlap` EXCLUDE` |
+| `0013_create_parking_capacity` | `ParkingCapacity` |
+| `0014_create_spot_pricing` | `SpotPricing` |
+| `0015_create_spot_photo` | `SpotPhoto` |
+| `0016_create_favorite` | `Favorite` |
+| `0017_create_listing_block` | `ListingBlock` |
+| `0018_create_booking` | `Booking` + `Booking_one_target` CHECK, `Booking_no_overlap` EXCLUDE` |
+| `0019_create_monthly_reservation` | `MonthlyReservation` |
+| `0020_create_payment` | `Payment` |
+| `0021_create_refund` | `Refund` |
+| `0022_create_problem_report` | `ProblemReport` |
+| `0023_create_review` | `Review` |
+| `0024_create_settlement` | `Settlement` + `Settlement_one_payee` CHECK` |
+| `0025_create_settlement_item` | `SettlementItem` |
 
-All twenty-four are applied to the local database.
-
-`0016` backfills one `Organizer` and one `OWNER` membership per user who owns
-a listing or settlement today. The new id is derived from the owner's user id
-(`md5('organizer:' || id)::uuid`) rather than `gen_random_uuid()`, so three
-statements agree on it without a temp table and without joining on a display
-name -- two organizers both called "Ravi Kumar" would otherwise have been
-handed each other's listings. Verified against exactly that case.
-
-`0006` contains `DELETE FROM "User" WHERE "email" IS NULL` — a deliberate
-dev-stage cleanup of phone-era users. **That line must never run against
-production data.**
-
-To write the next one with full control over the SQL:
-
-```bash
-npx prisma migrate dev --create-only --name <name> --schema prisma/schema
-```
+`npx prisma migrate deploy --schema prisma/schema` builds a fresh database;
+`migrate diff --from-migrations … --to-schema-datamodel …` must report no
+difference. A schema change during development edits the table's `.prisma`
+file and its `create_*` migration together (see the README). That stops
+working at the first production deploy: from then on, changes are new
+additive migrations.
 
 ---
 
@@ -927,9 +919,9 @@ Also missing:
   connected there and on the API. A booking becomes CONFIRMED from the
   gateway's webhook on the API, never from the app. Until then every booking
   stops at a PENDING hold; later states are tested by setting data directly.
-- **Schema changes use `npm run db:push`, not migrations.** The schema now
-  declares every index and FK rule the migrations created, so a push is exact.
-  A baseline migration must be generated before any production deploy.
+- **Migrations are dev-shaped.** One `CREATE` per table, edited in place as
+  the schema changes. Before the first production deploy they become the
+  baseline, and every later change is a new additive migration.
 - **Dead columns.** `User.gstNumber` and `User.bankAccountId` are no longer
   read or written anywhere: `Organizer` and `HostProfile` carry those now.
   They are still in the schema and should be dropped.

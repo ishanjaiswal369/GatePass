@@ -180,7 +180,7 @@ const availabilityWindow = z
 
 /**
  * The database refuses overlapping windows too (the EXCLUDE constraint in
- * migration 0023), and it is the one that has to, because two concurrent
+ * migration 0012_create_host_availability), and it is the one that has to, because two concurrent
  * requests can each pass a check the other invalidates. This is here anyway
  * so the common case -- one host, one payload, two windows they typed
  * themselves -- comes back naming the day it went wrong instead of as a

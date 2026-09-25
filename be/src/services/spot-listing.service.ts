@@ -578,7 +578,8 @@ function isOverlapViolation(error: unknown): boolean {
  *
  * A replace rather than a merge: the wizard shows the full week, so what it
  * sends is the truth. Overlaps inside the payload are caught by the database's
- * exclusion constraint, not by a loop here -- see migration 0023.
+ * exclusion constraint, not by a loop here -- see migration
+ * 0012_create_host_availability.
  *
  * Bookings already made are never touched by new hours: a driver who paid
  * keeps their time. What the host is told instead is how many paid stays and

@@ -1,4 +1,4 @@
-/// Two shapes, one table (migration 0025). An event booking claims slots from
+/// Two shapes, one table (migration 0018_create_booking). An event booking claims slots from
 /// a ParkingCapacity; a host-spot booking claims a stretch of time on one
 /// Listing. A DB CHECK enforces that a row is exactly one of the two, and an
 /// EXCLUDE constraint is what stops two drivers booking overlapping hours on
