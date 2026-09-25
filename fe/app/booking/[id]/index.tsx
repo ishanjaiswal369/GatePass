@@ -21,6 +21,7 @@ import { useAsyncAction } from "@/hooks/useAsyncAction";
 import {
   bookingListing,
   bookingRef,
+  bookingTotal,
   bookingWhen,
   dateTime,
   directionsUrl,
@@ -77,7 +78,7 @@ export default function BookingDetailScreen() {
     const outcome = await payForBooking({
       token,
       bookingId: booking.id,
-      amount: booking.amount,
+      amount: bookingTotal(booking),
       method: "UPI",
     });
 
@@ -162,7 +163,7 @@ function Body({
             Nobody else can book these hours while the hold lasts. Pay to turn it into a booking — until then it
             isn't one, and the host isn't expecting you.
           </Text>
-          <Button label={`Pay ${formatRupees(booking.amount)}`} onPress={onPay} busy={paying} />
+          <Button label={`Pay ${formatRupees(bookingTotal(booking))}`} onPress={onPay} busy={paying} />
           {payNote ? <Text style={s.payNote}>{payNote}</Text> : null}
         </View>
       ) : null}
@@ -197,6 +198,13 @@ function Body({
         <DataRow label="When" value={bookingWhen(booking)} />
         <DataRow label="Vehicle" value={booking.vehicleNumber} />
         <DataRow label="Parking" value={formatRupees(booking.amount)} />
+        {Number(booking.platformFee) > 0 ? (
+          <>
+            <DataRow label="Platform fee" value={formatRupees(booking.platformFee)} />
+            <DataRow label="GST on platform fee" value={formatRupees(booking.taxAmount)} />
+            <DataRow label="Total" value={formatRupees(bookingTotal(booking))} />
+          </>
+        ) : null}
         <DataRow
           label="Payment"
           value={paid ? `Paid ${formatRupees(booking.payment!.amount)}` : booking.phase === "CANCELLED" ? "—" : "Not paid"}

@@ -173,3 +173,17 @@ export function unpaidExtension(row: BookingRow, now = Date.now()) {
 export function bookingRef(id: string): string {
   return `GP-${id.replace(/-/g, "").slice(0, 6).toUpperCase()}`;
 }
+
+/**
+ * What the driver pays for a booking: the parking plus the platform fee and
+ * its GST, fixed on the row when it was made. `amount` alone is the host's
+ * side of it, so charging or showing that as the price under-quotes by the
+ * fees. Summed in paise so ₹60 + ₹20 + ₹3.60 is ₹83.60, not ₹83.6000001.
+ */
+export function bookingTotal(row: Pick<BookingRow, "amount" | "platformFee" | "taxAmount">): string {
+  const paise = [row.amount, row.platformFee, row.taxAmount].reduce(
+    (sum, value) => sum + Math.round(Number(value) * 100),
+    0
+  );
+  return (paise / 100).toFixed(2);
+}

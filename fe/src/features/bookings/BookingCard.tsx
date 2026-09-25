@@ -12,6 +12,7 @@ import {
 } from "@/components/ui";
 import {
   bookingListing,
+  bookingTotal,
   bookingWhen,
   directionsUrl,
   isSpotBooking,
@@ -34,7 +35,7 @@ const GREEN = "#166534";
 export function BookingCard({ row, now }: { row: BookingRow; now: number }) {
   const listing = bookingListing(row);
   const chip = phaseChip(row);
-  const paid = row.payment?.status === "CAPTURED" ? row.payment.amount : row.amount;
+  const paid = row.payment?.status === "CAPTURED" ? row.payment.amount : bookingTotal(row);
   const directions =
     row.phase === "UPCOMING" && isSpotBooking(row) ? directionsUrl(listing) : null;
   const where =
