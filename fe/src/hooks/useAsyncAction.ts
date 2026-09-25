@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { ApiError } from "@/api";
+import { UserError } from "@/lib/userError";
 
 /**
  * Every screen runs the same shape: set busy, clear the error, call the API,
@@ -25,7 +26,7 @@ export function useAsyncAction<Args extends unknown[]>(
       await actionRef.current(...args);
     } catch (err) {
       setError(
-        err instanceof ApiError ? err.message : "Something went wrong"
+        err instanceof ApiError || err instanceof UserError ? err.message : "Something went wrong"
       );
     } finally {
       setBusy(false);

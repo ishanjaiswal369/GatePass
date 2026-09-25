@@ -14,6 +14,7 @@ import {
   type SearchFilters,
 } from "@/lib/searchFilters";
 import { AMENITY_LABELS, FILTERABLE_SPACE_TYPES, SPACE_LABELS } from "@/lib/spotLabels";
+import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, radius, space } from "@/theme";
 import type { SpaceType } from "@/types/api.types";
@@ -34,6 +35,7 @@ const FEATURES: Amenity[] = ["COVERED", "SECURITY_GUARD", "CCTV", "GATED", "EV_C
  * silently drops every new listing would read as "nothing nearby".
  */
 export default function FiltersScreen() {
+  const insets = useScreenInsets();
   const { token, isRestoring } = useSession();
   const params = useLocalSearchParams() as Record<string, string | string[] | undefined>;
   const criteria = fromParams(params);
@@ -132,7 +134,7 @@ export default function FiltersScreen() {
           </Section>
         </ScrollView>
 
-        <View style={s.bar}>
+        <View style={[s.bar, { paddingBottom: 18 + insets.bottom }]}>
           <Button label="Clear all" variant="ghost" onPress={() => setDraft({ ...NO_FILTERS, sort: draft.sort })} />
           <View style={s.flex}>
             <Button label={count ? `Show results · ${count} filter${count === 1 ? "" : "s"}` : "Show results"} onPress={apply} />

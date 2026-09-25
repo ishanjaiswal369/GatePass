@@ -13,6 +13,37 @@ npm start        # Expo Go / device
 
 ---
 
+## Running on a real phone
+
+Web is where the flows are driven day to day; these are the things that only
+matter on a device.
+
+1. **Bundle IDs.** Set `expo.ios.bundleIdentifier` and `expo.android.package`
+   in `app.json` before the first native build. They become permanent once
+   published.
+2. **A development build, not Expo Go.** The store Expo Go app runs only the
+   latest SDK; this project is on SDK 51. Use `npx expo run:android` /
+   `npx expo run:ios` (Android Studio / Xcode) or an EAS development build.
+3. **Reachable addresses.** `localhost` on a phone is the phone. Point
+   `EXPO_PUBLIC_API_URL` (here) and the API's `STORAGE_PUBLIC_BASE_URL` at an
+   address the phone can reach, e.g. `http://192.168.1.20:3000` on the same
+   Wi-Fi. Photos upload to, and load from, the storage URL directly.
+4. **HTTPS for release.** Debug builds allow `http://`; an Android *release*
+   build refuses it (cleartext is enabled only in the debug manifest), and iOS
+   allows it only to IP addresses. Store builds need the API on `https://`.
+5. **Checked here without a device:** `npx expo export --platform ios
+   --platform android` builds both Hermes bundles, and `npx expo prebuild`
+   produces the expected permissions (photo library, camera text, location
+   while in use; no microphone, no storage write). Tapping through on a real
+   phone still has to be done on one.
+6. **Store submission needs an SDK upgrade.** Google Play requires new apps
+   to target Android 16 (API 36) from 31 Aug 2026 and SDK 51 targets API 34;
+   the App Store requires Xcode 26 / the iOS 26 SDK from 28 Apr 2026, newer
+   than SDK 51 / React Native 0.74 were built for. Upgrade the Expo SDK before
+   publishing.
+
+---
+
 ## Structure
 
 The rule is the same one the backend follows: **the routing layer is thin, and

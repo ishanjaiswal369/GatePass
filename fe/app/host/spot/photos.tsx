@@ -1,5 +1,4 @@
 import { Redirect } from "expo-router";
-import * as ImagePicker from "expo-image-picker";
 import { useEffect, useState } from "react";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { spotListingApi } from "@/api";
@@ -12,6 +11,7 @@ import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useSpotDraft } from "@/hooks/useSpotDraft";
 import { useWizardBack } from "@/hooks/useWizardBack";
 import { useWizardContinue } from "@/hooks/useWizardContinue";
+import { pickImages } from "@/lib/pickImages";
 import {
   TOTAL_STEPS,
   firstStepPath,
@@ -54,28 +54,18 @@ export default function PhotosScreen() {
     async () => {
       if (!token || !spot) return;
 
-      const picked = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        quality: 0.8,
-        allowsMultipleSelection: true,
-        selectionLimit: MAX_PHOTOS - urls.length,
-      });
-
-      if (picked.canceled) return;
+      const picked = await pickImages({ multiple: true, limit: MAX_PHOTOS - urls.length, quality: 0.8 });
+      if (!picked) return;
 
       const uploaded: string[] = [];
 
-      for (const asset of picked.assets) {
-        // fetch()+blob() rather than the file URI: this is what works the
-        // same on web and native, and the PUT needs the bytes either way.
-        const blob = await (await fetch(asset.uri)).blob();
-
+      for (const image of picked.slice(0, MAX_PHOTOS - urls.length)) {
         const presigned = await spotListingApi.presignPhoto(token, spot.id, {
-          contentType: blob.type || "image/jpeg",
-          contentLength: blob.size,
+          contentType: image.contentType,
+          contentLength: image.size,
         });
 
-        uploaded.push(await spotListingApi.uploadFile(presigned, blob));
+        uploaded.push(await spotListingApi.uploadFile(presigned, image.blob));
       }
 
       const next = [...urls, ...uploaded].slice(0, MAX_PHOTOS);

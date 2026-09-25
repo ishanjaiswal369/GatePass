@@ -21,6 +21,7 @@ import { formatRupees } from "@/lib/money";
 import { payForBooking, type PaymentMethod } from "@/lib/payments";
 import { describeRange, formatDuration, MIN_STAY_MINUTES } from "@/lib/searchCriteria";
 import { spaceLabel, VEHICLE_LABELS } from "@/lib/spotLabels";
+import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, radius, space } from "@/theme";
 import type { BookingRow, PublicSpot, StayQuote, Vehicle } from "@/types/api.types";
@@ -41,6 +42,7 @@ const METHODS: { key: PaymentMethod; title: string; sub: string }[] = [
  * notification to the API, never by this screen.
  */
 export default function CheckoutScreen() {
+  const insets = useScreenInsets();
   const { token, isRestoring } = useSession();
   const params = useLocalSearchParams<{ id: string; from: string; to: string }>();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
@@ -286,7 +288,7 @@ export default function CheckoutScreen() {
         </ScrollView>
 
         {spot ? (
-          <View style={s.bar}>
+          <View style={[s.bar, { paddingBottom: 18 + insets.bottom }]}>
             <View style={s.flex}>
               <Text style={s.muted}>Total</Text>
               <Text style={s.barPrice}>{quote?.available ? formatRupees(quote.total) : "—"}</Text>

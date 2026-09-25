@@ -11,6 +11,7 @@ import type {
   SpotReadiness,
   VehicleType,
 } from "@/types/api.types";
+import { UserError } from "@/lib/userError";
 import { request } from "./client";
 
 /**
@@ -115,14 +116,21 @@ export async function uploadFile(
   upload: PresignedUpload,
   file: Blob
 ): Promise<string> {
-  const response = await fetch(upload.uploadUrl, {
-    method: "PUT",
-    headers: upload.headers,
-    body: file,
-  });
+  let response: Response;
+  try {
+    response = await fetch(upload.uploadUrl, {
+      method: "PUT",
+      headers: upload.headers,
+      body: file,
+    });
+  } catch {
+    // On a phone this is usually the upload host being unreachable (see the
+    // API's STORAGE_PUBLIC_BASE_URL), not the photo.
+    throw new UserError("The photo couldn't be uploaded. Check your connection and try again.");
+  }
 
   if (!response.ok) {
-    throw new Error("Upload failed");
+    throw new UserError("The photo couldn't be uploaded. Try again, or choose a smaller photo.");
   }
 
   return upload.fileUrl;

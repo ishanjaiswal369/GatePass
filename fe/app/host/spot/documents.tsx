@@ -1,5 +1,4 @@
 import { Redirect } from "expo-router";
-import * as ImagePicker from "expo-image-picker";
 import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { spotListingApi } from "@/api";
@@ -19,6 +18,7 @@ import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useSpotDraft } from "@/hooks/useSpotDraft";
 import { useWizardBack } from "@/hooks/useWizardBack";
 import { useWizardContinue } from "@/hooks/useWizardContinue";
+import { pickImages } from "@/lib/pickImages";
 import { colors, radius, space, type } from "@/theme";
 import type { OwnershipDocType, PermissionBasis, SpotListing } from "@/types/api.types";
 
@@ -74,18 +74,15 @@ export default function DocumentsScreen() {
   const { run: upload, busy: uploading, error: uploadError } = useAsyncAction(async () => {
     if (!token || !spot) return;
 
-    const picked = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.9,
-    });
-    if (picked.canceled) return;
+    const picked = await pickImages({ quality: 0.9 });
+    if (!picked) return;
 
-    const blob = await (await fetch(picked.assets[0].uri)).blob();
+    const [image] = picked;
     const presigned = await spotListingApi.presignDocument(token, spot.id, {
-      contentType: blob.type || "image/jpeg",
-      contentLength: blob.size,
+      contentType: image.contentType,
+      contentLength: image.size,
     });
-    const url = await spotListingApi.uploadFile(presigned, blob);
+    const url = await spotListingApi.uploadFile(presigned, image.blob);
     await spotListingApi.saveOwnershipDocument(token, spot.id, url);
     setDocUrl(url);
     setReplaced(true);

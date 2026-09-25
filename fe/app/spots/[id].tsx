@@ -423,7 +423,7 @@ export default function SpotDetailScreen() {
           </View>
         </ScrollView>
 
-        <View style={s.bar}>
+        <View style={[s.bar, { paddingBottom: 18 + insets.bottom }]}>
           {hourly ? (
             <>
               <View style={s.flex}>

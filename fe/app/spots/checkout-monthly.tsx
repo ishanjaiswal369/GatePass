@@ -22,6 +22,7 @@ import { monthlyTotal, termDay, termRange, termSchedule } from "@/lib/monthly";
 import { payForMonthly, type PaymentMethod } from "@/lib/payments";
 import { fromParams, type MonthlyCriteria } from "@/lib/searchCriteria";
 import { spaceLabel, VEHICLE_LABELS } from "@/lib/spotLabels";
+import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, radius, space } from "@/theme";
 import type { MonthlyQuote, MonthlyReservation, PublicSpot, Vehicle } from "@/types/api.types";
@@ -42,6 +43,7 @@ const METHODS: { key: PaymentMethod; title: string; sub: string }[] = [
  * confirms it, never this screen.
  */
 export default function MonthlyCheckoutScreen() {
+  const insets = useScreenInsets();
   const { token, isRestoring } = useSession();
   const params = useLocalSearchParams() as Record<string, string | string[] | undefined>;
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
@@ -298,7 +300,7 @@ export default function MonthlyCheckoutScreen() {
         </ScrollView>
 
         {spot ? (
-          <View style={s.bar}>
+          <View style={[s.bar, { paddingBottom: 18 + insets.bottom }]}>
             <View style={s.flex}>
               <Text style={s.muted}>Total</Text>
               <Text style={s.barPrice}>{quote?.available ? formatRupees(quote.total) : "—"}</Text>

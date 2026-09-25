@@ -24,9 +24,13 @@ config.resolver.nodeModulesPaths = [
   path.resolve(workspaceRoot, "node_modules"),
 ];
 
-// Without this, Metro also walks parent directories on its own and can resolve
-// two copies of React -- one hoisted, one local -- which fails at runtime with
-// an invalid-hook-call error rather than at build time.
-config.resolver.disableHierarchicalLookup = true;
+// Hierarchical lookup stays ON. Turning it off (to guard against a second
+// copy of React) also hid every nested node_modules from Metro, so a package
+// that ships its own version of a dependency got the hoisted one instead:
+// react-native-svg -> css-tree needs source-map 0.6, the root has 0.7 (which
+// requires Node's `url`), and every iOS/Android bundle failed to build. The
+// web bundle never loads css-tree, which is why it went unnoticed. There is
+// one React and one React Native in this workspace (npm dedupes them to the
+// root, fe/node_modules is empty); `npm ls react` shows it if that changes.
 
 module.exports = config;

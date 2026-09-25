@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { colors, space, type } from "@/theme";
+import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { Button } from "./Button";
 import { ErrorNotice } from "./Notice";
 import { PhoneFrame } from "./PhoneFrame";
@@ -43,6 +44,7 @@ export function WizardShell({
   footerNote?: string;
   children: ReactNode;
 }) {
+  const insets = useScreenInsets();
   return (
     <PhoneFrame>
       {/* The keyboard pushes the footer up rather than covering it, and the
@@ -59,13 +61,15 @@ export function WizardShell({
         <ScrollView
           contentContainerStyle={s.body}
           keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="interactive"
+          // "interactive" is iOS-only; Android's equivalent is dismissing on drag.
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
         >
           {error ? <ErrorNotice message={error} /> : null}
           {children}
         </ScrollView>
 
-        <View style={s.footer}>
+        {/* Clear of the home indicator / gesture bar on a device (0 on web). */}
+        <View style={[s.footer, { paddingBottom: space.lg + insets.bottom }]}>
           <Button
             label={continueLabel}
             onPress={onContinue}

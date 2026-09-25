@@ -12,21 +12,36 @@
       "resizeMode": "contain",
       "backgroundColor": "#111827"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true
     },
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#ffffff"
-      }
+      },
+      "blockedPermissions": [
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ]
     },
     "plugins": [
       "expo-router",
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "GatePass uses your location to show parking spots near you. Your location is never shared with hosts."
+          "locationWhenInUsePermission": "GatePass uses your location to show parking near you and, if you list a space, to place it on the map. Your location is never shared with other users.",
+          "locationAlwaysAndWhenInUsePermission": "GatePass only uses your location while you're using the app: to show parking near you and, if you list a space, to place it on the map. It is never shared with other users.",
+          "locationAlwaysPermission": "GatePass only uses your location while you're using the app: to show parking near you and, if you list a space, to place it on the map. It is never shared with other users."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "GatePass uses your photo library so you can add pictures of your parking space, your ownership document, or a problem you report.",
+          "cameraPermission": "GatePass uses the camera only if you choose to take a photo of your parking space or a problem you report.",
+          "microphonePermission": false
         }
       ]
     ]

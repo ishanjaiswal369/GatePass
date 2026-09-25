@@ -62,7 +62,7 @@ export default function PinScreen() {
           onChange={setPoint}
         />
 
-        <View style={s.footer}>
+        <View style={[s.footer, { paddingBottom: space.lg + insets.bottom }]}>
           <View style={s.found}>
             <PinIcon color={colors.accent} size={16} />
 

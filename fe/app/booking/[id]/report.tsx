@@ -1,4 +1,3 @@
-import * as ImagePicker from "expo-image-picker";
 import { Redirect, router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
@@ -17,6 +16,8 @@ import { PROBLEM_CATEGORIES, type ProblemCategory } from "@/constants/enums";
 import { PROBLEM_LABELS } from "@/features/bookings/problemLabels";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { bookingListing, bookingRef, bookingWhen } from "@/lib/booking";
+import { useScreenInsets } from "@/hooks/useScreenInsets";
+import { pickImages } from "@/lib/pickImages";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, radius, space } from "@/theme";
 import type { BookingDetail } from "@/types/api.types";
@@ -33,6 +34,7 @@ const MAX_DETAILS = 500;
  * API answers with that report and this screen opens it instead.
  */
 export default function ReportProblemScreen() {
+  const insets = useScreenInsets();
   const { token, isRestoring } = useSession();
   const { id } = useLocalSearchParams<{ id: string }>();
 
@@ -57,15 +59,15 @@ export default function ReportProblemScreen() {
 
   const { run: addPhoto, busy: uploading, error: photoError } = useAsyncAction(async () => {
     if (!token || !id) return;
-    const picked = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.7 });
-    if (picked.canceled || !picked.assets[0]) return;
-    const blob = await (await fetch(picked.assets[0].uri)).blob();
+    const picked = await pickImages({ quality: 0.7 });
+    if (!picked) return;
+    const [image] = picked;
     const presigned = await problemsApi.photoUploadUrl(token, id, {
-      contentType: blob.type || "image/jpeg",
-      contentLength: blob.size,
+      contentType: image.contentType,
+      contentLength: image.size,
     });
-    const url = await spotListingApi.uploadFile(presigned, blob);
-    setPhoto({ uri: picked.assets[0].uri, url });
+    const url = await spotListingApi.uploadFile(presigned, image.blob);
+    setPhoto({ uri: image.uri, url });
   });
 
   const { run: send, busy, error } = useAsyncAction(async () => {
@@ -172,7 +174,7 @@ export default function ReportProblemScreen() {
         </ScrollView>
 
         {booking ? (
-          <View style={s.bar}>
+          <View style={[s.bar, { paddingBottom: 18 + insets.bottom }]}>
             <Button
               label={category ? "Continue" : "Choose what's wrong"}
               size="lg"
