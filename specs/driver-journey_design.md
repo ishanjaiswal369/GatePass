@@ -435,3 +435,139 @@ Prototype boards: *Report a problem*, *Problem · support & alternatives*,
    entry however many times it is opened; with the preference off, none.
 5. `POST /notifications/read` with another user's ids changes nothing.
 6. A vehicle round-trips make/model and size; *Bike* is stored as BIKE.
+
+## Phase 5 in detail — the host side
+
+Prototype boards: *Host tab* (and empty), *Listing dashboard* (and loading),
+*Host bookings*, *Calendar & blocking*, *Earnings & payouts*, *List parking*
+steps 1–12.
+
+### Requirements (EARS)
+
+- R1. When a host opens the Host tab, the system shall show this month's
+  earnings after the 10% commission, the amount available for payout, this
+  month's booking count, today's bookings (who is parked now, who is next),
+  and each space with its status (Active with rating, In review, Draft with
+  the step to continue at).
+- R2. When a host opens a space, the system shall show today's bookings,
+  upcoming count and next start, this month's net, the rating, today's list,
+  and quick actions: pause new bookings, edit prices, block dates, access
+  instructions.
+- R3. While a space is paused, the system shall leave it out of search and
+  refuse new bookings on it (quote says why); bookings already made and
+  extensions of them are unaffected.
+- R4. When a host lists their bookings, the system shall show paid bookings
+  only (never unpaid holds), by Upcoming / Active / Completed / Cancelled,
+  each with the driver's first name and initial, the vehicle (make and
+  plate — needed at the gate), the stay, and "You earn ₹X of ₹Y".
+- R5. When a host blocks time on a space, the system shall refuse new
+  bookings, holds and extensions over it, and hide the space from searches
+  that touch it; blocking over a confirmed booking or an unexpired hold is
+  refused with the booking named, and *block free hours only* blocks the
+  day's open hours around it.
+- R6. When a host removes a block, the system shall make those hours
+  bookable again.
+- R7. When a host opens Earnings, the system shall show available (stays
+  ended, not yet paid out), pending (not ended), paid out (in a PAID
+  settlement), this month gross − commission = net, how one booking splits,
+  a transactions list, and the masked payout account.
+- R8. The wizard shall additionally ask for amenities, vehicle limits
+  (height, largest vehicle, other rules), daily and monthly prices beside
+  the hourly one, and the entry point.
+
+### Three perspectives
+
+| | |
+|---|---|
+| **Frontend** | `host.tsx` restyled (earnings card, today line, spaces with status/rating). `host/listing/[id]` (dashboard), `host/bookings` (4 tabs, per space or all), `host/listing/[id]/calendar` (two-week strip, day timeline, block / unblock, the confirmed-booking warning), `host/earnings`. Wizard: new `features` and `limits` steps; `pricing` gains daily / monthly; `access` gains the entry point. |
+| **Backend** | `ListingBlock`; `Listing.bookingsPausedAt`, `Listing.rules`. `lib/listing-lock.ts`: a per-listing transaction-scoped advisory lock, taken by spot booking, extension and block creation, so "is it free?" and "take it" can't interleave between a booking and a block (the EXCLUDE only sees bookings). Host reads under `requireHost` with `hostProfileId` in every WHERE. |
+| **Security** | Host routes: `authenticate` + `requireHost`; each read and write filters by the caller's `hostProfileId` (a not-yours id is 404). Drivers appear as first name + initial and plate; never email or phone. Money is computed server-side from the booking and refund rows. Blocks and pause are audited. |
+
+### Data
+
+- `ListingBlock`: `listingId`, `startsAt`, `endsAt`, `reason?` (≤ 100, the
+  host's own note, shown only to the host), `createdBy`, `createdAt`.
+  Index `(listingId, startsAt)`.
+- `Listing.bookingsPausedAt?` (null = taking bookings); `Listing.rules?`
+  (≤ 300, public: "No commercial vehicles").
+- **Host earning** of a paid booking = `retained × (1 − commission)`, where
+  `retained = max(0, amount − refund)` — a full refund leaves nothing, a
+  late cancellation's 50% refund leaves half the parking. Status: *Pending*
+  until the stay ends, then *Available*, then *Paid out* once its settlement
+  item belongs to a PAID settlement.
+
+### API
+
+| Route | Notes |
+|---|---|
+| `GET /host/summary` | Host tab card: month gross/net, available, bookings this month, today |
+| `GET /host/spots/:id/overview` | dashboard numbers, today's list, paused, photo count |
+| `PATCH /host/spots/:id/pause` | `{ paused }` |
+| `GET /host/bookings?listingId&scope&cursor` | scope upcoming / active / completed / cancelled |
+| `GET /host/spots/:id/calendar?from&days` | per day: open windows, bookings, blocks (≤ 14 days) |
+| `POST /host/spots/:id/blocks` | `{ kind: "range", startsAt, endsAt, reason? }` or `{ kind: "day", date, freeOnly, reason? }`; 409 naming the booking when it overlaps one |
+| `DELETE /host/spots/:id/blocks/:blockId` | |
+| `GET /host/earnings` | the ledger |
+| `PUT /host/spots/:id/pricing` | rates gain `pricePerDay?`, `pricePerMonth?` |
+| `PATCH /host/spots/:id/features`, `/limits` | amenities; height, size, rules |
+| `PATCH /host/spots/:id/terms` | gains `entryPoint` |
+
+### Editing a live space
+
+A live space's day-to-day terms — prices, hours, access instructions and
+entry point, amenities, limits and rules, photos — can be changed from its
+dashboard; saving returns there instead of walking the rest of the wizard.
+The name and type, the address and the ownership document stay locked once
+live, because they are what review checked (`operableSpot` vs `editableSpot`
+in spot-listing.service).
+
+### Implementation plan
+
+- [x] Schema: `ListingBlock`, `Listing.bookingsPausedAt`, `Listing.rules` (db push; additions only)
+- [x] `lib/listing-lock.ts` in spot booking, extension and block creation; blocks and pause in search, quote, booking and extension options
+- [x] host-operations service + routes (summary, overview, pause, bookings, calendar, blocks, earnings)
+- [x] Wizard: `features` and `limits` steps; daily/monthly prices with the host's share; entry point
+- [x] Host tab, listing dashboard, host bookings, calendar & blocking, earnings screens
+- [x] Live-DB suite (52 checks) and browser pass
+
+### What is deliberately not built
+
+- **Vehicles at once.** One listing is one space: the `Booking_no_overlap`
+  EXCLUDE (which must not change) allows one booking at a time. A host with
+  three bays lists three spaces.
+- **Masked calls** to the driver (as Phase 4).
+- **Automatic payouts.** Settlements are still created by an admin; the
+  Earnings screen shows what is available and says payouts are sent by
+  GatePass rather than promising a date.
+- **DigiLocker identity check** in the wizard: no integration; PAN and the
+  ownership document remain the checks.
+- **Labelled photo slots** (entrance / parking area): photos stay one ordered
+  list; the dashboard's entrance-photo tip is shown when a space has fewer
+  than two photos.
+
+### Security checklist (Phase 5)
+
+| Check | How |
+|---|---|
+| Auth | every route `host` (`authenticate` + `requireHost`) |
+| Authz | `hostProfileId` in the WHERE of every listing, booking, block and earnings query; a block id must belong to the path's listing |
+| Input | zod `.strict()`: ISO dates, `endsAt > startsAt`, a block ≤ 31 days, calendar window ≤ 14 days, reason ≤ 100, rules ≤ 300, height 100–500 cm, prices positive and capped |
+| Output | driver as first name + initial; plate and vehicle label only on paid bookings of the host's own space; no driver email/phone |
+| Integrity | advisory lock per listing around check-then-insert for bookings, extensions and blocks; the EXCLUDE still guards booking vs booking |
+| Rate limit | `write` bucket for pause / blocks / wizard saves |
+| Logging | `LISTING_PAUSED`, `LISTING_RESUMED`, `BLOCK_CREATED`, `BLOCK_REMOVED` audits |
+
+### Acceptance criteria
+
+1. A paused space is absent from search, its quote says it isn't taking
+   bookings, a new booking is 409; an existing booking still reads normally.
+2. A block hides the space from searches overlapping it and refuses bookings
+   and extensions into it; removing it restores both.
+3. Blocking a day with a confirmed booking is 409 naming the booking;
+   *free hours only* creates blocks that exactly surround it.
+4. Another host's space, booking list or block is 404.
+5. Earnings: a completed paid booking of ₹60 parking shows ₹54 available; a
+   late-cancelled one ₹27; a fully refunded one ₹0; in a PAID settlement it
+   moves to paid out.
+6. Host booking lists never include unpaid holds, and show the driver as
+   "First L." with the plate.

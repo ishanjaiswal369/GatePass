@@ -1,3 +1,4 @@
+import type { Amenity, VehicleSize } from "@/constants/enums";
 import type {
   PayoutAccount,
   PresignedUpload,
@@ -136,7 +137,7 @@ export const saveOwnershipDocument = (token: string, id: string, url: string) =>
 export const saveTerms = (
   token: string,
   id: string,
-  input: { accessInstructions?: string; warrantyAccepted?: true }
+  input: { accessInstructions?: string; entryPoint?: string; warrantyAccepted?: true }
 ) =>
   request<SpotListing>(`/host/spots/${id}/terms`, {
     method: "PATCH",
@@ -158,7 +159,7 @@ export const saveAvailability = (
 export const savePricing = (
   token: string,
   id: string,
-  rates: { vehicleType: VehicleType; pricePerHour: number }[]
+  rates: { vehicleType: VehicleType; pricePerHour: number; pricePerDay?: number; pricePerMonth?: number }[]
 ) =>
   request<SpotListing>(`/host/spots/${id}/pricing`, {
     method: "PATCH",
@@ -192,3 +193,14 @@ export const submitPayoutAccount = (
     body: input,
     token,
   });
+
+/** Wizard: what the space offers. Allowed on a live space too. */
+export const saveFeatures = (token: string, id: string, amenities: Amenity[]) =>
+  request<SpotListing>(`/host/spots/${id}/features`, { method: "PATCH", body: { amenities }, token });
+
+/** Wizard: what fits, and the host's rules. `null` clears one. */
+export const saveLimits = (
+  token: string,
+  id: string,
+  input: { maxVehicleHeightCm?: number | null; maxVehicleSize?: VehicleSize | null; rules?: string | null }
+) => request<SpotListing>(`/host/spots/${id}/limits`, { method: "PATCH", body: input, token });

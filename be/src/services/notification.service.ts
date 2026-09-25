@@ -244,6 +244,20 @@ export async function syncFromState(userId: string, now = new Date()): Promise<v
     });
   }
 
+  // Payouts sent to this user as a host.
+  const payouts = await prisma.settlement.findMany({
+    where: { status: "PAID", updatedAt: { gte: since }, hostProfile: { userId } },
+    select: { id: true, netPayable: true, updatedAt: true },
+  });
+  for (const p of payouts) {
+    await notify(userId, "HOST_PAYOUT", {
+      title: "Payout sent",
+      body: `${rupees(p.netPayable)} sent to your bank account.`,
+      dedupeKey: `payout:${p.id}`,
+      at: p.updatedAt,
+    });
+  }
+
   // Refunds that have landed. Written as REFUND_STARTED at the decision;
   // this is the second half, noticed from the refund's own state.
   const landed = await prisma.refund.findMany({

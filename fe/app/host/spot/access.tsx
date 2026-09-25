@@ -6,6 +6,7 @@ import { Field, RestoringScreen, WizardShell } from "@/components/ui";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useSpotDraft } from "@/hooks/useSpotDraft";
 import { useWizardBack } from "@/hooks/useWizardBack";
+import { continueAfter } from "@/lib/wizardFlow";
 import {
   TOTAL_STEPS,
   firstStepPath,
@@ -31,10 +32,12 @@ export default function AccessScreen() {
   const { spot, loading, isRestoring, token } = useSpotDraft();
   const back = useWizardBack("access", spot?.id);
   const [text, setText] = useState("");
+  const [entry, setEntry] = useState("");
 
   useEffect(() => {
     if (!spot) return;
     setText(spot.accessInstructions ?? "");
+    setEntry(spot.entryPoint ?? "");
   }, [spot]);
 
   const { run: save, busy, error } = useAsyncAction(async () => {
@@ -42,9 +45,10 @@ export default function AccessScreen() {
 
     await spotListingApi.saveTerms(token, spot.id, {
       accessInstructions: text.trim(),
+      entryPoint: entry.trim(),
     });
 
-    router.push(nextStepPath("access", spot.id));
+    continueAfter("access", spot);
   });
 
   if (isRestoring || loading) return <RestoringScreen />;
@@ -53,8 +57,8 @@ export default function AccessScreen() {
 
   return (
     <WizardShell
-      title="Getting in"
-      sub="What should a driver do when they arrive?"
+      title="How do drivers get in?"
+      sub="The entry point is public; the instructions are shown only after a driver has booked and paid."
       step={stepNumber("access")}
       totalSteps={TOTAL_STEPS}
       onBack={back}
@@ -63,6 +67,20 @@ export default function AccessScreen() {
       busy={busy}
       error={error}
     >
+      <Field
+        label="Entry point"
+        optional
+        value={entry}
+        onChangeText={setEntry}
+        placeholder="Main gate on Karve Road"
+        maxLength={120}
+        hint="Which gate or entrance. Drivers see this before booking."
+      />
+
+      <Text style={s.gate}>
+        Gate timing: {spot.availability.length ? "your opening hours, from the Availability step" : "set in the Availability step"}.
+      </Text>
+
       <Field
         label="Access instructions"
         value={text}
@@ -106,4 +124,5 @@ const s = StyleSheet.create({
   examplesTitle: { ...type.label, color: colors.ink },
   example: { fontSize: 13, lineHeight: 19, color: colors.inkMuted },
   note: { ...type.caption, color: colors.inkFaint, lineHeight: 18 },
+  gate: { fontSize: 13, color: colors.inkMuted },
 });

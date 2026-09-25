@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { SPACE_TYPES, VEHICLE_TYPES } from "../constants/enums/index.js";
+import { AMENITIES, SPACE_TYPES, VEHICLE_SIZES, VEHICLE_TYPES } from "../constants/enums/index.js";
 import type { RequestInput, RequestSchemas } from "../lib/request.js";
 
 const MINUTES_IN_DAY = 24 * 60;
@@ -39,16 +39,42 @@ const ownershipDocBody = z.object({
   url: z.string().url(),
 });
 
+/** Strips control characters from free text a driver will later read. */
+const plainText = (max: number) =>
+  z
+    .string()
+    .transform((value) => value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "").trim())
+    .pipe(z.string().max(max));
+
 const termsBody = z
   .object({
     accessInstructions: z.string().trim().min(1).max(1000).optional(),
+    /** Public before booking ("Blue gate on the lane behind SBI"). Empty clears it. */
+    entryPoint: plainText(120).optional(),
     warrantyAccepted: z.literal(true).optional(),
   })
   .refine(
     (value) =>
-      value.accessInstructions !== undefined || value.warrantyAccepted !== undefined,
+      value.accessInstructions !== undefined || value.entryPoint !== undefined || value.warrantyAccepted !== undefined,
     { message: "nothing to update" }
   );
+
+const featuresBody = z
+  .object({ amenities: z.array(z.enum(AMENITIES)).max(AMENITIES.length) })
+  .strict();
+
+const limitsBody = z
+  .object({
+    /** 1 m to 5 m: anything outside is a typo, not a garage. */
+    maxVehicleHeightCm: z.number().int().min(100).max(500).nullable().optional(),
+    maxVehicleSize: z.enum(VEHICLE_SIZES).nullable().optional(),
+    rules: plainText(300)
+      .transform((value) => (value.length > 0 ? value : null))
+      .nullable()
+      .optional(),
+  })
+  .strict()
+  .refine((value) => Object.values(value).some((v) => v !== undefined), { message: "nothing to update" });
 
 const availabilityWindow = z
   .object({
@@ -105,6 +131,8 @@ const pricingBody = z.object({
       z.object({
         vehicleType: z.enum(VEHICLE_TYPES),
         pricePerHour: z.number().positive().max(100000),
+        pricePerDay: z.number().positive().max(1000000).optional(),
+        pricePerMonth: z.number().positive().max(10000000).optional(),
       })
     )
     .min(1),
@@ -131,6 +159,8 @@ export const spotListingRequests = {
     body: availabilityBody,
   } satisfies RequestSchemas,
   savePricing: { params: listingId, body: pricingBody } satisfies RequestSchemas,
+  saveFeatures: { params: listingId, body: featuresBody } satisfies RequestSchemas,
+  saveLimits: { params: listingId, body: limitsBody } satisfies RequestSchemas,
   submit: { params: listingId } satisfies RequestSchemas,
 };
 
@@ -150,3 +180,5 @@ export type SaveAvailabilityInput = RequestInput<
 >;
 export type SavePricingInput = RequestInput<typeof spotListingRequests.savePricing>;
 export type SubmitSpotInput = RequestInput<typeof spotListingRequests.submit>;
+export type SaveFeaturesInput = RequestInput<typeof spotListingRequests.saveFeatures>;
+export type SaveLimitsInput = RequestInput<typeof spotListingRequests.saveLimits>;

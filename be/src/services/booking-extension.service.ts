@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { EXTENSION_STEPS } from "../config/pricing.js";
 import { conflict, notFound } from "../lib/errors.js";
+import { assertNotBlocked, lockListing } from "../lib/listing-lock.js";
 import { prisma } from "../lib/prisma.js";
 import { audit } from "../lib/security-log.js";
 import { venueDayAndMinute, windowsCover, type WeeklyWindow } from "../lib/venue-time.js";
@@ -151,12 +152,23 @@ export async function options(bookingId: string, driverId: string) {
     orderBy: { startsAt: "asc" },
   });
 
+  // Or the host taking the hours after it off sale.
+  const nextBlock = await prisma.listingBlock.findFirst({
+    where: { listingId: row.listingId!, endsAt: { gt: end } },
+    select: { startsAt: true },
+    orderBy: { startsAt: "asc" },
+  });
+
   const opts: ExtensionOption[] = EXTENSION_STEPS.map((minutes) => {
     const endsAt = new Date(end.getTime() + minutes * 60_000);
     let reason: string | null = null;
 
     if (next?.startsAt && next.startsAt < endsAt) {
       reason = `This space is booked from ${clock(next.startsAt)}.`;
+    } else if (nextBlock && nextBlock.startsAt < endsAt) {
+      reason = nextBlock.startsAt <= end
+        ? "The host has blocked the time after your booking."
+        : `The host has blocked the space from ${clock(nextBlock.startsAt)}.`;
     } else if (!windowsCover(terms.availability, end, endsAt)) {
       const { dayOfWeek, minute } = venueDayAndMinute(end);
       const window = terms.availability.find(
@@ -214,6 +226,7 @@ export async function create(
 
       const { row, end } = await loadRunning(tx, bookingId, driverId, now);
 
+      await lockListing(tx, row.listingId!);
       await releaseExpiredHolds(tx, row.listingId!);
 
       if (pendingExtension(row, now)) {
@@ -226,6 +239,7 @@ export async function create(
       if (!windowsCover(terms.availability, end, endsAt)) {
         throw conflict("The space isn't open for that long.");
       }
+      await assertNotBlocked(tx, row.listingId!, end, endsAt);
 
       const created = await tx.booking.create({
         data: {

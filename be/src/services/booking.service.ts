@@ -7,6 +7,7 @@ import {
   decodeCursor,
   encodeCursor,
 } from "../lib/pagination.js";
+import { assertNotBlocked, lockListing } from "../lib/listing-lock.js";
 import { prisma } from "../lib/prisma.js";
 import { audit } from "../lib/security-log.js";
 import { driverFees, stayPrice } from "../lib/stay-price.js";
@@ -689,6 +690,10 @@ export async function createSpotBooking(
         return { booking: stripOwner(existing), replayed: true };
       }
 
+      // Serialises this with blocks (and, later, monthly reservations) on the
+      // same listing -- see lib/listing-lock.
+      await lockListing(tx, input.listingId);
+
       // The same three gates the search and the public read apply, so a spot
       // that has stopped being bookable cannot still be booked by anyone
       // holding a link to it.
@@ -704,6 +709,7 @@ export async function createSpotBooking(
         },
         select: {
           id: true,
+          bookingsPausedAt: true,
           pricing: { select: { vehicleType: true, pricePerHour: true, pricePerDay: true } },
           availability: {
             where: { isActive: true },
@@ -714,6 +720,10 @@ export async function createSpotBooking(
 
       if (!spot) {
         throw notFound("Spot not found");
+      }
+
+      if (spot.bookingsPausedAt) {
+        throw conflict("This space isn't taking new bookings right now.");
       }
 
       const rate = spot.pricing.find(
@@ -732,6 +742,7 @@ export async function createSpotBooking(
       }
 
       await releaseExpiredHolds(tx, input.listingId);
+      await assertNotBlocked(tx, input.listingId, input.startsAt, input.endsAt);
 
       const minutes = Math.round(
         (input.endsAt.getTime() - input.startsAt.getTime()) / 60_000

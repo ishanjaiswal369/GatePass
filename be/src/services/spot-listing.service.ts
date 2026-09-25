@@ -16,6 +16,14 @@ import * as hostService from "./host.service.js";
 
 /** Statuses whose content the host is still allowed to change. */
 const EDITABLE_STATUSES = ["DRAFT", "REJECTED"];
+/**
+ * Also changeable once a spot is live: how it's run, not what it is. Prices,
+ * hours, access, amenities, limits and photos are the host's to adjust any
+ * day (the dashboard's Edit prices / Access instructions). The name and type,
+ * the address and the ownership document are what review checked, so they
+ * stay locked once live.
+ */
+const OPERABLE_STATUSES = [...EDITABLE_STATUSES, "PUBLISHED", "ONGOING", "SUSPENDED"];
 
 /** Photos a host may attach to one spot. */
 const MAX_PHOTOS = 8;
@@ -49,6 +57,9 @@ export interface AvailabilityWindowInput {
 export interface PricingRowInput {
   vehicleType: string;
   pricePerHour: number;
+  /** Optional ways to rent the same space; absent = not offered. */
+  pricePerDay?: number;
+  pricePerMonth?: number;
 }
 
 export interface PresignInput {
@@ -71,6 +82,12 @@ const spotView = {
   longitude: true,
   googlePlaceId: true,
   accessInstructions: true,
+  entryPoint: true,
+  amenities: true,
+  maxVehicleHeightCm: true,
+  maxVehicleSize: true,
+  rules: true,
+  bookingsPausedAt: true,
   ownershipDocUrl: true,
   warrantyAcceptedAt: true,
   submittedAt: true,
@@ -82,7 +99,7 @@ const spotView = {
     orderBy: { position: "asc" },
   },
   pricing: {
-    select: { id: true, vehicleType: true, pricePerHour: true },
+    select: { id: true, vehicleType: true, pricePerHour: true, pricePerDay: true, pricePerMonth: true },
   },
   // Included in the list read as well as the single one, so the dashboard can
   // show each spot's hours without a second round trip for every card.
@@ -136,6 +153,15 @@ async function editableSpot(listingId: string, hostProfileId: string) {
     );
   }
 
+  return spot;
+}
+
+/** The host's own spot, in any state where its day-to-day terms may change. */
+async function operableSpot(listingId: string, hostProfileId: string) {
+  const spot = await ownedSpot(listingId, hostProfileId);
+  if (!OPERABLE_STATUSES.includes(spot.status)) {
+    throw conflict("This spot is under review and cannot be edited");
+  }
   return spot;
 }
 
@@ -301,7 +327,8 @@ export async function presignUpload(
   kind: "photo" | "ownership-doc",
   input: PresignInput
 ) {
-  await editableSpot(listingId, hostProfileId);
+  if (kind === "photo") await operableSpot(listingId, hostProfileId);
+  else await editableSpot(listingId, hostProfileId);
 
   const allowed =
     kind === "photo" ? IMAGE_CONTENT_TYPES : DOCUMENT_CONTENT_TYPES;
@@ -335,7 +362,7 @@ export async function replacePhotos(
   hostProfileId: string,
   urls: string[]
 ) {
-  await editableSpot(listingId, hostProfileId);
+  await operableSpot(listingId, hostProfileId);
 
   if (urls.length > MAX_PHOTOS) {
     throw badRequest(`At most ${MAX_PHOTOS} photos`);
@@ -383,9 +410,9 @@ export async function saveTerms(
   listingId: string,
   hostProfileId: string,
   userId: string,
-  input: { accessInstructions?: string; warrantyAccepted?: boolean }
+  input: { accessInstructions?: string; entryPoint?: string; warrantyAccepted?: boolean }
 ) {
-  await editableSpot(listingId, hostProfileId);
+  await operableSpot(listingId, hostProfileId);
 
   return prisma.listing.update({
     where: { id: listingId },
@@ -393,6 +420,7 @@ export async function saveTerms(
       ...(input.accessInstructions !== undefined
         ? { accessInstructions: input.accessInstructions }
         : {}),
+      ...(input.entryPoint !== undefined ? { entryPoint: input.entryPoint || null } : {}),
       // Recorded as an instant, and only ever set forward. Un-ticking the box
       // after the fact should not erase that it was ticked.
       ...(input.warrantyAccepted ? { warrantyAcceptedAt: new Date() } : {}),
@@ -437,7 +465,7 @@ export async function replaceAvailability(
   hostProfileId: string,
   windows: AvailabilityWindowInput[]
 ) {
-  await editableSpot(listingId, hostProfileId);
+  await operableSpot(listingId, hostProfileId);
 
   try {
     await prisma.$transaction([
@@ -466,7 +494,7 @@ export async function replacePricing(
   hostProfileId: string,
   rows: PricingRowInput[]
 ) {
-  await editableSpot(listingId, hostProfileId);
+  await operableSpot(listingId, hostProfileId);
 
   const seen = new Set<string>();
   for (const row of rows) {
@@ -483,6 +511,8 @@ export async function replacePricing(
         listingId,
         vehicleType: row.vehicleType,
         pricePerHour: new Prisma.Decimal(row.pricePerHour),
+        pricePerDay: row.pricePerDay !== undefined ? new Prisma.Decimal(row.pricePerDay) : null,
+        pricePerMonth: row.pricePerMonth !== undefined ? new Prisma.Decimal(row.pricePerMonth) : null,
       })),
     }),
   ]);
@@ -566,6 +596,31 @@ export async function submit(
       reviewedBy: null,
       updatedBy: userId,
     },
+    select: spotView,
+  });
+}
+
+/** Wizard: what the space offers. Only what is always true -- drivers filter on these. */
+export async function saveFeatures(listingId: string, hostProfileId: string, userId: string, amenities: string[]) {
+  await operableSpot(listingId, hostProfileId);
+  return prisma.listing.update({
+    where: { id: listingId },
+    data: { amenities: [...new Set(amenities)], updatedBy: userId },
+    select: spotView,
+  });
+}
+
+/** Wizard: what fits, and the host's own rules. Null clears a limit. */
+export async function saveLimits(
+  listingId: string,
+  hostProfileId: string,
+  userId: string,
+  input: { maxVehicleHeightCm?: number | null; maxVehicleSize?: string | null; rules?: string | null }
+) {
+  await operableSpot(listingId, hostProfileId);
+  return prisma.listing.update({
+    where: { id: listingId },
+    data: { ...input, updatedBy: userId },
     select: spotView,
   });
 }

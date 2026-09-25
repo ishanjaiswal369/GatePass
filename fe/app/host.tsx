@@ -1,44 +1,43 @@
 import { Redirect, router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
-import { ActivityIndicator, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { ApiError, hostApi, spotListingApi } from "@/api";
 import {
   BottomNav,
   Button,
   Card,
-  DataRow,
+  ChevronRightIcon,
   ErrorNotice,
   PhoneFrame,
   type NavKey,
+  PlusIcon,
+  RatingBadge,
   RestoringScreen,
+  StatusChip,
+  type ChipTone,
   TrashIcon,
-  formatMinute,
 } from "@/components/ui";
 import { firstStepPath } from "@/constants/wizard";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
+import { clockTime } from "@/lib/booking";
+import { formatRupees } from "@/lib/money";
 import { useSession } from "@/providers/SessionProvider";
-import { colors, radius, space, type } from "@/theme";
-import type {
-  AvailabilityWindow,
-  PayoutAccount,
-  SpotListing,
-} from "@/types/api.types";
-
-const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+import { colors, radius, space } from "@/theme";
+import type { HostSummary, PayoutAccount, SpotListing } from "@/types/api.types";
 
 /**
- * One nav item, two destinations: onboarding when no HostProfile exists, the
- * dashboard when it does. The fork is decided by `user.hasHostProfile`, which
- * every sign-in and /auth/me carries -- not by a role claim, because a user
- * can be a driver and a host at the same time. So a non-host lands on
- * onboarding with no request at all.
+ * The Host tab.
  *
- * The dashboard itself is one call. It used to be three -- the profile, every
- * spot, and every availability window -- which is two more round trips than
- * the screen has pieces: `/host/spots` carries each spot's own windows and
- * the payout gate alongside them, and the host's profile held nothing this
- * screen still shows.
+ * One nav item, two destinations: onboarding when no HostProfile exists, the
+ * host's home when it does. The fork is `user.hasHostProfile`, which every
+ * sign-in and /auth/me carries -- not a role claim, because a user can be a
+ * driver and a host at once.
+ *
+ * The host's home is the prototype's: what they've earned this month and
+ * what's available, today's bookings, and each space with where it stands
+ * and the one thing to do next (Manage, View, Continue). Two requests: the
+ * spaces (with the payout gate) and the summary.
  */
 export default function HostScreen() {
   const { token, user, isRestoring } = useSession();
@@ -49,6 +48,7 @@ export default function HostScreen() {
 
   const [spots, setSpots] = useState<SpotListing[]>([]);
   const [payout, setPayout] = useState<PayoutAccount | null>(null);
+  const [summary, setSummary] = useState<HostSummary | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -67,19 +67,15 @@ export default function HostScreen() {
 
       let cancelled = false;
 
-      spotListingApi
-        .list(token)
-        .then(({ spots: rows, payout: account }) => {
+      Promise.all([spotListingApi.list(token), hostApi.summary(token)])
+        .then(([{ spots: rows, payout: account }, sum]) => {
           if (cancelled) return;
           setSpots(rows);
           setPayout(account);
+          setSummary(sum);
           setLoadError(null);
         })
-        .catch((err) =>
-          setLoadError(
-            err instanceof ApiError ? err.message : "Could not load your spots"
-          )
-        )
+        .catch((err) => setLoadError(err instanceof ApiError ? err.message : "Could not load your spaces"))
         .finally(() => {
           if (!cancelled) setLoaded(true);
         });
@@ -88,26 +84,6 @@ export default function HostScreen() {
         cancelled = true;
       };
     }, [token, isHost])
-  );
-
-  const { run: toggleWindow } = useAsyncAction(
-    async (spotId: string, id: string, next: boolean) => {
-      if (!token) return;
-      const updated = await hostApi.setAvailabilityActive(token, id, next);
-
-      setSpots((rows) =>
-        rows.map((spot) =>
-          spot.id === spotId
-            ? {
-                ...spot,
-                availability: spot.availability.map((window) =>
-                  window.id === id ? { ...window, ...updated } : window
-                ),
-              }
-            : spot
-        )
-      );
-    }
   );
 
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -143,48 +119,37 @@ export default function HostScreen() {
             <Onboarding />
           ) : !loaded ? (
             <>
-              {/* The frame shows now, the details follow. A known host should
-                  not watch a blank screen for one request. */}
-              <View style={s.heading}>
-                <Text style={s.title}>Your spots</Text>
-              </View>
+              {/* The frame shows now, the details follow. */}
+              <Text style={s.title}>Host</Text>
               <ActivityIndicator color={colors.ink} style={s.loading} />
             </>
           ) : (
             <>
-              <View style={s.heading}>
-                <Text style={s.title}>Your spots</Text>
-                <Text style={s.sub}>
-                  {activeSpots.length === 1 ? "1 listed" : `${activeSpots.length} listed`}
-                </Text>
-              </View>
+              <Text style={s.title}>Host</Text>
+
+              {summary ? <EarningsCard summary={summary} /> : null}
+              {summary ? <TodayCard summary={summary} /> : null}
 
               {payout ? <PayoutCard payout={payout} /> : null}
 
+              <Text style={s.label}>MY PARKING SPACES</Text>
               {activeSpots.length === 0 ? (
-                <Text style={s.empty}>
-                  No spots yet. Add one below to start taking bookings.
-                </Text>
+                <Text style={s.empty}>No spaces yet. List one below to start taking bookings.</Text>
               ) : (
                 activeSpots.map((spot) => (
-                  <SpotCard
+                  <SpaceCard
                     key={spot.id}
                     spot={spot}
+                    rating={summary?.ratings[spot.id] ?? null}
                     deleting={deletingId === spot.id}
                     onDelete={() => deleteSpot(spot.id)}
-                    onToggleWindow={(id, next) => toggleWindow(spot.id, id, next)}
                   />
                 ))
               )}
 
               {/* No request: the wizard's first step is what creates a spot,
-                  and it does so only once the host has named it. Opening a
-                  blank draft here left unnamed rows behind for anyone who
-                  looked at the wizard and backed out. */}
-              <Button
-                label="Add another spot"
-                onPress={() => router.push(firstStepPath())}
-              />
+                  and only once the host has named it. */}
+              <Button label="List a Parking Space" icon={<PlusIcon size={18} color={colors.onPrimary} />} onPress={() => router.push(firstStepPath())} />
             </>
           )}
         </ScrollView>
@@ -195,75 +160,134 @@ export default function HostScreen() {
   );
 }
 
-function SpotCard({
-  spot,
-  deleting,
-  onDelete,
-  onToggleWindow,
-}: {
-  spot: SpotListing;
-  deleting: boolean;
-  onDelete: () => void;
-  onToggleWindow: (id: string, next: boolean) => void;
-}) {
-  const editable = spot.status === "DRAFT" || spot.status === "REJECTED";
+/** This month after fees, and what's waiting to be paid out. Opens Earnings. */
+function EarningsCard({ summary }: { summary: HostSummary }) {
+  return (
+    <Pressable
+      onPress={() => router.push("/host/earnings")}
+      accessibilityRole="button"
+      accessibilityLabel={`This month after fees ${formatRupees(summary.month.net)}. Open earnings`}
+      style={({ pressed }) => [s.earn, pressed && s.pressedDark]}
+    >
+      <View style={s.flex}>
+        <Text style={s.earnLabel}>This month · after fees</Text>
+        <Text style={s.earnValue}>{formatRupees(summary.month.net)}</Text>
+        <Text style={s.earnSub}>
+          {formatRupees(summary.available)} available for payout · {summary.month.bookings}{" "}
+          {summary.month.bookings === 1 ? "booking" : "bookings"}
+        </Text>
+      </View>
+      <ChevronRightIcon color={colors.onInkMuted} />
+    </Pressable>
+  );
+}
+
+/** "2 bookings today · Priya M. is parked now · Rahul S. at 3:00 PM". Opens Host bookings. */
+function TodayCard({ summary }: { summary: HostSummary }) {
+  const today = summary.today;
+  const parked = today.filter((b) => b.phase === "ACTIVE");
+  const next = today.filter((b) => b.phase === "UPCOMING");
+  const line = [
+    ...parked.map((b) => `${b.driver} is parked now`),
+    ...next.slice(0, 2).map((b) => `${b.driver} at ${b.startsAt ? clockTime(b.startsAt) : ""}`),
+  ].join(" · ");
 
   return (
-    <Card heading={spot.name}>
-      <ListingStatusCard spot={spot} />
-
-      <Button
-        label={editable ? "Continue this listing" : "View this listing"}
-        onPress={() =>
-          router.push(
-            editable
-              ? firstStepPath(spot.id)
-              : { pathname: "/host/spot", params: { id: spot.id } }
-          )
-        }
-      />
-
-      {spot.city ? <DataRow label="City" value={spot.city} /> : null}
-
-      {spot.pricing.length > 0 ? (
-        <DataRow
-          label="Rates"
-          value={spot.pricing
-            .map(
-              (rate) =>
-                `${rate.vehicleType === "CAR" ? "Car" : "Bike"} ₹${Number(rate.pricePerHour)}`
-            )
-            .join("  ·  ")}
-        />
-      ) : null}
-
-      <DataRow label="Photos" value={`${spot.photos.length}`} />
-
-      {spot.availability.length === 0 ? (
-        <Text style={s.empty}>
-          No hours yet. This spot stays hidden until you set them in the wizard.
+    <Pressable
+      onPress={() => router.push("/host/bookings")}
+      accessibilityRole="button"
+      style={({ pressed }) => [s.today, pressed && s.pressed]}
+    >
+      <View style={s.flex}>
+        <Text style={s.todayTitle}>
+          {today.length === 0 ? "No bookings today" : `${today.length} ${today.length === 1 ? "booking" : "bookings"} today`}
         </Text>
-      ) : (
-        spot.availability.map((window) => (
-          <View key={window.id} style={s.window}>
-            <Text style={s.windowDay}>{describeWindow(window)}</Text>
-            <Switch
-              value={window.isActive}
-              onValueChange={(next) => onToggleWindow(window.id, next)}
-              accessibilityLabel={`Availability on ${DAY_NAMES[window.dayOfWeek]}`}
-            />
-          </View>
-        ))
-      )}
+        <Text style={s.todaySub}>{line || "Your bookings, upcoming and past"}</Text>
+      </View>
+      <ChevronRightIcon />
+    </Pressable>
+  );
+}
 
-      <Button
-        label="Delete this spot"
-        variant="danger"
-        busy={deleting}
-        onPress={onDelete}
-        leadingIcon={<TrashIcon color={colors.danger} />}
-      />
-    </Card>
+/** Where a space stands, in a chip and a line, and the one next step. */
+function statusOf(spot: SpotListing): { label: string; tone: ChipTone; line: string | null } {
+  switch (spot.status) {
+    case "DRAFT":
+      return { label: "Draft", tone: "neutral", line: "Not finished yet" };
+    case "PENDING_REVIEW":
+      return { label: "In review", tone: "warning", line: "Documents being checked · usually 48 hours" };
+    case "REJECTED":
+      return { label: "Not approved", tone: "danger", line: spot.rejectionReason ?? "Edit the listing and submit it again" };
+    case "SUSPENDED":
+      return { label: "Suspended", tone: "danger", line: spot.rejectionReason ?? "Contact support to put it back" };
+    default:
+      return spot.bookingsPausedAt
+        ? { label: "Paused", tone: "warning", line: "Not taking new bookings" }
+        : { label: "Active", tone: "success", line: null };
+  }
+}
+
+function priceLine(spot: SpotListing): string {
+  const rate = spot.pricing.find((row) => row.vehicleType === "CAR") ?? spot.pricing[0];
+  if (!rate) return "Prices not set yet";
+  return [
+    `${formatRupees(rate.pricePerHour)}/hour`,
+    rate.pricePerDay ? `${formatRupees(rate.pricePerDay)}/day` : null,
+    rate.pricePerMonth ? `${formatRupees(rate.pricePerMonth)}/month` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function SpaceCard({
+  spot,
+  rating,
+  deleting,
+  onDelete,
+}: {
+  spot: SpotListing;
+  rating: { rating: number; reviewCount: number } | null;
+  deleting: boolean;
+  onDelete: () => void;
+}) {
+  const status = statusOf(spot);
+  const live = ["PUBLISHED", "ONGOING", "SUSPENDED"].includes(spot.status);
+  const draft = spot.status === "DRAFT" || spot.status === "REJECTED";
+  const where = [spot.addressLine, spot.city].filter(Boolean).join(", ");
+
+  return (
+    <View style={s.space}>
+      <Text style={s.spaceName}>{spot.name}</Text>
+      {where ? <Text style={s.muted}>{where}</Text> : null}
+      <Text style={s.price}>{priceLine(spot)}</Text>
+
+      <View style={s.spaceFoot}>
+        <View style={s.chips}>
+          <StatusChip label={status.label} tone={status.tone} />
+          {live ? <RatingBadge rating={rating?.rating ?? null} count={rating?.reviewCount ?? 0} /> : null}
+        </View>
+        <View style={s.cta}>
+          <Button
+            label={live ? "Manage" : draft ? "Continue" : "View"}
+            variant={live ? "primary" : "ghost"}
+            onPress={() =>
+              router.push(
+                live
+                  ? { pathname: "/host/listing/[id]", params: { id: spot.id } }
+                  : draft
+                    ? firstStepPath(spot.id)
+                    : { pathname: "/host/spot", params: { id: spot.id } }
+              )
+            }
+          />
+        </View>
+      </View>
+      {status.line ? <Text style={s.muted}>{status.line}</Text> : null}
+
+      {draft ? (
+        <Button label="Delete draft" variant="ghost" busy={deleting} onPress={onDelete} leadingIcon={<TrashIcon color={colors.danger} />} />
+      ) : null}
+    </View>
   );
 }
 
@@ -323,77 +347,6 @@ function PayoutCard({ payout }: { payout: PayoutAccount }) {
   );
 }
 
-/**
- * Where the listing stands, and what moves it forward.
- *
- * Deliberately says what is outstanding rather than only naming a state: a
- * host reading "PENDING_REVIEW" learns nothing they can act on.
- */
-function ListingStatusCard({ spot }: { spot: SpotListing }) {
-  const { heading, body, tone } = describe(spot);
-
-  return (
-    <View style={[s.status, tone === "good" && s.statusGood, tone === "warn" && s.statusWarn]}>
-      <Text style={s.statusHeading}>{heading}</Text>
-      <Text style={s.statusBody}>{body}</Text>
-    </View>
-  );
-}
-
-function describe(spot: SpotListing): {
-  heading: string;
-  body: string;
-  tone: "neutral" | "good" | "warn";
-} {
-  if (spot.status === "DRAFT") {
-    return {
-      heading: "Listing not finished",
-      body: "Saved as a draft. Finish the remaining steps to send it for review.",
-      tone: "neutral",
-    };
-  }
-
-  if (spot.status === "PENDING_REVIEW") {
-    return {
-      heading: "With us for review",
-      body: "We are checking your ownership proof. It goes live once that clears and your payout account is active.",
-      tone: "neutral",
-    };
-  }
-
-  if (spot.status === "REJECTED") {
-    return {
-      heading: "Not approved",
-      body: spot.rejectionReason ?? "Something was missing. Edit your listing and submit it again.",
-      tone: "warn",
-    };
-  }
-
-  if (spot.status === "SUSPENDED") {
-    return {
-      heading: "Paused",
-      body: spot.rejectionReason ?? "This spot is offline. Contact support to put it back.",
-      tone: "warn",
-    };
-  }
-
-  return {
-    heading: "Live",
-    body: "Drivers nearby can find and book this spot.",
-    tone: "good",
-  };
-}
-
-function describeWindow(window: AvailabilityWindow): string {
-  const day = DAY_NAMES[window.dayOfWeek];
-
-  if (window.startMinute === 0 && window.endMinute >= 1440) {
-    return `${day}  ·  all day`;
-  }
-
-  return `${day}  ·  ${formatMinute(window.startMinute)}–${formatMinute(window.endMinute)}`;
-}
-
 function Onboarding() {
   return (
     <>
@@ -433,24 +386,49 @@ function Need({ text }: { text: string }) {
   );
 }
 
+
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.surface },
   body: { paddingHorizontal: 20, paddingBottom: 20, gap: space.lg },
   heading: { gap: 6 },
   title: { fontSize: 27, fontWeight: "700", color: colors.ink, letterSpacing: -0.5 },
   sub: { fontSize: 15, color: colors.inkMuted, lineHeight: 22 },
+  label: { fontSize: 12, fontWeight: "700", letterSpacing: 1.2, color: colors.inkMuted },
   loading: { paddingVertical: space.xl },
   empty: { fontSize: 14, color: colors.inkMuted, lineHeight: 21 },
-  window: {
+  fine: { fontSize: 12, color: colors.inkFaint, lineHeight: 18 },
+  flex: { flex: 1, gap: 3 },
+  muted: { fontSize: 13, color: colors.inkMuted },
+  earn: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: space.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    gap: space.md,
+    backgroundColor: colors.ink,
+    borderRadius: 16,
+    padding: 18,
   },
-  windowDay: { fontSize: 15, fontWeight: "600", color: colors.ink },
-  fine: { fontSize: 12, color: colors.inkFaint, lineHeight: 18 },
+  pressedDark: { opacity: 0.92 },
+  earnLabel: { fontSize: 13, color: colors.onInkMuted },
+  earnValue: { fontSize: 30, fontWeight: "700", color: colors.onInk, letterSpacing: -0.5 },
+  earnSub: { fontSize: 13, color: colors.onInkMuted },
+  today: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: space.lg,
+  },
+  pressed: { backgroundColor: colors.canvas },
+  todayTitle: { fontSize: 15, fontWeight: "700", color: colors.ink },
+  todaySub: { fontSize: 13, color: colors.inkMuted },
+  space: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: space.lg, gap: 4 },
+  spaceName: { fontSize: 16, fontWeight: "700", color: colors.ink },
+  price: { fontSize: 14, fontWeight: "600", color: colors.ink, marginTop: 2 },
+  spaceFoot: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.sm, marginTop: space.sm },
+  chips: { flexDirection: "row", alignItems: "center", gap: space.sm, flexShrink: 1 },
+  cta: { minWidth: 120 },
   status: {
     gap: 5,
     padding: space.lg,
@@ -459,7 +437,6 @@ const s = StyleSheet.create({
     borderColor: colors.border,
     backgroundColor: colors.canvas,
   },
-  statusGood: { borderColor: colors.success, backgroundColor: "#f0fdf4" },
   statusWarn: { borderColor: colors.devBorder, backgroundColor: colors.devSurface },
   statusHeading: { fontSize: 16, fontWeight: "700", color: colors.ink },
   statusBody: { fontSize: 13, lineHeight: 19, color: colors.inkMuted },

@@ -12,6 +12,8 @@ import type {
   SaveTermsInput,
   SaveTypeInput,
   SubmitSpotInput,
+  SaveFeaturesInput,
+  SaveLimitsInput,
 } from "../requests/spot-listing.request.js";
 import * as hostPayoutService from "../services/host-payout.service.js";
 import * as spotListingService from "../services/spot-listing.service.js";
@@ -201,6 +203,18 @@ export const spotListingController = {
         hostProfileId(request),
         input.body.windows
       )
+    );
+  },
+
+  saveFeatures: async (input: SaveFeaturesInput, request: FastifyRequest, reply: FastifyReply) => {
+    return reply.send(
+      await spotListingService.saveFeatures(input.params.id, hostProfileId(request), request.user.userId, input.body.amenities)
+    );
+  },
+
+  saveLimits: async (input: SaveLimitsInput, request: FastifyRequest, reply: FastifyReply) => {
+    return reply.send(
+      await spotListingService.saveLimits(input.params.id, hostProfileId(request), request.user.userId, input.body)
     );
   },
 

@@ -469,6 +469,8 @@ export interface PublicSpot {
   maxVehicleSize: VehicleSize | null;
   /** Which gate, public before booking. The detailed instructions are not. */
   entryPoint: string | null;
+  /** The host's own rules ("No commercial vehicles"). */
+  rules: string | null;
   photos: SpotPhoto[];
   pricing: SpotPricingRow[];
   availability: AvailabilityWindow[];
@@ -571,6 +573,15 @@ export interface SpotListing {
   longitude: string | null;
   googlePlaceId: string | null;
   accessInstructions: string | null;
+  /** Public before booking ("Blue gate on the lane behind SBI"). */
+  entryPoint: string | null;
+  amenities: Amenity[];
+  maxVehicleHeightCm: number | null;
+  maxVehicleSize: VehicleSize | null;
+  /** The host's own rules, public. */
+  rules: string | null;
+  /** Set while new bookings are paused. */
+  bookingsPausedAt: string | null;
   ownershipDocUrl: string | null;
   warrantyAcceptedAt: string | null;
   submittedAt: string | null;
@@ -614,4 +625,85 @@ export interface PayoutAccount {
    * UNDER_REVIEW with nothing behind it, and only the API knows that.
    */
   needsDetails: boolean;
+}
+
+// ---------- Host operations (Phase 5) ----------
+
+/** Where the host's share of a booking stands. */
+export type PayoutState = "PENDING" | "AVAILABLE" | "PAID_OUT" | "NONE";
+
+/** A paid booking on one of the host's spaces, as the host sees it. */
+export interface HostBooking {
+  id: string;
+  ref: string;
+  listing: { id: string; name: string } | null;
+  phase: "UPCOMING" | "ACTIVE" | "COMPLETED" | "CANCELLED";
+  startsAt: string | null;
+  endsAt: string | null;
+  /** "Rahul S." -- never a full name, email or phone. */
+  driver: string;
+  vehicle: { number: string; type: VehicleType | null; label: string | null };
+  /** Parking the driver paid for, extensions included. */
+  amount: string;
+  /** The host's share after commission and any refund. */
+  earning: string;
+  payout: PayoutState;
+  isNew: boolean;
+  cancelledAt: string | null;
+  refundPolicy: string | null;
+  problem: { status: "OPEN" | "RESOLVED"; category: string } | null;
+  /** Calendar only: an unpaid hold still being paid for. */
+  held?: boolean;
+}
+
+export interface HostSummary {
+  month: { net: string; bookings: number };
+  available: string;
+  today: HostBooking[];
+  ratings: Record<string, { rating: number; reviewCount: number }>;
+}
+
+export interface HostOverview {
+  listing: { id: string; name: string; status: SpotListingStatus; address: string; paused: boolean; photoCount: number };
+  today: { count: number; parkedNow: number; bookings: HostBooking[] };
+  upcoming: { count: number; nextStartsAt: string | null };
+  month: { net: string; commissionRate: number };
+  rating: { average: number | null; count: number };
+}
+
+export interface CalendarBlock {
+  id: string;
+  startsAt: string;
+  endsAt: string;
+  reason: string | null;
+}
+
+export interface HostCalendar {
+  listing: { id: string; name: string; paused: boolean };
+  weeklyHours: { dayOfWeek: number; startMinute: number; endMinute: number }[];
+  days: {
+    date: string;
+    weekday: number;
+    windows: { startMinute: number; endMinute: number }[];
+    bookings: HostBooking[];
+    blocks: CalendarBlock[];
+  }[];
+}
+
+export interface HostEarnings {
+  available: string;
+  pending: string;
+  paidOut: string;
+  month: { label: string; gross: string; commission: string; net: string };
+  commissionRate: number;
+  transactions: {
+    kind: "BOOKING" | "PAYOUT";
+    id: string;
+    title: string;
+    sub: string;
+    amount: string;
+    state: PayoutState;
+    at: string | null;
+  }[];
+  payoutAccount: PayoutAccount;
 }

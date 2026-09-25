@@ -12,6 +12,7 @@ import {
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useSpotDraft } from "@/hooks/useSpotDraft";
 import { useWizardBack } from "@/hooks/useWizardBack";
+import { continueAfter } from "@/lib/wizardFlow";
 import { TOTAL_STEPS, firstStepPath, nextStepPath, stepNumber } from "@/constants/wizard";
 import { colors, radius, space, type } from "@/theme";
 
@@ -148,7 +149,7 @@ export default function AvailabilityScreen() {
       }))
     );
 
-    router.push(nextStepPath("availability", spot.id));
+    continueAfter("availability", spot);
   });
 
   if (isRestoring || loading) return <RestoringScreen />;

@@ -124,6 +124,12 @@ export async function nearby(filters: NearbyFilters, viewerId: string): Promise<
             AND tsrange(b."startsAt", b."endsAt") && tsrange(${start}::timestamp, ${end}::timestamp)
             AND (b."status" = 'CONFIRMED' OR (b."status" = 'PENDING' AND b."holdExpiresAt" > now()))
         )
+        -- Nor hours the host has blocked.
+        AND NOT EXISTS (
+          SELECT 1 FROM "ListingBlock" lb
+          WHERE lb."listingId" = l."id"
+            AND tsrange(lb."startsAt", lb."endsAt") && tsrange(${start}::timestamp, ${end}::timestamp)
+        )
       `;
 
   const latDelta = filters.radiusKm / KM_PER_LAT_DEGREE;
@@ -214,6 +220,8 @@ export async function nearby(filters: NearbyFilters, viewerId: string): Promise<
      ${pricingFilter}
     WHERE l."listingType" = 'INDEPENDENT_SPOT'
       AND l."status" = 'PUBLISHED'
+      -- A host who paused new bookings is not in search at all.
+      AND l."bookingsPausedAt" IS NULL
       AND hp."verificationStatus" = 'ACTIVE'
       -- Checked here as well as at publication: a host whose payout account
       -- is later suspended must stop taking bookings immediately.
@@ -305,6 +313,7 @@ export async function getPublic(listingId: string, viewerId: string) {
       maxVehicleHeightCm: true,
       maxVehicleSize: true,
       entryPoint: true,
+      rules: true,
       photos: {
         select: { id: true, url: true, position: true },
         orderBy: { position: "asc" },
@@ -363,6 +372,7 @@ export async function quote(
   const spot = await prisma.listing.findFirst({
     where: { id: listingId, ...BOOKABLE_SPOT },
     select: {
+      bookingsPausedAt: true,
       availability: {
         where: { isActive: true },
         select: { dayOfWeek: true, startMinute: true, endMinute: true },
@@ -380,7 +390,9 @@ export async function quote(
   const { platformFee, taxAmount } = driverFees();
 
   let reason: string | null = null;
-  if (!rate) {
+  if (spot.bookingsPausedAt) {
+    reason = "This space isn't taking new bookings right now.";
+  } else if (!rate) {
     reason = "This space doesn't take that vehicle.";
   } else if (!windowsCover(spot.availability, input.startsAt, input.endsAt)) {
     reason = "The space isn't open for all of those hours.";
@@ -395,6 +407,13 @@ export async function quote(
       select: { id: true },
     });
     if (taken) reason = "Those hours have just been booked. Try a different time.";
+    else {
+      const blocked = await prisma.listingBlock.findFirst({
+        where: { listingId, startsAt: { lt: input.endsAt }, endsAt: { gt: input.startsAt } },
+        select: { id: true },
+      });
+      if (blocked) reason = "The host has blocked some of those hours. Try a different time.";
+    }
   }
 
   const price = rate ? stayPrice(rate, minutes) : null;

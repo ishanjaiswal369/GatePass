@@ -273,6 +273,7 @@ export default function SpotDetailScreen() {
               {hours.map((row) => (
                 <DataRow key={row.label} label={row.label} value={row.hours} />
               ))}
+              {spot.rules ? <DataRow label="Host's rules" value={spot.rules} /> : null}
             </Section>
 
             {spot.amenities.length > 0 || spot.open24x7 ? (

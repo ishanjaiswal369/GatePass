@@ -7,6 +7,7 @@ import { eventController } from "./controllers/event.controller.js";
 import { geocodeController } from "./controllers/geocode.controller.js";
 import { healthController } from "./controllers/health.controller.js";
 import { hostController } from "./controllers/host.controller.js";
+import { hostOperationsController } from "./controllers/host-operations.controller.js";
 import { hostPayoutController } from "./controllers/host-payout.controller.js";
 import { listingController } from "./controllers/listing.controller.js";
 import { notificationController } from "./controllers/notification.controller.js";
@@ -32,6 +33,7 @@ import { capacityRequests } from "./requests/capacity.request.js";
 import { eventRequests } from "./requests/event.request.js";
 import { geocodeRequests } from "./requests/geocode.request.js";
 import { hostRequests } from "./requests/host.request.js";
+import { hostOperationsRequests } from "./requests/host-operations.request.js";
 import { hostPayoutRequests } from "./requests/host-payout.request.js";
 import { listingRequests } from "./requests/listing.request.js";
 import { notificationRequests } from "./requests/notification.request.js";
@@ -366,6 +368,40 @@ export function registerApi(app: App): void {
   // to a specific listing id, so a host who drops out halfway keeps what they
   // already entered on that spot, and starting another does not touch it.
   app.get("/host/spots", host, spotListingController.list);
+  // Running a space day to day (Phase 5): every one scoped to the caller's
+  // host profile in the service's WHERE, so another host's id is a 404.
+  app.get("/host/summary", host, hostOperationsController.summary);
+  app.get("/host/earnings", host, hostOperationsController.earnings);
+  app.get(
+    "/host/bookings",
+    host,
+    request(hostOperationsRequests.bookings, hostOperationsController.bookings)
+  );
+  app.get(
+    "/host/spots/:id/overview",
+    host,
+    request(hostOperationsRequests.overview, hostOperationsController.overview)
+  );
+  app.patch(
+    "/host/spots/:id/pause",
+    host,
+    request(hostOperationsRequests.pause, hostOperationsController.pause)
+  );
+  app.get(
+    "/host/spots/:id/calendar",
+    host,
+    request(hostOperationsRequests.calendar, hostOperationsController.calendar)
+  );
+  app.post(
+    "/host/spots/:id/blocks",
+    host,
+    request(hostOperationsRequests.createBlock, hostOperationsController.createBlock)
+  );
+  app.delete(
+    "/host/spots/:id/blocks/:blockId",
+    host,
+    request(hostOperationsRequests.removeBlock, hostOperationsController.removeBlock)
+  );
   // `driver`, not `host`: this is the request that makes someone a host, so
   // requiring a host profile would lock every new one out.
   app.post(
@@ -428,6 +464,16 @@ export function registerApi(app: App): void {
       spotListingRequests.saveAvailability,
       spotListingController.saveAvailability
     )
+  );
+  app.patch(
+    "/host/spots/:id/features",
+    host,
+    request(spotListingRequests.saveFeatures, spotListingController.saveFeatures)
+  );
+  app.patch(
+    "/host/spots/:id/limits",
+    host,
+    request(spotListingRequests.saveLimits, spotListingController.saveLimits)
   );
   app.patch(
     "/host/spots/:id/pricing",

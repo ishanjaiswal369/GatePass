@@ -16,9 +16,13 @@ export const WIZARD_STEPS = [
   // two rows free to disagree.
   "address",
   "photos",
+  // What the space offers -- the amenities drivers filter on.
+  "features",
   "availability",
   "pricing",
   "access",
+  // What fits: height, largest vehicle, and the host's own rules.
+  "limits",
   "documents",
   "payout",
   "review",
@@ -66,4 +70,9 @@ export function prevStepPath(step: WizardStep, id?: string): string {
 function stepPath(step: WizardStep, id?: string): string {
   const path = `/host/spot/${step}`;
   return id ? `${path}?id=${id}` : path;
+}
+
+/** A listing that is live (or paused by support): edits there are day-to-day changes, not a draft. */
+export function isLiveStatus(status: string): boolean {
+  return status === "PUBLISHED" || status === "ONGOING" || status === "SUSPENDED";
 }

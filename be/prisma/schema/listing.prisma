@@ -41,6 +41,11 @@ model Listing {
   /// Which gate or entrance, public before booking. The detailed
   /// instructions below are not.
   entryPoint    String?
+  /// The host's own house rules, public ("No commercial vehicles").
+  rules         String?
+  /// Set while the host has paused new bookings. Bookings already made, and
+  /// extra time on them, are unaffected; search and new bookings skip it.
+  bookingsPausedAt DateTime?
   /// How the driver actually gets in: gate code, guard's name, which bell.
   /// Free text on purpose -- a yes/no "is there a gate" tells a driver
   /// standing outside at 9pm nothing useful.
@@ -82,6 +87,7 @@ model Listing {
   spotBookings  Booking[]
   favorites     Favorite[]
   reviews       Review[]
+  blocks        ListingBlock[]
   problems      ProblemReport[]
 
   @@index([organizerId])
@@ -170,4 +176,27 @@ model Favorite {
 
   @@unique([userId, listingId])
   @@index([listingId])
+}
+
+/// Hours a host has taken off sale on one space: a family function, repairs.
+///
+/// Not a Booking, so the Booking_no_overlap EXCLUDE can't see it. Bookings,
+/// extensions and blocks therefore all check each other inside a per-listing
+/// advisory lock (lib/listing-lock) -- the lock is what makes "is it free?"
+/// and "take it" one step for both sides.
+model ListingBlock {
+  id        String   @id @default(uuid())
+  listingId String
+  startsAt  DateTime
+  endsAt    DateTime
+  /// The host's own note; shown only to the host.
+  reason    String?
+  createdBy String
+  createdAt DateTime @default(now())
+
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  creator   User     @relation("ListingBlockCreatedBy", fields: [createdBy], references: [id], onDelete: Restrict)
+
+  @@index([listingId, startsAt])
+  @@index([createdBy])
 }

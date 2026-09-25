@@ -11,6 +11,7 @@ import {
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useSpotDraft } from "@/hooks/useSpotDraft";
 import { useWizardBack } from "@/hooks/useWizardBack";
+import { continueAfter } from "@/lib/wizardFlow";
 import {
   TOTAL_STEPS,
   firstStepPath,
@@ -94,7 +95,7 @@ export default function PhotosScreen() {
       step={stepNumber("photos")}
       totalSteps={TOTAL_STEPS}
       onBack={back}
-      onContinue={() => router.push(nextStepPath("photos", spot.id))}
+      onContinue={() => continueAfter("photos", spot)}
       canContinue={urls.length > 0}
       error={uploadError}
       footerNote={
