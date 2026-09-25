@@ -98,6 +98,20 @@ const EnvSchema = z
     INTEGRATION_MAX_RETRIES: z.coerce.number().int().min(0).default(2),
 
     SHOW_OTP_IN_RESPONSE: booleanFromString(false),
+
+    // Structured logs (pino, through Fastify). Security events are `warn`,
+    // state changes `info`; see lib/security-log.
+    LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
+    // Only behind a reverse proxy that sets X-Forwarded-For. Off, the client's
+    // own header would let anyone pick the IP they are rate limited as.
+    TRUST_PROXY: booleanFromString(false),
+
+    // Requests per minute per caller (user when signed in, else IP). In
+    // memory: correct for one API process; several need a shared store.
+    RATE_LIMIT_ENABLED: booleanFromString(true),
+    RATE_LIMIT_READ_PER_MIN: z.coerce.number().int().positive().default(300),
+    RATE_LIMIT_WRITE_PER_MIN: z.coerce.number().int().positive().default(60),
+    RATE_LIMIT_AUTH_PER_MIN: z.coerce.number().int().positive().default(10),
   })
   .superRefine((value, ctx) => {
     if (value.EMAIL_PROVIDER === "resend" && !value.RESEND_API_KEY) {

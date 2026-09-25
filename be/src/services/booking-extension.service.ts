@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { EXTENSION_STEPS } from "../config/pricing.js";
 import { conflict, notFound } from "../lib/errors.js";
 import { prisma } from "../lib/prisma.js";
+import { audit } from "../lib/security-log.js";
 import { venueDayAndMinute, windowsCover, type WeeklyWindow } from "../lib/venue-time.js";
 import {
   HOLD_MINUTES,
@@ -246,6 +247,7 @@ export async function create(
         select: { id: true },
       });
 
+      audit("EXTENSION_HELD", { userId: driverId, bookingId: row.id, extensionId: created.id, minutes: input.minutes });
       return created.id;
     });
 

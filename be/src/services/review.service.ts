@@ -4,6 +4,7 @@ import { publicName } from "../lib/display-name.js";
 import { conflict, notFound } from "../lib/errors.js";
 import { DEFAULT_PAGE_SIZE, type Page, decodeCursor, encodeCursor } from "../lib/pagination.js";
 import { prisma } from "../lib/prisma.js";
+import { audit } from "../lib/security-log.js";
 import { completeEndedStays } from "./booking.service.js";
 
 /**
@@ -61,7 +62,7 @@ export async function create(bookingId: string, driverId: string, input: ReviewI
   if (refusal) throw conflict(refusal);
 
   try {
-    return await prisma.review.create({
+    const review = await prisma.review.create({
       data: {
         bookingId,
         listingId: booking.listingId!,
@@ -74,6 +75,8 @@ export async function create(bookingId: string, driverId: string, input: ReviewI
       },
       select: ownReview,
     });
+    audit("REVIEW_CREATED", { userId: driverId, bookingId, reviewId: review.id, rating: review.rating });
+    return review;
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       throw conflict("You've already reviewed this parking.");

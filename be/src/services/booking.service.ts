@@ -8,6 +8,7 @@ import {
   encodeCursor,
 } from "../lib/pagination.js";
 import { prisma } from "../lib/prisma.js";
+import { audit } from "../lib/security-log.js";
 import { driverFees, stayPrice } from "../lib/stay-price.js";
 import { windowsCover } from "../lib/venue-time.js";
 import * as passService from "./pass.service.js";
@@ -758,6 +759,7 @@ export async function createSpotBooking(
         select: bookingView,
       });
 
+      audit("SPOT_BOOKING_HELD", { userId: driverId, bookingId: created.id, listingId: input.listingId });
       return { booking: present(created), replayed: false };
     });
   } catch (error) {

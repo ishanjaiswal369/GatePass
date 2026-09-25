@@ -30,6 +30,28 @@ live dev database, committed.
   on the fee; host commission 10%; free cancellation until 1 h before start,
   50% of the parking amount until start, nothing after.
 
+## Cross-cutting: rate limiting and security logging
+
+Added before Phase 4, because the fullstack-guardian checklist asks for both on
+every feature and the API had neither.
+
+- **Rate limiting** (`lib/rate-limit.ts`, `@fastify/rate-limit`, in memory).
+  Three buckets per minute: `auth` — the unauthenticated sign-in and password
+  routes — 10 per IP; `write` — any non-GET — 60 per user; `read` — 300 per
+  user. The caller is the user id from a token whose signature verifies (no
+  DB hit), else the IP, so junk tokens don't buy fresh buckets. `/health` and
+  signed upload URLs are exempt. All numbers are env (`RATE_LIMIT_*`). One API
+  process only: several need a shared store (Redis) — flagged for production.
+  `TRUST_PROXY` must be on behind a proxy, and off otherwise, or
+  `X-Forwarded-For` picks the IP.
+- **Logging** (`lib/security-log.ts`, Fastify's pino, JSON). `security` events
+  at warn: `AUTH_FAILED`, `ACCESS_DENIED`, `NOT_FOUND` (signed-in caller,
+  missing or not theirs), `RATE_LIMITED`, `VALIDATION_FAILED` (field names
+  only). `audit` events at info for state that money or trust depends on:
+  bookings held and cancelled, extensions, reviews, and each later phase's
+  writes. Ids only — never tokens, codes, emails or free text; the
+  Authorization header is redacted. Access lines are off.
+
 ## Booking state model
 
 Three independent state machines, as spec rule 13 requires.
@@ -122,8 +144,8 @@ picks one.
 | Input | zod on params (uuid), body (`reason` ≤ 200 chars, `endsAt` date, key 8–128) |
 | Output | access instructions only on paid bookings of the owner; no host contact details; refund exposes amount/status/reference only |
 | Integrity | cancel and extend are single conditional statements or transactions; the overlap guard is the source of truth for extensions; amounts are computed server-side only |
-| Rate limit | none in the API today — flagged as a gap, not added here (would be a new dependency) |
-| Logging | the project has no logger by choice; state-changing refusals are ordinary 4xx responses |
+| Rate limit | none when Phase 1 shipped; added since — see *Cross-cutting* |
+| Logging | none when Phase 1 shipped; added since — see *Cross-cutting* |
 
 ### Acceptance criteria
 
@@ -220,7 +242,8 @@ a public review.
 | Input | zod: uuid params; ratings are integers 1–5; comment trimmed, ≤ 500, control characters stripped; unknown keys rejected (`.strict()`) |
 | Output | public reviews carry display name, ratings, comment, date only; `hiddenAt` rows never leave the API |
 | Stored XSS | comments are rendered as React Native `<Text>`, never as HTML |
-| Rate limit | still none in the API (Phase 1 gap). One review per paid booking bounds it per account |
+| Rate limit | `write` bucket (60/min per user); one review per paid booking bounds it anyway |
+| Logging | `REVIEW_CREATED` audit; refusals as `NOT_FOUND` / `VALIDATION_FAILED` security events |
 
 ### Acceptance criteria
 

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { IntegrationError } from "../integrations/errors.js";
 import type { App } from "./app.js";
+import { securityEvent } from "./security-log.js";
 
 export class AppError extends Error {
   readonly statusCode: number;
@@ -49,11 +50,16 @@ export const serviceUnavailable = (message: string) =>
 export function registerErrorHandler(app: App): void {
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof ValidationError) {
+      // Only where the issue is, never the value: a rejected body can hold
+      // anything the caller typed.
+      securityEvent(request, "VALIDATION_FAILED", {
+        fields: error.issues.map((issue) => issue.path.join(".")).slice(0, 10),
+      });
       return reply.code(400).send({ errors: error.issues });
     }
 
     if (error instanceof IntegrationError) {
-      console.error("integration call failed", error);
+      request.log.error({ err: error }, "integration call failed");
       return reply.code(502).send({
         error: "Upstream service unavailable",
         capability: error.capability,
@@ -63,7 +69,18 @@ export function registerErrorHandler(app: App): void {
 
     if (error instanceof AppError) {
       if (error.statusCode >= 500) {
-        console.error("application error", error);
+        request.log.error({ err: error }, "application error");
+      } else if (error.statusCode === 401) {
+        securityEvent(request, "AUTH_FAILED", { reason: error.message });
+      } else if (error.statusCode === 403) {
+        securityEvent(request, "ACCESS_DENIED", { reason: error.message });
+      } else if (error.statusCode === 404 && request.user) {
+        // A signed-in caller asking for an id that is missing or not theirs.
+        // The two answer alike on purpose; a run of these from one user is
+        // someone guessing ids.
+        securityEvent(request, "NOT_FOUND", { params: request.params });
+      } else if (error.statusCode === 429) {
+        securityEvent(request, "RATE_LIMITED", { reason: error.message });
       }
       return reply.code(error.statusCode).send({ error: error.message });
     }
@@ -74,7 +91,7 @@ export function registerErrorHandler(app: App): void {
       error.statusCode < 500;
 
     if (!isClientError) {
-      console.error("unhandled error", error);
+      request.log.error({ err: error }, "unhandled error");
     }
 
     reply

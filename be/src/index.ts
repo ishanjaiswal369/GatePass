@@ -4,10 +4,12 @@ import { env } from "./config/env.js";
 import { app } from "./lib/app.js";
 import { registerErrorHandler } from "./lib/errors.js";
 import { prisma } from "./lib/prisma.js";
+import { registerRateLimit } from "./lib/rate-limit.js";
 import { recordRoutes, routeCount } from "./lib/routes.js";
 import { BUILD_STAMP } from "./lib/build.js";
 
 await app.register(cors, { origin: true });
+await registerRateLimit(app);
 
 // Binary bodies for the local upload endpoint. Fastify only parses JSON out of
 // the box, so without these a PUT of image bytes is refused before the route
@@ -44,9 +46,7 @@ async function start() {
       `GatePass API on :${PORT} — build ${BUILD_STAMP}, ${routeCount()} routes`
     );
   } catch (err) {
-    // console, not app.log: the Fastify logger is disabled, so app.log.error
-    // would swallow the reason the server failed to start.
-    console.error("failed to start server", err);
+    app.log.fatal({ err }, "failed to start server");
     process.exit(1);
   }
 }

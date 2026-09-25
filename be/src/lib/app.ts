@@ -1,8 +1,24 @@
 import Fastify from "fastify";
+import { env } from "../config/env.js";
 
-// Logging is intentionally off for now; a real logger gets set up before
-// production. Fastify still exposes app.log, but with logger disabled it is a
-// no-op, so anything that must be seen uses console directly.
-export const app = Fastify();
+/**
+ * The Fastify instance, with pino as its logger.
+ *
+ * Per-request access lines are off: what is worth reading is logged on
+ * purpose -- security events and state changes (lib/security-log) and
+ * failures (lib/errors). Credentials never reach a log line: the headers that
+ * carry them are redacted, and nothing here logs a body.
+ */
+export const app = Fastify({
+  logger: {
+    level: env.LOG_LEVEL,
+    redact: {
+      paths: ["req.headers.authorization", "req.headers.cookie", "headers.authorization"],
+      censor: "[redacted]",
+    },
+  },
+  disableRequestLogging: true,
+  trustProxy: env.TRUST_PROXY,
+});
 
 export type App = typeof app;

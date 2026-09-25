@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { cancellationPolicy } from "../config/pricing.js";
 import { conflict, notFound } from "../lib/errors.js";
 import { prisma } from "../lib/prisma.js";
+import { audit } from "../lib/security-log.js";
 import { getForDriver } from "./booking.service.js";
 
 /**
@@ -177,6 +178,13 @@ export async function cancel(bookingId: string, driverId: string, reason?: strin
         data: { bookingId: row.id, amount: outcome.refund, policy: outcome.rule! },
       });
     }
+
+    audit("BOOKING_CANCELLED", {
+      userId: driverId,
+      bookingId: row.id,
+      refund: outcome.refund.toString(),
+      rule: outcome.rule,
+    });
   });
 
   return getForDriver(bookingId, driverId);
