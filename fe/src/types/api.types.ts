@@ -120,6 +120,8 @@ export interface BookingListing {
   id: string;
   name: string;
   venueName: string;
+  /** The cover photo, first in the host's order; empty when there is none. Host spots only. */
+  photos?: { url: string }[];
   addressLine?: string | null;
   city?: string | null;
   /** Decimal strings; only a host spot has them. Used for directions. */

@@ -93,6 +93,7 @@ export default function SpotResultsScreen() {
           spaceTypes: narrow.spaceTypes,
           maxPricePerHour: narrow.maxPricePerHour ?? undefined,
           open24x7: narrow.open24x7,
+          minRating: narrow.minRating ?? undefined,
           sort: narrow.sort,
         });
         setSpots(found);

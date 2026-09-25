@@ -166,6 +166,51 @@ picks one.
 One-way: a driver rates a spot after a paid stay there. No host replies, no
 driver ratings, no editing. One review per booking.
 
+Written to the fullstack-guardian template (requirements in EARS form, the
+three perspectives, then the plan); the sections after it hold the detail.
+
+### Requirements (EARS)
+
+- R1. While a booking is COMPLETED, paid (Payment CAPTURED), a host-spot
+  booking and not an extension, when its driver submits 1–5 overall stars,
+  the system shall store one review and show "Review submitted".
+- R2. When a driver submits a second review for the same booking, the system
+  shall refuse it (409) and keep the first.
+- R3. While a booking is cancelled, unpaid, refunded, a no-show, not yet
+  ended or an extension, when a review is submitted, the system shall refuse
+  it with the reason.
+- R4. When a driver opens someone else's booking to review it, the system
+  shall answer as if it did not exist (404).
+- R5. While a spot has at least one visible review, the system shall show its
+  average and count on search cards, spot detail and saved spots, else "New".
+- R6. When a driver opens a spot's reviews, the system shall show the summary
+  (average, 5→1 breakdown, sub-rating averages) and the reviews newest first,
+  filterable to 5★, 4★ or 3★ and below.
+- R7. When a driver sets a minimum rating in Filters, the system shall hide
+  spots below it and spots with no reviews, and say so.
+- R8. When an admin sets `hiddenAt` on a review, the system shall drop it from
+  every count, average and list, and the booking stays reviewed.
+
+### Three perspectives
+
+| | |
+|---|---|
+| **Frontend** | Past card and booking screen: *Rate Parking* / *Reviewed*. Rate screen (`booking/[id]/review`): spot photo and time, 1–5 stars with a word each (Terrible → Excellent), three optional sub-ratings in a card (tap again clears), comment ≤ 500 with counter, button reads *Choose a star rating* until one is picked; swaps to *Review submitted* in place. Detail: rating section; `spots/reviews`: summary, chips, "Verified booking", relative dates, "Show more". Filters: RATING Any / 3.5+ / 4.0+ / 4.5+. Loading, empty and error states on each. |
+| **Backend** | `POST /bookings/:id/review`; `GET /spots/:id/reviews?stars&cursor&limit`; rating and count on `/spots/nearby` (`minRating` filter), `/spots/:id`, `/favorites`; `canReview`, own `review` and the cover photo on booking views. Aggregates on read. |
+| **Security** | Auth on every route; ownership in the WHERE; zod `.strict()` bodies; public reviews carry no ids; comments rendered as text; `write` rate-limit bucket; `REVIEW_CREATED` audit and refusals logged (see *Cross-cutting*). |
+
+### Implementation plan
+
+- [x] Schema: `Review` (db push, previewed with `migrate diff`)
+- [x] zod request schemas, service, controller, routes
+- [x] Aggregates into search, detail, saved; `canReview` into booking views
+- [x] Rate screen and Review submitted state; Past card and booking screen
+- [x] Detail rating section, all-reviews screen, rating filter
+- [x] Live-DB suite (68 checks) and browser pass
+- [x] Guardian audit against the prototype: wording, star colour (#b45309),
+      star chips, relative dates, "Verified booking", spot photo on the Rate
+      screen, RATING filter — all brought in line
+
 ### Who may review
 
 A booking is reviewable when **all** of these hold, checked in one query on the
@@ -210,9 +255,9 @@ review insert's transaction is the next step.
 | Route | Who | Notes |
 |---|---|---|
 | `POST /bookings/:id/review` | owner | `{ rating, easyToFind?, asDescribed?, access?, comment? }` → 201 with the review. 404 not found / not yours; 409 with the reason when not reviewable or already reviewed |
-| `GET /spots/:id/reviews?cursor&limit` | driver | `summary` (average, count, 5→1 breakdown, sub-rating averages with their own counts) + a newest-first page. Same bookable-spot gate as `GET /spots/:id` |
+| `GET /spots/:id/reviews?stars&cursor&limit` | driver | `summary` (average, count, 5→1 breakdown, sub-rating averages with their own counts — always over all reviews) + a newest-first page, optionally `stars=5\|4\|low`, + the spot's name. Same bookable-spot gate as `GET /spots/:id` |
 | `GET /spots/:id` | driver | adds `rating` (the summary) and the three newest `reviews` |
-| `GET /spots/nearby`, `GET /favorites` | driver | add `rating` (1 dp, null when none) and `reviewCount` |
+| `GET /spots/nearby`, `GET /favorites` | driver | add `rating` (1 dp, null when none) and `reviewCount`; search takes `minRating` (1–5), which drops unrated spots |
 | booking views | owner | add `review: { rating, createdAt } \| null` and `canReview` |
 
 A reviewer appears as a first name and last initial ("Rahul S."), the same

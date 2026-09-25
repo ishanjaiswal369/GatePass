@@ -78,9 +78,9 @@ export function BookingCard({ row, now }: { row: BookingRow; now: number }) {
           />
         ) : null}
         {row.review ? (
-          <View style={s.line} accessible accessibilityLabel={`Review submitted: ${row.review.rating} out of 5 stars`}>
+          <View style={s.line} accessible accessibilityLabel={`Reviewed: ${row.review.rating} out of 5 stars`}>
             <CheckIcon size={15} color={GREEN} />
-            <Text style={[s.lineText, s.success]}>Review submitted</Text>
+            <Text style={[s.lineText, s.success]}>Reviewed</Text>
             <Stars value={row.review.rating} size={13} />
           </View>
         ) : null}

@@ -36,6 +36,7 @@ export const nearby = (
     spaceTypes?: SpaceType[];
     maxPricePerHour?: number;
     open24x7?: boolean;
+    minRating?: number;
     sort?: "distance" | "price";
   }
 ) => {
@@ -59,6 +60,7 @@ export const nearby = (
   if (input.spaceTypes?.length) params.set("spaceTypes", input.spaceTypes.join(","));
   if (input.maxPricePerHour !== undefined) params.set("maxPricePerHour", String(input.maxPricePerHour));
   if (input.open24x7) params.set("open24x7", "true");
+  if (input.minRating !== undefined) params.set("minRating", String(input.minRating));
   if (input.sort) params.set("sort", input.sort);
 
   return request<{ spots: NearbySpot[] }>(`/spots/nearby?${params}`, { token });
@@ -158,9 +160,21 @@ export const save = (token: string, id: string) =>
 export const unsave = (token: string, id: string) =>
   request<{ saved: false }>(`/favorites/${id}`, { method: "DELETE", token });
 
-/** Every review of a spot, newest first. Only the first page carries the summary. */
-export const reviews = (token: string, id: string, cursor?: string) =>
-  request<{ items: SpotReview[]; nextCursor: string | null; summary: RatingSummary | null }>(
-    `/spots/${id}/reviews${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
-    { token }
-  );
+export type ReviewStarsFilter = "5" | "4" | "low";
+
+/**
+ * Every review of a spot, newest first, optionally only 5, only 4, or 3 and
+ * below. Only the first page carries the summary, which always covers all.
+ */
+export const reviews = (token: string, id: string, options: { cursor?: string; stars?: ReviewStarsFilter } = {}) => {
+  const params = new URLSearchParams();
+  if (options.cursor) params.set("cursor", options.cursor);
+  if (options.stars) params.set("stars", options.stars);
+  const query = params.toString();
+  return request<{
+    items: SpotReview[];
+    nextCursor: string | null;
+    summary: RatingSummary | null;
+    spot: { id: string; name: string };
+  }>(`/spots/${id}/reviews${query ? `?${query}` : ""}`, { token });
+};

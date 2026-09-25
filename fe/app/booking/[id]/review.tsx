@@ -10,6 +10,7 @@ import {
   PhoneFrame,
   RestoringScreen,
   ScreenHeader,
+  SpotCover,
   Stars,
 } from "@/components/ui";
 import { STAR_WORDS, SUB_RATINGS } from "@/features/reviews/labels";
@@ -86,7 +87,7 @@ export default function ReviewBookingScreen() {
   return (
     <PhoneFrame>
       <View style={s.screen}>
-        <ScreenHeader title={submitted !== null ? "Your review" : "Rate parking"} onBack={back} />
+        <ScreenHeader title={submitted !== null ? "Your review" : "Rate your parking"} onBack={back} />
 
         <ScrollView contentContainerStyle={s.body} keyboardShouldPersistTaps="handled">
           {loadError ? <ErrorNotice message={loadError} /> : null}
@@ -96,16 +97,13 @@ export default function ReviewBookingScreen() {
           ) : submitted !== null ? (
             <View style={s.done}>
               <View style={s.doneBadge}>
-                <CheckIcon size={28} color={colors.onInk} />
+                <CheckIcon size={36} color="#166534" />
               </View>
               <Text style={s.doneTitle}>Review submitted</Text>
               <Stars value={submitted} size={22} />
-              <Text style={s.doneBody}>
-                Thanks for rating {listing?.name ?? "this parking"}. It helps the next driver choose, and it's shown on
-                the spot with your first name.
-              </Text>
+              <Text style={s.doneBody}>Thanks for helping other drivers.</Text>
               <View style={s.doneActions}>
-                <Button label="Done" onPress={done} />
+                <Button label="Back to Bookings" onPress={done} />
                 {listing ? (
                   <Button
                     label="View parking"
@@ -123,28 +121,31 @@ export default function ReviewBookingScreen() {
             </View>
           ) : (
             <>
-              <View style={s.gap6}>
-                <Text style={s.title}>How was your parking?</Text>
-                <Text style={s.muted}>
-                  {listing?.name} · {bookingWhen(booking)}
-                </Text>
+              <View style={s.spot}>
+                <SpotCover url={listing?.photos?.[0]?.url ?? null} style={s.thumb} />
+                <View style={s.flex}>
+                  <Text style={s.spotName} numberOfLines={2}>
+                    {listing?.name}
+                  </Text>
+                  <Text style={s.muted}>{bookingWhen(booking)}</Text>
+                </View>
               </View>
 
               <View style={s.overall}>
-                <StarInput value={rating} onChange={setRating} label="Overall" size={40} />
-                <Text style={[s.word, rating === null && s.wordEmpty]}>
-                  {rating === null ? "Tap to rate" : STAR_WORDS[rating]}
-                </Text>
+                <Text style={s.title}>How was your parking experience?</Text>
+                <StarInput value={rating} onChange={setRating} label="Overall rating" size={40} />
+                <Text style={s.word}>{rating === null ? " " : STAR_WORDS[rating]}</Text>
               </View>
 
               <View style={s.questions}>
-                <Text style={s.label}>TELL US MORE (OPTIONAL)</Text>
+                <Text style={s.label}>MORE DETAIL (OPTIONAL)</Text>
                 {SUB_RATINGS.map(({ key, question, label }) => (
                   <View key={key} style={s.question}>
                     <Text style={s.questionText}>{question}</Text>
                     <StarInput
                       value={subs[key] ?? null}
-                      size={24}
+                      size={22}
+                      compact
                       label={label}
                       onChange={(value) =>
                         setSubs((current) => {
@@ -167,7 +168,7 @@ export default function ReviewBookingScreen() {
                   value={comment}
                   onChangeText={setComment}
                   maxLength={MAX_COMMENT}
-                  placeholder="What should the next driver know?"
+                  placeholder="Tell us about your experience..."
                   style={s.comment}
                 />
                 <Text style={s.counter}>
@@ -177,14 +178,17 @@ export default function ReviewBookingScreen() {
 
               {error ? <ErrorNotice message={error} /> : null}
 
+              <Text style={s.fine}>
+                Shown with your first name and a Verified booking badge. The host can't edit or remove it, and you
+                can't change it once it's posted.
+              </Text>
               <Button
-                label="Submit Review"
+                label={rating === null ? "Choose a star rating" : "Submit Review"}
                 size="lg"
                 onPress={submit}
                 busy={busy}
                 disabled={rating === null}
               />
-              <Text style={s.fine}>Reviews can't be edited once submitted. Hosts can't reply to them.</Text>
             </>
           )}
         </ScrollView>
@@ -206,32 +210,27 @@ const s = StyleSheet.create({
   body: { padding: 20, gap: space.xl, paddingBottom: 32 },
   loading: { paddingVertical: space.xxl },
   gap6: { gap: 6 },
-  title: { fontSize: 23, fontWeight: "700", color: colors.ink },
+  title: { fontSize: 21, fontWeight: "700", color: colors.ink, textAlign: "center" },
+  spot: { flexDirection: "row", alignItems: "center", gap: space.md },
+  thumb: { width: 56, height: 56, borderRadius: radius.sm, overflow: "hidden" },
+  flex: { flex: 1, gap: 3 },
+  spotName: { fontSize: 15, fontWeight: "700", color: colors.ink },
   muted: { fontSize: 14, lineHeight: 20, color: colors.inkMuted },
   overall: { alignItems: "center", gap: space.sm },
-  word: { fontSize: 15, fontWeight: "700", color: colors.ink },
-  wordEmpty: { color: colors.inkFaint, fontWeight: "600" },
+  word: { fontSize: 15, fontWeight: "600", color: colors.ink, minHeight: 22 },
   label: { fontSize: 12, fontWeight: "700", letterSpacing: 1.2, color: colors.inkMuted },
-  questions: { gap: space.sm },
-  question: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: space.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    paddingVertical: 2,
-  },
-  questionText: { flex: 1, fontSize: 14, fontWeight: "600", color: colors.ink },
+  questions: { gap: 2, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: space.lg },
+  question: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.sm, minHeight: 44 },
+  questionText: { flex: 1, fontSize: 14, color: colors.ink },
   comment: { minHeight: 96 },
   counter: { fontSize: 12, color: colors.inkMuted, textAlign: "right" },
-  fine: { fontSize: 12, lineHeight: 18, color: colors.inkMuted, textAlign: "center" },
+  fine: { fontSize: 12, lineHeight: 18, color: colors.inkMuted },
   done: { alignItems: "center", gap: space.md, paddingTop: space.xl },
   doneBadge: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: "#166534",
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: "#dcfce7",
     alignItems: "center",
     justifyContent: "center",
   },

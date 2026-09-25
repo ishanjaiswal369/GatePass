@@ -234,10 +234,19 @@ export async function recentFor(listingId: string, take = 3): Promise<PublicRevi
  */
 export async function listForSpot(
   listingId: string,
-  options: { cursor?: string; limit?: number }
-): Promise<Page<PublicReview> & { summary: RatingSummary | null }> {
-  const spot = await prisma.listing.findFirst({ where: { id: listingId, ...BOOKABLE_SPOT }, select: { id: true } });
+  options: { cursor?: string; limit?: number; stars?: "5" | "4" | "low" }
+): Promise<Page<PublicReview> & { summary: RatingSummary | null; spot: { id: string; name: string } }> {
+  const spot = await prisma.listing.findFirst({
+    where: { id: listingId, ...BOOKABLE_SPOT },
+    select: { id: true, name: true },
+  });
   if (!spot) throw notFound("Spot not found");
+
+  // The chip filters the list; the summary above it always describes all of
+  // them, or the bars would redraw to a single full one.
+  const rating: Prisma.ReviewWhereInput["rating"] =
+    options.stars === "5" ? 5 : options.stars === "4" ? 4 : options.stars === "low" ? { lte: 3 } : undefined;
+  const where = { listingId, ...VISIBLE, ...(rating !== undefined ? { rating } : {}) };
 
   const limit = options.limit ?? DEFAULT_PAGE_SIZE;
   const cursorId = options.cursor ? decodeCursor(options.cursor, 1)[0] : null;
@@ -245,13 +254,13 @@ export async function listForSpot(
   // The cursor row has to be one of this spot's visible reviews, or Prisma's
   // cursor would silently start somewhere else -- or from another spot's row.
   if (cursorId) {
-    const anchor = await prisma.review.findFirst({ where: { id: cursorId, listingId, ...VISIBLE }, select: { id: true } });
+    const anchor = await prisma.review.findFirst({ where: { id: cursorId, ...where }, select: { id: true } });
     if (!anchor) throw notFound("Review not found");
   }
 
   const [rows, summary] = await Promise.all([
     prisma.review.findMany({
-      where: { listingId, ...VISIBLE },
+      where,
       select: publicReview,
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: limit + 1,
@@ -265,5 +274,5 @@ export async function listForSpot(
   const items = rows.slice(0, limit).map(present);
   const last = items.at(-1);
 
-  return { items, nextCursor: rows.length > limit && last ? encodeCursor([last.id]) : null, summary };
+  return { items, nextCursor: rows.length > limit && last ? encodeCursor([last.id]) : null, summary, spot };
 }

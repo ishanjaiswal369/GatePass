@@ -33,6 +33,8 @@ const bookingParams = z.object({ id: z.string().uuid() });
 const spotParams = z.object({ id: z.string().uuid() });
 
 const listQuery = z.object({
+  /** The All-reviews chips: exactly 5, exactly 4, or 3 and below. */
+  stars: z.enum(["5", "4", "low"]).optional(),
   cursor: z.string().max(512).optional(),
   limit: z.coerce.number().int().positive().max(MAX_PAGE_SIZE).optional(),
 });

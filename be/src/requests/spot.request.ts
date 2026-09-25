@@ -55,6 +55,8 @@ const nearbyQuery = z
     spaceTypes: csvOf(SPACE_TYPES).optional(),
     maxPricePerHour: z.coerce.number().positive().max(10_000).optional(),
     open24x7: z.enum(["true", "false"]).transform((value) => value === "true").optional(),
+    /** Average stars at least this. An unrated spot has no average, so it is left out. */
+    minRating: z.coerce.number().min(1).max(5).optional(),
     sort: z.enum(["distance", "price"]).default("distance"),
   })
   .refine(

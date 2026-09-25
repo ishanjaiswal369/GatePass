@@ -34,8 +34,8 @@ export const colors = {
   accentSurface: "#fdf3e7",
   accentInk: "#92400e",
 
-  /** Rating stars, filled; an empty star is `border`. */
-  star: "#f59e0b",
+  /** Rating stars, filled -- the prototype's warm accent. */
+  star: "#b45309",
 } as const;
 
 export const space = {

@@ -10,6 +10,7 @@ import {
   filtersToParams,
   NO_FILTERS,
   RADIUS_CHOICES,
+  RATING_CHOICES,
   type SearchFilters,
 } from "@/lib/searchFilters";
 import { AMENITY_LABELS, SPACE_LABELS } from "@/lib/spotLabels";
@@ -29,8 +30,8 @@ const FEATURES: Amenity[] = ["COVERED", "SECURITY_GUARD", "CCTV", "EV_CHARGING",
  * result goes back into the URL of the results screen already on the stack,
  * rather than stacking a second one.
  *
- * No rating filter yet: ratings exist now (Phase 3), but a filter on a handful
- * of reviews would hide good new spots -- revisit once reviews accumulate.
+ * A rating floor hides unrated spots, and the screen says so: a filter that
+ * silently drops every new listing would read as "nothing nearby".
  */
 export default function FiltersScreen() {
   const { token, isRestoring } = useSession();
@@ -106,6 +107,21 @@ export default function FiltersScreen() {
             />
           </Section>
 
+          <Section title="RATING">
+            <Chips
+              items={[
+                { key: "any", label: "Any", on: draft.minRating === null, onPress: () => setDraft({ ...draft, minRating: null }) },
+                ...RATING_CHOICES.map((min) => ({
+                  key: String(min),
+                  label: `${min.toFixed(1)}+`,
+                  on: draft.minRating === min,
+                  onPress: () => setDraft({ ...draft, minRating: min }),
+                })),
+              ]}
+            />
+            {draft.minRating !== null ? <Text style={s.hint}>Spaces with no reviews yet are hidden.</Text> : null}
+          </Section>
+
           <Section title="SORT BY">
             <Chips
               items={[
@@ -171,6 +187,7 @@ function Toggle({ label, sub, on, onPress }: { label: string; sub?: string; on: 
 }
 
 const s = StyleSheet.create({
+  hint: { fontSize: 12, color: colors.inkMuted },
   screen: { flex: 1, backgroundColor: colors.surface },
   body: { padding: 20, gap: space.xl, paddingBottom: 24 },
   flex: { flex: 1, gap: 2 },

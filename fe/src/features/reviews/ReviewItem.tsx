@@ -1,42 +1,56 @@
 import { StyleSheet, Text, View } from "react-native";
-import { Stars } from "@/components/ui";
+import { CheckIcon, Stars } from "@/components/ui";
 import { colors, space } from "@/theme";
 import type { SpotReview } from "@/types/api.types";
-import { reviewMonth } from "./labels";
+import { reviewAge } from "./labels";
 
-/** One driver's review: who, when, the stars, and what they said if anything. */
+/**
+ * One driver's review: the stars and how long ago, what they said, and who.
+ *
+ * Every review is "Verified booking" -- only a completed, paid stay can leave
+ * one (review.service) -- so the badge is a statement of the rule, not a
+ * per-review flag.
+ */
 export function ReviewItem({ review }: { review: SpotReview }) {
   return (
     <View style={s.item}>
-      <View style={s.head}>
+      <View style={s.top}>
+        <Stars value={review.rating} size={14} />
+        <Text style={s.when}>{reviewAge(review.createdAt)}</Text>
+      </View>
+      {review.comment ? <Text style={s.comment}>“{review.comment}”</Text> : null}
+      <View style={s.who}>
         <View style={s.avatar}>
           <Text style={s.avatarText}>{review.reviewer.charAt(0)}</Text>
         </View>
-        <View style={s.flex}>
-          <Text style={s.name}>{review.reviewer}</Text>
-          <Text style={s.when}>{reviewMonth(review.createdAt)}</Text>
+        <Text style={s.name}>{review.reviewer}</Text>
+        <View style={s.verified}>
+          <CheckIcon size={12} color={GREEN} />
+          <Text style={s.verifiedText}>Verified booking</Text>
         </View>
-        <Stars value={review.rating} size={13} />
       </View>
-      {review.comment ? <Text style={s.comment}>{review.comment}</Text> : null}
     </View>
   );
 }
 
+const GREEN = "#166534";
+
 const s = StyleSheet.create({
-  item: { gap: space.sm, paddingVertical: space.md, borderTopWidth: 1, borderTopColor: colors.border },
-  head: { flexDirection: "row", alignItems: "center", gap: space.md },
+  item: { gap: space.sm, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: colors.border },
+  top: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  when: { fontSize: 12, color: colors.inkMuted },
+  comment: { fontSize: 14, lineHeight: 21, color: "#374151" },
+  who: { flexDirection: "row", alignItems: "center", gap: space.sm },
   avatar: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: colors.canvas,
     alignItems: "center",
     justifyContent: "center",
   },
-  avatarText: { fontSize: 14, fontWeight: "700", color: colors.ink },
-  flex: { flex: 1 },
-  name: { fontSize: 14, fontWeight: "700", color: colors.ink },
-  when: { fontSize: 12, color: colors.inkMuted },
-  comment: { fontSize: 14, lineHeight: 21, color: "#374151" },
+  avatarText: { fontSize: 12, fontWeight: "700", color: colors.ink },
+  name: { fontSize: 13, fontWeight: "700", color: colors.ink },
+  verified: { flexDirection: "row", alignItems: "center", gap: 3 },
+  verifiedText: { fontSize: 12, fontWeight: "600", color: GREEN },
 });

@@ -40,6 +40,8 @@ export interface NearbyFilters {
   maxPricePerHour?: number;
   /** Open every day, all day. */
   open24x7?: boolean;
+  /** Average of visible reviews at least this; unrated spots don't qualify. */
+  minRating?: number;
   sort?: "distance" | "price";
 }
 
@@ -144,6 +146,14 @@ export async function nearby(filters: NearbyFilters, viewerId: string): Promise<
     ${filters.amenities?.length ? Prisma.sql`AND l."amenities" @> ${filters.amenities}::text[]` : Prisma.empty}
     ${filters.spaceTypes?.length ? Prisma.sql`AND l."spaceType" = ANY(${filters.spaceTypes}::text[])` : Prisma.empty}
     ${filters.open24x7 ? Prisma.sql`AND ${open24x7}` : Prisma.empty}
+    ${
+      filters.minRating !== undefined
+        ? Prisma.sql`AND (
+            SELECT AVG(r."rating") FROM "Review" r
+            WHERE r."listingId" = l."id" AND r."hiddenAt" IS NULL
+          ) >= ${filters.minRating}`
+        : Prisma.empty
+    }
   `;
 
   const priceCap =

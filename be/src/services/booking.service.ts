@@ -82,6 +82,8 @@ const bookingView = {
       eventDate: true,
       listingType: true,
       status: true,
+      // The cover, for the Rate screen and the booking header.
+      photos: { select: { url: true }, orderBy: { position: "asc" }, take: 1 },
     },
   },
   parkingCapacity: {
