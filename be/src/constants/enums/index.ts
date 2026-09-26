@@ -94,6 +94,13 @@ export {
 } from "./payout-kyc-status.js";
 
 export {
+  PAYOUT_ACCOUNT_TYPES,
+  PAYOUT_BUSINESS_TYPES,
+  type PayoutAccountType,
+  type PayoutBusinessType,
+} from "./payout-account.js";
+
+export {
   NOTIFICATION_KINDS,
   NOTIFICATION_PREFERENCES,
   type NotificationKind,

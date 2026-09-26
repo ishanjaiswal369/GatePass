@@ -37,7 +37,6 @@ import { hostOperationsRequests } from "./requests/host-operations.request.js";
 import { hostPayoutRequests } from "./requests/host-payout.request.js";
 import { listingRequests } from "./requests/listing.request.js";
 import { notificationRequests } from "./requests/notification.request.js";
-import { paymentRequests } from "./requests/payment.request.js";
 import { problemRequests } from "./requests/problem.request.js";
 import { reviewRequests } from "./requests/review.request.js";
 import { settlementRequests } from "./requests/settlement.request.js";
@@ -327,13 +326,9 @@ export function registerApi(app: App): void {
     request(bookingRequests.createSpot, bookingController.createSpot)
   );
 
-  // Driver payments, against the driver's own bookings.
+  // The driver's own payments. There is no POST: a payment row is opened with
+  // its booking (POST /spot-bookings), never on the app's say-so.
   app.get("/payments", driver, paymentController.list);
-  app.post(
-    "/payments",
-    driver,
-    request(paymentRequests.create, paymentController.create)
-  );
 
   // Host
   //

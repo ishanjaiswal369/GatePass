@@ -15,6 +15,8 @@ import { audit } from "../lib/security-log.js";
 import { driverFees, stayPrice } from "../lib/stay-price.js";
 import { windowsCover } from "../lib/venue-time.js";
 import * as passService from "./pass.service.js";
+import * as paymentService from "./payment.service.js";
+import type { Checkout } from "./payment.service.js";
 
 export interface CreateBookingInput {
   parkingCapacityId: string;
@@ -686,8 +688,30 @@ export async function releaseExpiredHolds(
  * As with the event path, three things are never taken from the request: the
  * driver comes from the JWT, the price from SpotPricing, and the QR token is
  * generated here.
+ *
+ * With a payment gateway configured, the hold comes with its gateway order:
+ * the driver's phone is checked before anything is held, the Payment row is
+ * written with the booking, and the order is opened once that has committed
+ * -- on a replay too, which is how the app retries an order that failed to
+ * open. `checkout` is what the app's payment SDK opens; null with no gateway
+ * or nothing left to pay.
  */
 export async function createSpotBooking(
+  input: CreateSpotBookingInput,
+  driverId: string
+): Promise<{ booking: BookingView & { checkout: Checkout | null }; replayed: boolean }> {
+  await paymentService.assertCanPay(driverId);
+
+  const { booking, replayed } = await placeSpotBooking(input, driverId);
+
+  // Outside the booking's transaction: a network call must never hold a
+  // listing lock, and a gateway that is down must not undo a valid hold.
+  const checkout = await paymentService.openOrder(booking.id, driverId);
+
+  return { booking: { ...booking, checkout }, replayed };
+}
+
+async function placeSpotBooking(
   input: CreateSpotBookingInput,
   driverId: string
 ): Promise<{ booking: BookingView; replayed: boolean }> {
@@ -796,8 +820,11 @@ export async function createSpotBooking(
         select: bookingView,
       });
 
+      // With the booking, so a hold never exists without its payment row.
+      const payment = await paymentService.openPaymentRow(tx, created, driverId);
+
       audit("SPOT_BOOKING_HELD", { userId: driverId, bookingId: created.id, listingId: input.listingId });
-      return { booking: present(created), replayed: false };
+      return { booking: present({ ...created, payment: payment ?? created.payment }), replayed: false };
     });
   } catch (error) {
     if (isOverlapViolation(error)) {

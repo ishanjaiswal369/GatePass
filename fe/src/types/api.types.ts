@@ -10,6 +10,7 @@ import type {
   ListingType,
   NotificationPreferenceKey,
   PaymentStatus,
+  PayoutAccountType,
   ProblemCategory,
   RefundStatus,
   Role,
@@ -675,6 +676,12 @@ export interface PayoutAccount {
   accountHolderName: string | null;
   accountNumberLast4: string | null;
   ifsc: string | null;
+  accountType: PayoutAccountType | null;
+  businessType: string | null;
+  /** What to fix when payoutKycStatus is REJECTED. */
+  issue: "BANK_ACCOUNT" | "KYC" | "BLOCKED" | null;
+  /** The submit form must ask for a mobile number: the profile has none. */
+  needsPhone: boolean;
   submittedAt: string | null;
   /**
    * Whether the host still has to enter their details. Not derivable from

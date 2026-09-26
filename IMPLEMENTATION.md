@@ -25,7 +25,7 @@ and became misleading, which is the mistake this file exists to avoid.
 | Validation | zod | At the request boundary, via `lib/request.ts` |
 | Email | Resend, with a `console` provider for dev | `integrations/email/` |
 | Auth | Email code (OTP) or Google, both issuing JWT sessions | See section 3 |
-| Payments | Razorpay | **Not integrated yet** — only DB columns exist |
+| Payments | Cashfree PG | **Create Order only** — opened with each spot booking when `PAYMENT_PROVIDER=cashfree`; checkout, verification, webhook and refunds not yet (`specs/cashfree-payments_design.md`) |
 
 No logger. Fastify is constructed with logging disabled; a real setup comes
 before production. Anything that must still be seen uses `console` directly:
@@ -635,7 +635,7 @@ it needs `expo-secure-store` on native and is a separate decision.
 | `Organizer` / `OrganizerMember` | the business entity and its staff logins; listings and settlements hang off the entity |
 | `ParkingCapacity` | per `(listing, vehicleType)`: `totalCapacity`, `bookedCount`, `price` |
 | `Booking` | `quantity`, `amount` snapshot, `status`, `idempotencyKey` unique, `qrToken` unique |
-| `Payment` | separate from `Booking` because payment state and booking state are different machines; Razorpay ids |
+| `Payment` | separate from `Booking` because payment state and booking state are different machines; gateway-neutral `gateway*` ids, written with the booking |
 | `Settlement` / `SettlementItem` | per-period payout with a per-booking breakdown; paid to an organizer **or** a host (DB `CHECK`) |
 
 `createdBy`/`updatedBy` columns exist on `Listing`, `Booking`, `Payment` and
@@ -758,7 +758,7 @@ open group left.
 | GET | `/bookings/:id` | JWT | Working |
 | GET | `/bookings/:id/pass` | JWT | Working; mints a 5-minute pass |
 | POST | `/bookings` | JWT | Working; atomic and idempotent |
-| GET / POST | `/payments` | JWT | Stub, but scoped and server-priced |
+| GET | `/payments` | JWT | The driver's own payments, no gateway ids. No POST: the row is opened with its booking |
 | GET | `/host/profile` | JWT | Working; `profile: null` for a non-host |
 | GET | `/host/spots` | Host | Working; every spot with its hours, plus the payout gate — the whole dashboard in one call |
 | POST | `/host/spots` | JWT | Working; opens a **named** listing, and makes the caller a host if they were not one |
@@ -849,10 +849,10 @@ because the two are one problem seen from two sides.
 
 Also missing:
 
-- **Razorpay.** `POST /payments` opens a row with the booking's own amount and
-  a fixed `CREATED` status, which is as far as a stub can honestly go. No
-  order creation, no webhook, no capture -- so nothing ever reaches
-  `CONFIRMED` on its own, and the pass card stays empty in a real flow.
+- **Cashfree beyond Create Order.** `POST /spot-bookings` opens the Payment
+  row and the Cashfree order and returns `checkout`; nothing yet takes the
+  money (app SDK), verifies it (Get Payments / webhook) or refunds it -- so
+  nothing reaches `CONFIRMED` on its own. See `specs/cashfree-payments_design.md`.
 - **The gate scanner.** Passes are minted but nothing verifies them yet.
 - **Settlement calculation.** Commission and payout maths are not written.
   Hosts are paid through the same periodic engine as organizers in v1; instant
@@ -913,9 +913,10 @@ Also missing:
   taken still comes back as a result. The driver finds out at checkout, from
   the 409 the `EXCLUDE` constraint produces. Honest, but late:
   `booking.service.bookedRanges` exists to fix this and has no route yet.
-- **Payments are not wired.** The app's pay UI goes through one seam,
-  `fe/src/lib/payments.ts`, which answers NOT_CONFIGURED until Cashfree is
-  connected there and on the API. A booking becomes CONFIRMED from the
+- **Payments are half wired.** The API opens a Cashfree order with each spot
+  booking (`PAYMENT_PROVIDER=cashfree`); the app's pay UI still goes through
+  one seam, `fe/src/lib/payments.ts`, which answers NOT_CONFIGURED until the
+  Cashfree SDK is connected there. A booking becomes CONFIRMED from the
   gateway's webhook on the API, never from the app. Until then every booking
   stops at a PENDING hold; later states are tested by setting data directly.
 - **Migrations are dev-shaped.** One `CREATE` per table, edited in place as

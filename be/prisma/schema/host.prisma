@@ -31,6 +31,20 @@ model HostProfile {
   /// anything else means a payout would bounce, which is why a listing cannot
   /// go live on our own verificationStatus alone.
   payoutKycStatus    String   @default("NOT_STARTED")
+  /// INDIVIDUAL or BUSINESS, as the host told the gateway (KYC vendor type).
+  payoutAccountType  String?
+  /// Only for a BUSINESS account: the gateway's business category.
+  payoutBusinessType String?
+  /// The gateway's own word for the account (Cashfree vendor status, e.g.
+  /// IN_BENE_CREATION, ACTION_REQUIRED), behind payoutKycStatus -- kept so
+  /// "needs attention" can say what needs attention.
+  payoutGatewayStatus String?
+  /// What the host has to fix when payoutKycStatus is REJECTED, in GatePass's
+  /// terms: BANK_ACCOUNT, KYC or BLOCKED. Null otherwise.
+  payoutIssue        String?
+  /// When the gateway was last asked for that status; throttles the refresh
+  /// the payout screen triggers.
+  payoutCheckedAt    DateTime?
 
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt

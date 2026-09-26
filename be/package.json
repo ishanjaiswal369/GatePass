@@ -14,7 +14,8 @@
     "seed:spots": "node --import tsx/esm scripts/seed-spots.ts",
     "test:api": "node --import tsx/esm test/api.ts",
     "test:migrations": "node --import tsx/esm test/migrations.ts",
-    "test:fixture": "node --import tsx/esm test/smoke-fixture.ts"
+    "test:fixture": "node --import tsx/esm test/smoke-fixture.ts",
+    "test:cashfree": "node --import tsx/esm test/cashfree.ts"
   },
   "dependencies": {
     "@fastify/cors": "^9.0.1",

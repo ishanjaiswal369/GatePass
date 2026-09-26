@@ -11,6 +11,11 @@ CREATE TABLE "HostProfile" (
     "payoutSubmittedAt" TIMESTAMP(3),
     "payoutAccountId" TEXT,
     "payoutKycStatus" TEXT NOT NULL DEFAULT 'NOT_STARTED',
+    "payoutAccountType" TEXT,
+    "payoutBusinessType" TEXT,
+    "payoutGatewayStatus" TEXT,
+    "payoutIssue" TEXT,
+    "payoutCheckedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 

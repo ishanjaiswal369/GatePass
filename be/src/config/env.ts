@@ -109,6 +109,19 @@ const EnvSchema = z
       .string({ message: 'is required, e.g. "0.18" for 18%' })
       .pipe(z.coerce.number().min(0).max(1, 'is a fraction, e.g. "0.18" for 18%')),
 
+    // Payment gateway. "none" keeps bookings working with no order behind
+    // them (checkout: null); "cashfree" opens a Cashfree order per booking.
+    // The secret only ever travels in a request header -- see
+    // integrations/payment/cashfree/client.
+    PAYMENT_PROVIDER: z.enum(["cashfree", "none"]).default("none"),
+    CASHFREE_ENV: z.enum(["sandbox", "production"]).default("sandbox"),
+    CASHFREE_CLIENT_ID: emptyToUndefined,
+    CASHFREE_CLIENT_SECRET: emptyToUndefined,
+    CASHFREE_API_VERSION: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, 'must look like "2026-01-01"')
+      .default("2026-01-01"),
+
     // Structured logs (pino, through Fastify). Security events are `warn`,
     // state changes `info`; see lib/security-log.
     LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
@@ -150,6 +163,28 @@ const EnvSchema = z
           "s3 is not implemented yet -- use local, or add the provider in " +
           "src/integrations/storage",
       });
+    }
+
+    if (value.PAYMENT_PROVIDER === "cashfree") {
+      for (const key of ["CASHFREE_CLIENT_ID", "CASHFREE_CLIENT_SECRET"] as const) {
+        if (!value[key]) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [key],
+            message: "required when PAYMENT_PROVIDER=cashfree",
+          });
+        }
+      }
+
+      // A sandbox payment "succeeds" with test cards; in production it would
+      // confirm a real booking nobody paid for.
+      if (value.NODE_ENV === "production" && value.CASHFREE_ENV === "sandbox") {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["CASHFREE_ENV"],
+          message: "sandbox is refused when NODE_ENV=production",
+        });
+      }
     }
 
     if (value.GEOCODE_PROVIDER === "google" && !value.GOOGLE_MAPS_API_KEY) {

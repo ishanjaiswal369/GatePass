@@ -1,8 +1,26 @@
+/// Money in, for one booking. Written with the booking, in the same
+/// transaction, before the gateway is called -- so the gateway's order always
+/// has a row to land on, and a retry finds it instead of making a second.
+///
+/// Gateway-neutral: `provider` says whose ids the gateway* columns hold. The
+/// row's id is also the gateway call's idempotency key.
 model Payment {
   id                  String        @id @default(uuid())
   bookingId           String        @unique
-  razorpayOrderId     String?
-  razorpayPaymentId   String?
+  /// "cashfree". Null on a row from before a gateway was configured.
+  provider            String?
+  /// Our order id at the gateway (Cashfree `order_id`).
+  gatewayOrderId      String?       @unique
+  /// The gateway's own id for the order (Cashfree `cf_order_id`).
+  gatewayOrderRef     String?
+  /// The gateway's id for the successful payment (Cashfree `cf_payment_id`), from the webhook.
+  gatewayPaymentId    String?
+  /// What the app's checkout SDK opens (Cashfree `payment_session_id`). Only
+  /// ever returned to the booking's own driver.
+  gatewaySessionId    String?
+  /// When the gateway stops accepting payment for the order: the hold's expiry.
+  gatewayExpiresAt    DateTime?
+  /// Everything the driver pays: parking + platform fee + GST.
   amount              Decimal
   status              String        @default("CREATED")
   createdBy           String?

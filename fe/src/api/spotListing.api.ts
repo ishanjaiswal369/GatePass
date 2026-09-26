@@ -1,4 +1,4 @@
-import type { Amenity, VehicleSize } from "@/constants/enums";
+import type { Amenity, PayoutAccountType, VehicleSize } from "@/constants/enums";
 import type {
   EntryMethod,
   OutsideHours,
@@ -217,6 +217,11 @@ export const submitPayoutAccount = (
     accountHolderName: string;
     accountNumber: string;
     ifsc: string;
+    accountType: PayoutAccountType;
+    /** Only for a BUSINESS account. */
+    businessType?: string;
+    /** Only when the profile has no phone (PayoutAccount.needsPhone). */
+    phone?: string;
   }
 ) =>
   request<PayoutAccount>("/host/payout-account", {

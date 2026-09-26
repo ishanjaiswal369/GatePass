@@ -8,9 +8,15 @@ import {
   DataRow,
   Field,
   LockIcon,
+  OptionCard,
   RestoringScreen,
   WizardShell,
 } from "@/components/ui";
+import {
+  PAYOUT_BUSINESS_TYPES,
+  type PayoutAccountType,
+  type PayoutBusinessType,
+} from "@/constants/enums";
 import { supportMailto } from "@/constants/support";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useSpotDraft } from "@/hooks/useSpotDraft";
@@ -41,6 +47,19 @@ const STATES: Record<PayoutState, { title: string; body: string }> = {
   none: { title: "Not configured", body: "Add a payout account to receive your earnings." },
 };
 
+/** Why verification failed, in words a host can act on. */
+const ISSUES: Record<NonNullable<PayoutAccount["issue"]>, string> = {
+  BANK_ACCOUNT:
+    "Your bank account couldn't be verified. Check the account number, the IFSC, and the name exactly as your bank has it.",
+  KYC: "Your PAN couldn't be verified. Check it's typed correctly and belongs to the account holder.",
+  BLOCKED: "Your payout account is blocked. Contact support to reopen it.",
+};
+
+const ACCOUNT_TYPES: { value: PayoutAccountType; label: string; description: string }[] = [
+  { value: "INDIVIDUAL", label: "Individual", description: "Paid to your own bank account, on your PAN." },
+  { value: "BUSINESS", label: "Business", description: "Paid to a company or firm's account, on its PAN." },
+];
+
 function stateOf(account: PayoutAccount | null): PayoutState {
   const status: PayoutKycStatus = account?.payoutKycStatus ?? "NOT_STARTED";
   if (status === "ACTIVATED") return "ready";
@@ -64,6 +83,9 @@ export default function PayoutScreen() {
   const [holder, setHolder] = useState("");
   const [number, setNumber] = useState("");
   const [ifsc, setIfsc] = useState("");
+  const [accountType, setAccountType] = useState<PayoutAccountType>("INDIVIDUAL");
+  const [businessType, setBusinessType] = useState<PayoutBusinessType>(PAYOUT_BUSINESS_TYPES[0]);
+  const [phone, setPhone] = useState("");
   const [editing, setEditing] = useState(false);
 
   useEffect(() => {
@@ -83,6 +105,9 @@ export default function PayoutScreen() {
       accountHolderName: holder.trim(),
       accountNumber: number.trim(),
       ifsc: ifsc.trim().toUpperCase(),
+      accountType,
+      ...(accountType === "BUSINESS" ? { businessType } : {}),
+      ...(account?.needsPhone ? { phone: phone.trim() } : {}),
     });
 
     setAccountDetails(saved);
@@ -101,8 +126,11 @@ export default function PayoutScreen() {
   const panOk = /^[A-Z]{5}\d{4}[A-Z]$/.test(pan.trim().toUpperCase());
   const numberOk = /^\d{9,18}$/.test(number.trim());
   const ifscOk = /^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifsc.trim().toUpperCase());
-  const valid = panOk && holder.trim().length > 0 && numberOk && ifscOk;
-  const formMissing = !valid ? "Fill in all four details to submit." : null;
+  const needsPhone = account?.needsPhone ?? false;
+  const phoneOk = !needsPhone || /^[6-9]\d{9}$/.test(phone.trim());
+  const valid = panOk && holder.trim().length > 0 && numberOk && ifscOk && phoneOk;
+  const blocked = state === "failed" && account?.issue === "BLOCKED";
+  const formMissing = !valid ? "Fill in all the details to submit." : null;
 
   return (
     <WizardShell
@@ -132,6 +160,7 @@ export default function PayoutScreen() {
           <Text style={s.statusTitle}>{copy.title}</Text>
         </View>
         <Text style={s.statusBody}>{copy.body}</Text>
+        {state === "failed" && account?.issue ? <Text style={s.statusBody}>{ISSUES[account.issue]}</Text> : null}
       </View>
 
       {(state === "ready" || state === "pending") && !editing ? (
@@ -152,8 +181,15 @@ export default function PayoutScreen() {
         </>
       ) : null}
 
-      {(state === "none" || state === "failed") && !editing ? (
-        <Button label={state === "failed" ? "Fix details" : "Add payout account"} onPress={() => setEditing(true)} />
+      {(state === "none" || state === "failed") && !editing && !blocked ? (
+        <Button
+          label={state === "failed" ? "Fix details" : "Add payout account"}
+          onPress={() => {
+            // Re-submitting after a failure starts from what they chose before.
+            if (account?.accountType) setAccountType(account.accountType);
+            setEditing(true);
+          }}
+        />
       ) : null}
 
       {editing ? (
@@ -167,6 +203,52 @@ export default function PayoutScreen() {
               them.
             </Text>
           </View>
+
+          <View style={s.types} accessibilityRole="radiogroup">
+            {ACCOUNT_TYPES.map((option) => (
+              <OptionCard
+                key={option.value}
+                label={option.label}
+                description={option.description}
+                selected={accountType === option.value}
+                onPress={() => setAccountType(option.value)}
+              />
+            ))}
+          </View>
+
+          {accountType === "BUSINESS" ? (
+            <View style={s.chips} accessibilityRole="radiogroup">
+              <Text style={s.chipsLabel}>Business type</Text>
+              {PAYOUT_BUSINESS_TYPES.map((value) => {
+                const on = businessType === value;
+                return (
+                  <Pressable
+                    key={value}
+                    onPress={() => setBusinessType(value)}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: on }}
+                    aria-checked={on}
+                    style={[s.chip, on && s.chipOn]}
+                  >
+                    <Text style={[s.chipText, on && s.chipTextOn]}>{value}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : null}
+
+          {needsPhone ? (
+            <Field
+              label="Mobile number"
+              value={phone}
+              onChangeText={(t) => setPhone(t.replace(/[^0-9]/g, "").slice(0, 10))}
+              keyboardType="number-pad"
+              maxLength={10}
+              placeholder="9876543210"
+              hint="Needed to set up your payouts. Saved to your profile."
+              error={phone.length === 10 && !phoneOk ? "A 10-digit Indian mobile number, starting 6-9." : null}
+            />
+          ) : null}
 
           <Field
             label="PAN"
@@ -259,4 +341,19 @@ const s = StyleSheet.create({
     paddingBottom: space.sm,
   },
   secureText: { flex: 1, ...type.caption, color: colors.inkMuted, lineHeight: 17 },
+  types: { gap: space.sm },
+  chips: { flexDirection: "row", flexWrap: "wrap", gap: space.sm, alignItems: "center" },
+  chipsLabel: { ...type.label, color: colors.ink, width: "100%" },
+  chip: {
+    minHeight: 40,
+    paddingHorizontal: space.md,
+    justifyContent: "center",
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  chipOn: { backgroundColor: colors.ink, borderColor: colors.ink },
+  chipText: { fontSize: 14, fontWeight: "600", color: colors.ink },
+  chipTextOn: { color: colors.onInk },
 });

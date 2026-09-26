@@ -111,3 +111,11 @@ export const NOTIFICATION_PREFERENCES = [
   "offers",
 ] as const;
 export type NotificationPreferenceKey = (typeof NOTIFICATION_PREFERENCES)[number];
+
+/** Mirrors be/src/constants/enums/payout-account.ts. */
+export const PAYOUT_ACCOUNT_TYPES = ["INDIVIDUAL", "BUSINESS"] as const;
+export type PayoutAccountType = (typeof PAYOUT_ACCOUNT_TYPES)[number];
+
+/** A business account's category. Cashfree doesn't publish its list; these are the confirmed ones. */
+export const PAYOUT_BUSINESS_TYPES = ["Travel and Hospitality"] as const;
+export type PayoutBusinessType = (typeof PAYOUT_BUSINESS_TYPES)[number];

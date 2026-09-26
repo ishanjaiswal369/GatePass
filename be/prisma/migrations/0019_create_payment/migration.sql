@@ -3,8 +3,12 @@
 CREATE TABLE "Payment" (
     "id" TEXT NOT NULL,
     "bookingId" TEXT NOT NULL,
-    "razorpayOrderId" TEXT,
-    "razorpayPaymentId" TEXT,
+    "provider" TEXT,
+    "gatewayOrderId" TEXT,
+    "gatewayOrderRef" TEXT,
+    "gatewayPaymentId" TEXT,
+    "gatewaySessionId" TEXT,
+    "gatewayExpiresAt" TIMESTAMP(3),
     "amount" DECIMAL(65,30) NOT NULL,
     "status" TEXT NOT NULL DEFAULT 'CREATED',
     "createdBy" TEXT,
@@ -16,6 +20,7 @@ CREATE TABLE "Payment" (
 );
 
 CREATE UNIQUE INDEX "Payment_bookingId_key" ON "Payment"("bookingId");
+CREATE UNIQUE INDEX "Payment_gatewayOrderId_key" ON "Payment"("gatewayOrderId");
 CREATE INDEX "Payment_createdBy_idx" ON "Payment"("createdBy");
 CREATE INDEX "Payment_updatedBy_idx" ON "Payment"("updatedBy");
 
