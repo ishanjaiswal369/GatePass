@@ -99,6 +99,16 @@ const EnvSchema = z
 
     SHOW_OTP_IN_RESPONSE: booleanFromString(false),
 
+    // GST on the driver's platform fee, set only in .env -- no defaults here,
+    // so a tax decision is never made by a missing line. Off until GatePass
+    // has a GSTIN: an unregistered business may not collect tax.
+    GST_ENABLED: z
+      .enum(["true", "false"], { message: 'must be "true" or "false"' })
+      .transform((value) => value === "true"),
+    GST_RATE: z
+      .string({ message: 'is required, e.g. "0.18" for 18%' })
+      .pipe(z.coerce.number().min(0).max(1, 'is a fraction, e.g. "0.18" for 18%')),
+
     // Structured logs (pino, through Fastify). Security events are `warn`,
     // state changes `info`; see lib/security-log.
     LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),

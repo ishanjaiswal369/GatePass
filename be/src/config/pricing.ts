@@ -5,11 +5,16 @@
  * or a kinder cancellation rule is an edit here rather than a hunt through
  * services. Amounts are rupees.
  */
+import { env } from "./env.js";
+
 export const pricing = {
   /** Added to the driver's bill on every booking, on top of the parking. */
   platformFee: 20,
-  /** GST charged on the platform fee (the parking itself is the host's supply). */
-  platformFeeGstRate: 0.18,
+  /**
+   * GST charged on the platform fee (the parking itself is the host's supply).
+   * Zero while GST_ENABLED is off; GST_RATE applies once it is on.
+   */
+  platformFeeGstRate: env.GST_ENABLED ? env.GST_RATE : 0,
   /** Taken from the host's share of the parking amount. */
   hostCommissionRate: 0.1,
 };
