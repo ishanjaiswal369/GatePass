@@ -217,11 +217,13 @@ export default function CheckoutScreen() {
       await openPaymentPage(page, booking.id);
       // On the web the page has navigated away; the gateway brings the driver
       // back to the pay screen. In the app the page was a sheet, now closed.
-      if (Platform.OS !== "web") router.push({ pathname: "/booking/[id]/pay", params: { id: booking.id } });
+      if (Platform.OS !== "web") router.replace({ pathname: "/booking/[id]/pay", params: { id: booking.id } });
       return;
     }
 
-    router.push({ pathname: "/booking/[id]/pay", params: { id: booking.id, method: "UPI", ...(upiApp ? { app: upiApp } : {}) } });
+    // Replace, not push: once the hold exists, checkout is done. Coming back
+    // to it would show the driver's own hold as "just booked" by someone.
+    router.replace({ pathname: "/booking/[id]/pay", params: { id: booking.id, method: "UPI", ...(upiApp ? { app: upiApp } : {}) } });
   });
 
   if (isRestoring) return <RestoringScreen />;

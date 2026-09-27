@@ -1,6 +1,6 @@
 import { Redirect, router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, AppState, Image, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, AppState, BackHandler, Image, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { ApiError, bookingsApi, paymentsApi } from "@/api";
 import { Button, ErrorNotice, PhoneFrame, RestoringScreen, ScreenHeader, WalletIcon } from "@/components/ui";
 import { useNow } from "@/features/bookings/useNow";
@@ -42,7 +42,7 @@ const LATE_REFUND_REASONS: Record<string, string> = {
  */
 export default function PayScreen() {
   const { token, isRestoring } = useSession();
-  const params = useLocalSearchParams<{ id: string; method?: string; app?: string; channel?: string }>();
+  const params = useLocalSearchParams<{ id: string; method?: string; app?: string; channel?: string; from?: string }>();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
   // Every second: this is a countdown the driver is watching.
   const now = useNow(1000);
@@ -61,6 +61,26 @@ export default function PayScreen() {
   const started = useRef(false);
 
   const done = !!booking && booking.phase !== "PENDING";
+
+  // Back goes to the booking -- the hold, with its countdown, Pay and Cancel
+  // -- never to the checkout that made it: that screen would read the
+  // driver's own hold as hours someone else just booked.
+  const back = useCallback(() => {
+    if (params.from === "booking" && router.canGoBack()) router.back();
+    else if (id) router.replace({ pathname: "/booking/[id]", params: { id } });
+  }, [params.from, id]);
+
+  // Android's hardware back takes the same way, not the stack's.
+  useFocusEffect(
+    useCallback(() => {
+      if (Platform.OS !== "android") return;
+      const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+        back();
+        return true;
+      });
+      return () => sub.remove();
+    }, [back])
+  );
 
   const load = useCallback(async () => {
     if (!token || !id) return;
@@ -139,7 +159,6 @@ export default function PayScreen() {
   if (!token) return <Redirect href="/" />;
   if (!id) return <Redirect href="/bookings" />;
 
-  const back = () => (router.canGoBack() ? router.back() : router.replace({ pathname: "/booking/[id]", params: { id } }));
   const listing = booking ? bookingListing(booking) : null;
   const total = booking ? Number(booking.amount) + Number(booking.platformFee) + Number(booking.taxAmount) : null;
   const left = booking?.holdExpiresAt ? Math.max(0, Date.parse(booking.holdExpiresAt) - now) : null;
@@ -250,7 +269,7 @@ export default function PayScreen() {
               ) : null}
 
               {booking?.phase === "PENDING" ? (
-                <Button label="Choose another way to pay" variant="ghost" onPress={back} />
+                <Button label="View booking" variant="ghost" onPress={back} />
               ) : null}
             </>
           )}

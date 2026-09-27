@@ -89,7 +89,7 @@ export default function BookingDetailScreen() {
   // A hold is paid on its own screen, which starts UPI and waits for the
   // API's answer; it says so there if online payment is off.
   const pay = () => {
-    if (booking) router.push({ pathname: "/booking/[id]/pay", params: { id: booking.id, method: "UPI" } });
+    if (booking) router.push({ pathname: "/booking/[id]/pay", params: { id: booking.id, method: "UPI", from: "booking" } });
   };
 
   if (isRestoring) return <RestoringScreen />;
