@@ -31,7 +31,8 @@ import { distanceKm, distanceLabel } from "@/lib/geo";
 import { groupByHours } from "@/lib/hours";
 import { durationText } from "@/lib/listingRules";
 import { formatRupees, rateLine } from "@/lib/money";
-import { describeCriteria, fromParams, toParams } from "@/lib/searchCriteria";
+import { describeCriteria, fromParams, hasStarted, toParams } from "@/lib/searchCriteria";
+import { searchVehicle } from "@/lib/searchVehicle";
 import {
   AMENITY_LABELS,
   ENTRY_METHOD_LABELS,
@@ -82,23 +83,23 @@ export default function SpotDetailScreen() {
     try {
       const [found, { vehicles }] = await Promise.all([spotsApi.getById(token, id), profileApi.listVehicles(token)]);
       setSpot(found);
-      // Price for the vehicle the driver will bring: their default if this
-      // spot takes it, else the first vehicle the spot prices.
-      const mine = (vehicles.find((v) => v.isDefault) ?? vehicles[0])?.vehicleType;
+      // Price for the vehicle the driver searched with (lib/searchVehicle) if
+      // this spot takes it, else the first vehicle the spot prices.
+      const mine = searchVehicle(vehicles, criteria?.vehicle)?.vehicleType;
       const priced = found.pricing.map((p) => p.vehicleType);
       setVehicleType(mine && priced.includes(mine) ? mine : priced[0] ?? null);
       setError(null);
     } catch (err) {
       setError(err instanceof ApiError && err.status === 404 ? "This spot is no longer available." : "Could not load this spot.");
     }
-  }, [token, id]);
+  }, [token, id, criteria?.vehicle]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   useEffect(() => {
-    if (!token || !id || !criteria || !vehicleType) return;
+    if (!token || !id || !criteria || !vehicleType || hasStarted(criteria.from)) return;
     spotsApi
       .quote(token, id, { vehicleType, startsAt: criteria.from, endsAt: criteria.to })
       .then(setQuote)
@@ -381,11 +382,17 @@ export default function SpotDetailScreen() {
         </ScrollView>
 
         <View style={[s.bar, { paddingBottom: 18 + insets.bottom }]}>
-          {criteria ? (
+          {criteria && hasStarted(criteria.from) ? (
+            // The searched hours have begun: nothing to reserve for them.
+            <View style={s.flex}>
+              <Text style={s.barSub}>{describeCriteria(criteria)} has already started. Pick a time from now on.</Text>
+              <Button label="Change time" variant="ghost" onPress={() => router.replace("/home")} />
+            </View>
+          ) : criteria ? (
             <>
               <View style={s.flex}>
                 <Text style={s.barPrice}>{quote ? formatRupees(quote.total) : "—"}</Text>
-                <Text style={s.barSub}>incl. fees · {describeCriteria(criteria)}</Text>
+                <Text style={s.barSub}>Total · {describeCriteria(criteria)}</Text>
               </View>
               <View style={s.barCta}>
                 <Button

@@ -20,6 +20,24 @@ export const MAX_DAYS_AHEAD = 60;
 /** The longest single stay. */
 export const MAX_STAY_DAYS = 30;
 
+/**
+ * A start this far back still counts as "now" -- the API allows the same, so
+ * a stay picked a moment ago isn't refused on the way to paying.
+ */
+export const PAST_GRACE_MINUTES = 5;
+
+/**
+ * Whether a stay's start is already behind us. A search opened from history,
+ * a link, or a tab left open since the morning carries whatever time it was
+ * made with; every screen after the search form checks it with this.
+ */
+export function hasStarted(from: Date | string, now: number = Date.now()): boolean {
+  const start = typeof from === "string" ? Date.parse(from) : from.getTime();
+  return start <= now - PAST_GRACE_MINUTES * 60_000;
+}
+
+export const STARTED_MESSAGE = "This start time has already passed. Pick a time from now on.";
+
 export interface SearchPlace {
   latitude: number;
   longitude: number;
@@ -32,6 +50,13 @@ export interface SearchCriteria {
   /** Instants, so a device in another timezone still asks about the right moment. */
   from: string;
   to: string;
+  /**
+   * The vehicle this search is for: a saved vehicle's id, or ANY_VEHICLE
+   * ("any"). Absent on older links, which read as the driver's default --
+   * see lib/searchVehicle. Only its type narrows results: a bike sees bike
+   * spaces, any car sees every car space.
+   */
+  vehicle?: string;
 }
 
 // ------------------------------------------------------------------ dates --
@@ -94,6 +119,7 @@ export function toParams(criteria: SearchCriteria): Record<string, string> {
     place: criteria.place.label,
     from: criteria.from,
     to: criteria.to,
+    ...(criteria.vehicle ? { vehicle: criteria.vehicle } : {}),
   };
 }
 
@@ -133,7 +159,8 @@ export function fromParams(
 
   if (Date.parse(to) - Date.parse(from) < MIN_STAY_MINUTES * 60_000) return null;
 
-  return { place, from, to };
+  const vehicle = read("vehicle");
+  return { place, from, to, ...(vehicle ? { vehicle } : {}) };
 }
 
 /**

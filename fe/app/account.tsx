@@ -112,6 +112,7 @@ export default function AccountScreen() {
     if (key === "home") router.push("/home");
     if (key === "bookings") router.push("/bookings");
     if (key === "host") router.push("/host");
+    if (key === "payouts") router.push("/payouts");
   };
 
   if (isRestoring) {

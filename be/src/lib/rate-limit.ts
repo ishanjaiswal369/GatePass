@@ -16,9 +16,9 @@ import { tooManyRequests } from "./errors.js";
  *
  * The caller is the user id from a token that verifies -- checked here with
  * the signature only, no database -- so rotating junk tokens does not buy a
- * fresh bucket: an unverifiable token counts against the IP. /health and the
- * signed upload URLs are exempt: one is polled, the other is already bounded
- * by its signature and expiry.
+ * fresh bucket: an unverifiable token counts against the IP. /health, the
+ * signed upload URLs and the gateway's webhook are exempt: the first is
+ * polled, the other two are bounded by their signatures.
  */
 
 const AUTH_ROUTES = new Set([
@@ -69,7 +69,10 @@ export async function registerRateLimit(app: App): Promise<void> {
       return bucket === "auth" ? `auth:ip:${request.ip}` : `${bucket}:${callerOf(request)}`;
     },
     max: (request) => LIMITS[bucketOf(request)],
-    allowList: (request) => request.url === "/health" || request.url.startsWith("/uploads/"),
+    // The webhook comes from the gateway's few shared IPs, which a per-IP
+    // write limit would throttle at volume; its signature bounds it instead.
+    allowList: (request) =>
+      request.url === "/health" || request.url.startsWith("/uploads/") || request.url === "/webhooks/cashfree",
     // Thrown as an AppError so the error handler answers it like every other
     // 429 -- `{ error }` -- and logs it once, as RATE_LIMITED.
     errorResponseBuilder: (_request, context) =>

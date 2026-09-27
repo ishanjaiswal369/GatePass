@@ -23,7 +23,6 @@ import { ParkedCard } from "@/features/bookings/ParkedCard";
 import { ParkingActions } from "@/features/bookings/ParkingActions";
 import { problemShort } from "@/features/bookings/problemLabels";
 import { useNow } from "@/features/bookings/useNow";
-import { useAsyncAction } from "@/hooks/useAsyncAction";
 import {
   bookingListing,
   bookingRef,
@@ -37,7 +36,6 @@ import {
   unpaidExtension,
 } from "@/lib/booking";
 import { formatRupees } from "@/lib/money";
-import { payForBooking } from "@/lib/payments";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, radius, space } from "@/theme";
 import type { BookingDetail } from "@/types/api.types";
@@ -67,7 +65,6 @@ export default function BookingDetailScreen() {
 
   const [booking, setBooking] = useState<BookingDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [payNote, setPayNote] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!token || !id) return;
@@ -89,24 +86,11 @@ export default function BookingDetailScreen() {
     }, [load])
   );
 
-  const { run: pay, busy: paying } = useAsyncAction(async () => {
-    if (!token || !booking) return;
-    const outcome = await payForBooking({
-      token,
-      bookingId: booking.id,
-      amount: bookingTotal(booking),
-      method: "UPI",
-    });
-
-    if (outcome.status === "PAID") {
-      setPayNote(null);
-      await load();
-    } else if (outcome.status === "FAILED") {
-      setPayNote(`Payment couldn't be completed. ${outcome.message}`);
-    } else if (outcome.status === "NOT_CONFIGURED") {
-      setPayNote("Online payment isn't switched on in this version yet, so this hold can't be paid from the app.");
-    }
-  });
+  // A hold is paid on its own screen, which starts UPI and waits for the
+  // API's answer; it says so there if online payment is off.
+  const pay = () => {
+    if (booking) router.push({ pathname: "/booking/[id]/pay", params: { id: booking.id, method: "UPI" } });
+  };
 
   if (isRestoring) return <RestoringScreen />;
   if (!token) return <Redirect href="/" />;
@@ -130,7 +114,7 @@ export default function BookingDetailScreen() {
           {!booking ? (
             error ? null : <ActivityIndicator color={colors.ink} style={s.loading} />
           ) : (
-            <Body booking={booking} now={now} onPay={pay} paying={paying} payNote={payNote} />
+            <Body booking={booking} now={now} onPay={pay} />
           )}
         </ScrollView>
       </View>
@@ -142,14 +126,10 @@ function Body({
   booking,
   now,
   onPay,
-  paying,
-  payNote,
 }: {
   booking: BookingDetail;
   now: number;
   onPay: () => void;
-  paying: boolean;
-  payNote: string | null;
 }) {
   const listing = bookingListing(booking);
   const chip = phaseChip(booking);
@@ -205,8 +185,7 @@ function Body({
             Nobody else can book these hours while the hold lasts. Pay to turn it into a booking — until then it
             isn't one, and the host isn't expecting you.
           </Text>
-          <Button label={`Pay ${formatRupees(bookingTotal(booking))}`} onPress={onPay} busy={paying} />
-          {payNote ? <Text style={s.payNote}>{payNote}</Text> : null}
+          <Button label={`Pay ${formatRupees(bookingTotal(booking))}`} onPress={onPay} />
         </View>
       ) : null}
 
@@ -317,7 +296,7 @@ function Body({
 /** What has happened and what comes next, in the booking's own terms. */
 function stepsFor(booking: BookingDetail): TimelineStep[] {
   const created = { title: "Booked", sub: dateTime(booking.createdAt), state: "done" as const };
-  const start = booking.startsAt ?? bookingListing(booking)?.eventDate ?? null;
+  const start = booking.startsAt;
   const end = booking.effectiveEndsAt ?? booking.endsAt;
   const paid = booking.payment?.status === "CAPTURED";
 
@@ -412,7 +391,6 @@ const s = StyleSheet.create({
   },
   pendingTitle: { fontSize: 15, fontWeight: "700", color: colors.accentInk },
   pendingBody: { fontSize: 13, lineHeight: 19, color: colors.accentInk },
-  payNote: { fontSize: 13, lineHeight: 19, color: colors.accentInk, fontWeight: "600" },
   notice: { backgroundColor: colors.canvas, borderRadius: radius.md, padding: space.lg, gap: 4 },
   noticeTitle: { fontSize: 15, fontWeight: "700", color: colors.ink },
   noticeBody: { fontSize: 13, lineHeight: 19, color: colors.inkMuted },

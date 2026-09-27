@@ -1,15 +1,13 @@
--- Migration: Create the Listing table -- a bookable place: an event lot or a host's spot
+-- Migration: Create the Listing table -- a host's bookable space
 
 CREATE TABLE "Listing" (
     "id" TEXT NOT NULL,
-    "organizerId" TEXT,
     "hostProfileId" TEXT,
-    "listingType" TEXT NOT NULL DEFAULT 'EVENT',
+    "listingType" TEXT NOT NULL DEFAULT 'INDEPENDENT_SPOT',
     "name" TEXT NOT NULL,
     "venueName" TEXT NOT NULL,
     "latitude" DECIMAL(65,30),
     "longitude" DECIMAL(65,30),
-    "eventDate" TIMESTAMP(3),
     "status" TEXT NOT NULL DEFAULT 'DRAFT',
     "spaceType" TEXT,
     "description" TEXT,
@@ -60,26 +58,19 @@ CREATE TABLE "Listing" (
     CONSTRAINT "Listing_pkey" PRIMARY KEY ("id")
 );
 
-CREATE INDEX "Listing_organizerId_idx" ON "Listing"("organizerId");
 CREATE INDEX "Listing_hostProfileId_idx" ON "Listing"("hostProfileId");
 CREATE INDEX "Listing_listingType_status_idx" ON "Listing"("listingType", "status");
-CREATE INDEX "Listing_status_eventDate_idx" ON "Listing"("status", "eventDate");
 CREATE INDEX "Listing_status_submittedAt_idx" ON "Listing"("status", "submittedAt");
 CREATE INDEX "Listing_latitude_longitude_idx" ON "Listing"("latitude", "longitude");
 CREATE INDEX "Listing_createdBy_idx" ON "Listing"("createdBy");
 CREATE INDEX "Listing_updatedBy_idx" ON "Listing"("updatedBy");
 
-ALTER TABLE "Listing" ADD CONSTRAINT "Listing_organizerId_fkey" FOREIGN KEY ("organizerId") REFERENCES "Organizer"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "Listing" ADD CONSTRAINT "Listing_hostProfileId_fkey" FOREIGN KEY ("hostProfileId") REFERENCES "HostProfile"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "Listing" ADD CONSTRAINT "Listing_createdBy_fkey" FOREIGN KEY ("createdBy") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 ALTER TABLE "Listing" ADD CONSTRAINT "Listing_updatedBy_fkey" FOREIGN KEY ("updatedBy") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 ALTER TABLE "Listing" ADD CONSTRAINT "Listing_reviewedBy_fkey" FOREIGN KEY ("reviewedBy") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
--- A listing has two possible owners: an organizer (an event) or a host (an
--- INDEPENDENT_SPOT). Exactly one must be set, so a row can never end up
--- orphaned or owned twice.
-ALTER TABLE "Listing" ADD CONSTRAINT "Listing_one_owner"
-    CHECK (
-        ("organizerId" IS NOT NULL AND "hostProfileId" IS NULL)
-        OR ("organizerId" IS NULL AND "hostProfileId" IS NOT NULL)
-    );
+-- Every listing belongs to a host, so a row can never end up orphaned.
+-- (Organizer-owned event listings were removed on 2026-09-27.)
+ALTER TABLE "Listing" ADD CONSTRAINT "Listing_has_host"
+    CHECK ("hostProfileId" IS NOT NULL);

@@ -106,7 +106,7 @@ export default function CancelBookingScreen() {
                         ? `Full refund: you're cancelling before the free-cancellation deadline${
                             quote.freeUntil ? `, ${dateTime(quote.freeUntil)}` : ""
                           }.`
-                        : "Partial refund: it's less than an hour to your start, so half the parking amount comes back. The platform fee isn't refunded."}
+                        : "Partial refund: it's less than an hour to your start, so half the parking amount comes back."}
                     </Text>
                   </>
                 )}

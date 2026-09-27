@@ -712,7 +712,6 @@ export async function readiness(listingId: string, hostProfileId: string): Promi
       societyPermissionAt: true,
       warrantyAcceptedAt: true,
       pricing: { select: { vehicleType: true, pricePerHour: true, pricePerDay: true } },
-      hostProfile: { select: { payoutKycStatus: true, payoutAccountNumber: true } },
       _count: { select: { photos: true } },
     },
   });
@@ -764,13 +763,10 @@ export async function readiness(listingId: string, hostProfileId: string): Promi
   if (spot.inSociety === null) need("documents", "Say whether the space is in a housing society");
   else if (spot.inSociety && !spot.societyPermissionAt) need("documents", "Confirm your society or RWA's permission");
 
-  const payout = spot.hostProfile;
-  const payoutReady =
-    payout?.payoutKycStatus === "ACTIVATED" ||
-    (Boolean(payout?.payoutAccountNumber) && payout?.payoutKycStatus !== "REJECTED");
-  if (!payoutReady) {
-    need("payout", payout?.payoutKycStatus === "REJECTED" ? "Fix your payout details" : "Add a payout account");
-  }
+  // The payout account is not asked for here. It is the host's, not this
+  // listing's, and is set up from the Host tab's Payouts screen; a listing
+  // can be reviewed without it and goes live once it is active too (see
+  // admin-spot.service.publishIfReady).
 
   return items;
 }
@@ -781,7 +777,7 @@ export async function missingForSubmit(listingId: string, hostProfileId: string)
 }
 
 /**
- * Step 10. Hands the spot to review.
+ * The review step. Hands the spot to review.
  *
  * Note what this does NOT do: publish. Submitting is the host saying they are
  * finished, not the platform agreeing. PUBLISHED is an admin's decision, and

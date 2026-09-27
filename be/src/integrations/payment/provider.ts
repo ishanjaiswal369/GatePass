@@ -39,6 +39,19 @@ export interface CreateOrderInput {
   /** Ids only -- the gateway's dashboard shows them, so never personal data. */
   tags?: Record<string, string>;
   /**
+   * Where the gateway's own payment pages (card 3-D Secure) send the driver
+   * when they finish. `{order_id}` is filled in by the gateway.
+   */
+  returnUrl?: string;
+  /** Where the gateway posts this order's payment webhooks. */
+  notifyUrl?: string;
+  /**
+   * Who is paid what out of this order (Easy Split): the gateway settles each
+   * payee's part to them by itself once the payment is in. Rupees, exact to
+   * the paisa; whatever isn't split out stays with GatePass.
+   */
+  splits?: { vendorId: string; amount: string }[];
+  /**
    * Same key, same order: a retry after a timeout returns the order the first
    * attempt made instead of making another. A UUID, stable across retries.
    */
@@ -60,6 +73,75 @@ export interface GatewayOrder {
 }
 
 /**
+ * The device the driver pays from. Gateways shape UPI around it: an intent
+ * only opens on a phone, and Cashfree refuses UPI collect on Android and
+ * desktop.
+ */
+export interface ClientHints {
+  device: "mobile" | "desktop" | "tablet";
+  os: "android" | "ios" | "windows" | "macos" | "linux" | "others";
+  rendering?: "native" | "mweb" | "webview";
+  browser: "chrome" | "safari" | "firefox" | "edge" | "others";
+}
+
+/** The UPI apps a payment can be opened in; `default` is the phone's own chooser. */
+export const UPI_APPS = ["default", "gpay", "phonepe", "paytm", "bhim"] as const;
+export type UpiApp = (typeof UPI_APPS)[number];
+
+export interface StartUpiInput {
+  /** The order's checkout session, from createOrder. */
+  sessionId: string;
+  /** INTENT: open a UPI app on this phone. QR: a code to scan from another. */
+  channel: "INTENT" | "QR";
+  client: ClientHints;
+}
+
+/** One UPI attempt against an order. An order takes any number of them. */
+export type UpiAttempt =
+  | { paymentRef: string; channel: "INTENT"; apps: Partial<Record<UpiApp, string>> }
+  | { paymentRef: string; channel: "QR"; qrImage: string };
+
+/**
+ * Where one payment attempt on an order stands. Only SUCCESS is money in;
+ * anything the gateway adds later reads as UNKNOWN, never as paid.
+ */
+export type GatewayPaymentStatus =
+  | "SUCCESS"
+  | "PENDING"
+  | "FAILED"
+  | "NOT_ATTEMPTED"
+  | "USER_DROPPED"
+  | "VOID"
+  | "CANCELLED"
+  | "UNKNOWN";
+
+export interface GatewayPayment {
+  /** The gateway's id for the attempt (Cashfree `cf_payment_id`). */
+  paymentRef: string;
+  /** Our order id, as the gateway recorded it. */
+  orderId: string;
+  status: GatewayPaymentStatus;
+  /** Rupees, exact to the paisa. */
+  amount: string;
+  currency: string;
+  /** "upi", "debit_card"... for support and logs. */
+  method: string | null;
+  completedAt: Date | null;
+}
+
+/**
+ * A webhook the gateway sent, once its signature has checked out. Only what
+ * GatePass acts on: which order it is about. What happened is then asked of
+ * the gateway (getOrderPayments) rather than read from the body.
+ */
+export interface GatewayNotice {
+  /** The gateway's event name, for logs: "PAYMENT_SUCCESS_WEBHOOK". */
+  type: string;
+  /** Our order id, when the event is about an order. */
+  orderId: string | null;
+}
+
+/**
  * A host as the gateway's payee (Cashfree Easy Split vendor): who they are,
  * where their share of a payment goes, and their KYC.
  */
@@ -71,6 +153,7 @@ export interface VendorInput {
   /** 10 digits (Indian mobile, without +91). */
   phone: string;
   bank: { accountNumber: string; accountHolder: string; ifsc: string };
+  /** businessType for a BUSINESS account only. */
   kyc: { accountType: "INDIVIDUAL" | "BUSINESS"; businessType?: string; pan: string };
   /** A UUID; the same on every retry of one submission. */
   idempotencyKey: string;
@@ -106,6 +189,21 @@ export interface PaymentGateway {
   readonly environment: "sandbox" | "production";
 
   createOrder(input: CreateOrderInput): Promise<GatewayOrder>;
+
+  /**
+   * Starts a UPI payment on an open order: links to a UPI app, or a QR.
+   * Only links the app may safely open come back.
+   */
+  startUpiPayment(input: StartUpiInput): Promise<UpiAttempt>;
+
+  /** Every payment attempt on an order, as the gateway sees it now. */
+  getOrderPayments(orderId: string): Promise<GatewayPayment[]>;
+
+  /**
+   * A webhook, if it is genuinely the gateway's: null when the signature
+   * doesn't verify against the raw body exactly as received.
+   */
+  readWebhook(rawBody: string, headers: Record<string, string | string[] | undefined>): GatewayNotice | null;
 
   /** Registers a host as a payee. Throws VendorExistsError if the id is taken. */
   createVendor(input: VendorInput): Promise<GatewayVendor>;

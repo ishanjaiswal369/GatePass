@@ -1,5 +1,4 @@
 import { Prisma } from "@prisma/client";
-import { pricing } from "../config/pricing.js";
 
 /**
  * What a stay on a host spot costs, and what the driver pays on top.
@@ -57,11 +56,14 @@ export interface Fees {
   taxAmount: Prisma.Decimal;
 }
 
-/** GatePass's fee to the driver and the GST on it (config/pricing.ts). */
+/**
+ * What the driver pays on top of the parking: nothing. GatePass's revenue is
+ * the service fee taken from the host's side (config/pricing.ts), so the
+ * driver pays the listed price. Kept as a function, and the Booking columns
+ * kept, so older bookings that carried a driver fee still add up the same.
+ */
 export function driverFees(): Fees {
-  const platformFee = new Prisma.Decimal(pricing.platformFee);
-  const taxAmount = platformFee.mul(pricing.platformFeeGstRate).toDecimalPlaces(2);
-  return { platformFee, taxAmount };
+  return { platformFee: new Prisma.Decimal(0), taxAmount: new Prisma.Decimal(0) };
 }
 
 /** Of rates across vehicle types, the one that makes this stay cheapest. */

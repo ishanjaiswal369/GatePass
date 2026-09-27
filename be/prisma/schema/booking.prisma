@@ -1,17 +1,12 @@
-/// Two shapes, one table (migration 0018_create_booking). An event booking claims slots from
-/// a ParkingCapacity; a host-spot booking claims a stretch of time on one
-/// Listing. A DB CHECK enforces that a row is exactly one of the two, and an
-/// EXCLUDE constraint is what stops two drivers booking overlapping hours on
-/// the same space -- a counter cannot express that, because the thing being
-/// competed for is a range rather than a quantity.
-///
-/// They share a table because everything downstream -- payment, pass,
-/// settlement item -- is identical either way.
+/// A driver's claim on a stretch of time on one host's space (migration
+/// 0018_create_booking). The Booking_one_target CHECK requires the listing
+/// and both ends of the stay; the Booking_no_overlap EXCLUDE is what stops two
+/// drivers booking overlapping hours on the same space -- a counter cannot
+/// express that, because the thing competed for is a range, not a quantity.
 model Booking {
   id              String        @id @default(uuid())
-  parkingCapacityId String?
-  /// Set on host-spot bookings only; the event path reaches its listing
-  /// through ParkingCapacity.
+  /// Required, with both ends (Booking_one_target CHECK); nullable in the
+  /// client types only because the columns predate that rule.
   listingId       String?
   startsAt        DateTime?
   endsAt          DateTime?
@@ -24,15 +19,14 @@ model Booking {
   extendsBookingId String?
   driverId        String
   vehicleNumber   String
-  /// Set on host-spot bookings, which choose a rate out of SpotPricing and
-  /// would otherwise have nowhere to record which one. An event booking
-  /// answers this through its ParkingCapacity.
+  /// Which of the spot's rates (SpotPricing) the booking was priced at.
   vehicleType     String?
   quantity        Int
   /// The parking itself -- the host's supply, what their share comes from.
   amount          Decimal
-  /// GatePass's fee to the driver and the GST on it, fixed when the booking
-  /// is made (config/pricing.ts). The driver pays amount + both.
+  /// A driver-side fee and its GST, fixed when the booking is made. Zero for
+  /// new bookings: GatePass charges a service fee from the host's side
+  /// instead (config/pricing.ts). Kept so older rows still add up.
   platformFee     Decimal       @default(0)
   taxAmount       Decimal       @default(0)
   status          String        @default("PENDING")
@@ -47,14 +41,12 @@ model Booking {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
-  parkingCapacity ParkingCapacity? @relation(fields: [parkingCapacityId], references: [id], onDelete: Restrict)
   listing         Listing?        @relation(fields: [listingId], references: [id], onDelete: Restrict)
   driver          User            @relation(fields: [driverId], references: [id])
   payment         Payment?
   refund          Refund?
   review          Review?
   problem         ProblemReport?
-  settlementItems SettlementItem[]
   extendsBooking  Booking?        @relation("BookingExtensions", fields: [extendsBookingId], references: [id], onDelete: Restrict)
   extensions      Booking[]       @relation("BookingExtensions")
   creator         User?           @relation("BookingCreatedBy", fields: [createdBy], references: [id])
@@ -66,7 +58,6 @@ model Booking {
   @@index([driverId])
   @@index([driverId, status])
   @@index([extendsBookingId])
-  @@index([parkingCapacityId])
   @@index([createdBy])
   @@index([updatedBy])
 }

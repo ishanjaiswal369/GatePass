@@ -107,6 +107,7 @@ export default function BookingsScreen() {
   const navigate = (key: NavKey) => {
     if (key === "home") router.push("/home");
     if (key === "host") router.push("/host");
+    if (key === "payouts") router.push("/payouts");
     if (key === "profile") router.push("/account");
   };
 

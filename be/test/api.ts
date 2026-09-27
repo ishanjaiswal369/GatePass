@@ -239,7 +239,6 @@ async function cleanUp(): Promise<void> {
     await prisma.problemReport.deleteMany({ where: { listingId } });
     await prisma.refund.deleteMany({ where: bookings });
     await prisma.payment.deleteMany({ where: bookings });
-    await prisma.settlementItem.deleteMany({ where: bookings });
     await prisma.booking.deleteMany({ where: { listingId, extendsBookingId: { not: null } } });
     await prisma.booking.deleteMany({ where: { listingId } });
     // Pricing, hours, photos, favourites and blocks go with it.

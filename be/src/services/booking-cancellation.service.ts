@@ -32,12 +32,9 @@ const cancellationRow = {
   id: true,
   status: true,
   amount: true,
-  quantity: true,
   startsAt: true,
-  parkingCapacityId: true,
   extendsBookingId: true,
   payment: { select: { status: true, amount: true } },
-  parkingCapacity: { select: { listing: { select: { eventDate: true } } } },
 } satisfies Prisma.BookingSelect;
 
 type CancellationRow = Prisma.BookingGetPayload<{ select: typeof cancellationRow }>;
@@ -45,7 +42,7 @@ type CancellationRow = Prisma.BookingGetPayload<{ select: typeof cancellationRow
 const ZERO = new Prisma.Decimal(0);
 
 function startOf(row: CancellationRow): Date | null {
-  return row.startsAt ?? row.parkingCapacity?.listing.eventDate ?? null;
+  return row.startsAt;
 }
 
 /**
@@ -165,15 +162,6 @@ export async function cancel(bookingId: string, driverId: string, reason?: strin
 
     // Something else moved it between the read and this write.
     if (changed.count === 0) throw conflict("This booking changed. Refresh and try again.");
-
-    // An event booking gave back a slot from a counted capacity.
-    if (row.parkingCapacityId) {
-      await tx.$executeRaw`
-        UPDATE "ParkingCapacity"
-        SET "bookedCount" = GREATEST("bookedCount" - ${row.quantity}, 0), "updatedAt" = NOW()
-        WHERE "id" = ${row.parkingCapacityId}
-      `;
-    }
 
     if (outcome.refund.greaterThan(0)) {
       await tx.refund.create({

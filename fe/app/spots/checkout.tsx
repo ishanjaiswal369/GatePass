@@ -1,12 +1,15 @@
-import { Redirect, router, useLocalSearchParams } from "expo-router";
+import { Redirect, router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { ApiError, bookingsApi, profileApi, spotsApi } from "@/api";
+import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ApiError, authApi, bookingsApi, paymentsApi, profileApi, spotsApi } from "@/api";
 import {
+  BikeIcon,
   Button,
+  CardIcon,
   CarIcon,
   DataRow,
   ErrorNotice,
+  Field,
   PhoneFrame,
   PlusIcon,
   RestoringScreen,
@@ -15,22 +18,47 @@ import {
   WalletIcon,
 } from "@/components/ui";
 import type { VehicleType } from "@/constants/enums";
+import { useNow } from "@/features/bookings/useNow";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { keyFor, type Attempt } from "@/lib/idempotency";
 import { formatRupees } from "@/lib/money";
-import { payForBooking, type PaymentMethod } from "@/lib/payments";
-import { describeRange, formatDuration, MIN_STAY_MINUTES } from "@/lib/searchCriteria";
+import {
+  openPaymentPage,
+  payPlatform,
+  startCardPayment,
+  UPI_APP_LABELS,
+  upiAppsFor,
+  type PaymentMethod,
+} from "@/lib/payments";
+import { UserError } from "@/lib/userError";
+import { describeRange, formatDuration, hasStarted, MIN_STAY_MINUTES, STARTED_MESSAGE } from "@/lib/searchCriteria";
+import { searchVehicle } from "@/lib/searchVehicle";
 import { spaceLabel, VEHICLE_LABELS } from "@/lib/spotLabels";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, radius, space } from "@/theme";
-import type { BookingRow, PublicSpot, StayQuote, Vehicle } from "@/types/api.types";
+import type { HeldSpotBooking, PaymentOptions, PublicSpot, StayQuote, UpiApp, Vehicle } from "@/types/api.types";
 
 const METHODS: { key: PaymentMethod; title: string; sub: string }[] = [
   { key: "UPI", title: "UPI", sub: "Google Pay, PhonePe, Paytm or any UPI app" },
-  { key: "CARD", title: "Credit / debit card", sub: "Visa, Mastercard, RuPay" },
-  { key: "NETBANKING", title: "Netbanking", sub: "Choose your bank on the next step" },
+  // Offered only when the API says so: its sandbox, for now (owner's call).
+  { key: "CARD", title: "Credit / debit card", sub: "Test mode: Cashfree's test cards only" },
 ];
+
+const PLATFORM = payPlatform();
+const UPI_APPS = upiAppsFor(PLATFORM);
+
+/** The card as typed, digits only where only digits belong. Held in memory, never stored. */
+const EMPTY_CARD = { number: "", holder: "", expiry: "", cvv: "" };
+
+function cardProblem(card: typeof EMPTY_CARD): string | null {
+  if (!/^\d{12,19}$/.test(card.number)) return "Enter the card number.";
+  if (!card.holder.trim()) return "Enter the name on the card.";
+  const month = Number(card.expiry.slice(0, 2));
+  if (!/^\d{4}$/.test(card.expiry) || month < 1 || month > 12) return "Enter the expiry as MM/YY.";
+  if (!/^\d{3,4}$/.test(card.cvv)) return "Enter the CVV.";
+  return null;
+}
 
 /**
  * Reviewing a stay and paying for it.
@@ -43,72 +71,116 @@ const METHODS: { key: PaymentMethod; title: string; sub: string }[] = [
  */
 export default function CheckoutScreen() {
   const insets = useScreenInsets();
-  const { token, isRestoring } = useSession();
-  const params = useLocalSearchParams<{ id: string; from: string; to: string }>();
+  const { token, isRestoring, user, setUser } = useSession();
+  const params = useLocalSearchParams<{ id: string; from: string; to: string; vehicle?: string }>();
+  const searched = Array.isArray(params.vehicle) ? params.vehicle[0] : params.vehicle;
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
   const range = readRange(params.from, params.to);
+  // Re-read while the screen is open: a driver can sit here past the start.
+  const now = useNow(30_000);
+  const started = !!range && hasStarted(range.from, now);
 
   const [spot, setSpot] = useState<PublicSpot | null>(null);
   const [vehicles, setVehicles] = useState<Vehicle[] | null>(null);
   const [vehicleId, setVehicleId] = useState<string | null>(null);
   const [method, setMethod] = useState<PaymentMethod>("UPI");
   const [quote, setQuote] = useState<StayQuote | null>(null);
+  const [quoteError, setQuoteError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [held, setHeld] = useState<BookingRow | null>(null);
-  const [outcome, setOutcome] = useState<"FAILED" | "CANCELLED" | "NOT_CONFIGURED" | null>(null);
-  const [failure, setFailure] = useState<string | null>(null);
+  const [held, setHeld] = useState<HeldSpotBooking | null>(null);
+  const [outcome, setOutcome] = useState<"NOT_CONFIGURED" | null>(null);
+  const [options, setOptions] = useState<PaymentOptions | null>(null);
+  const [upiApp, setUpiApp] = useState<UpiApp | undefined>(UPI_APPS[0]);
+  const [card, setCard] = useState(EMPTY_CARD);
+  const [phone, setPhone] = useState("");
   const attempt = useRef<Attempt | null>(null);
 
+  /**
+   * The spot and the driver's vehicles, on every focus -- not once on mount.
+   * "Add a vehicle" opens the vehicles screen on top of this one and comes
+   * back without remounting it, so a list read only at mount would still be
+   * the one from before the vehicle was added.
+   *
+   * The choice survives a reload while that vehicle can still park here;
+   * otherwise it starts on the vehicle the driver searched with (carried in
+   * the params from the search form), then the default that fits, then any
+   * that fits -- which is also how a first vehicle, just added, is selected.
+   */
   const load = useCallback(async () => {
     if (!token || !id) return;
     try {
-      const [found, { vehicles: saved }] = await Promise.all([spotsApi.getById(token, id), profileApi.listVehicles(token)]);
+      const [found, { vehicles: saved }, payment] = await Promise.all([
+        spotsApi.getById(token, id),
+        profileApi.listVehicles(token),
+        paymentsApi.options(token),
+      ]);
       setSpot(found);
       setVehicles(saved);
+      setOptions(payment);
+      // A method the API stopped offering (card outside the sandbox) falls back to UPI.
+      setMethod((current) => (payment.methods.includes(current) ? current : "UPI"));
+      setLoadError(null);
       const takes = (v: Vehicle) => found.pricing.some((p) => p.vehicleType === v.vehicleType);
-      setVehicleId(
-        (saved.find((v) => v.isDefault && takes(v)) ?? saved.find(takes) ?? saved[0])?.id ?? null
-      );
+      setVehicleId((current) => {
+        const kept = saved.find((v) => v.id === current && takes(v));
+        const fromSearch = searchVehicle(saved, searched);
+        return (
+          kept ??
+          (fromSearch && takes(fromSearch) ? fromSearch : undefined) ??
+          saved.find((v) => v.isDefault && takes(v)) ??
+          saved.find(takes) ??
+          saved[0]
+        )?.id ?? null;
+      });
     } catch (err) {
       setLoadError(err instanceof ApiError && err.status === 404 ? "This spot is no longer available." : "Could not load this spot.");
     }
-  }, [token, id]);
+  }, [token, id, searched]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load])
+  );
 
   const vehicle = vehicles?.find((v) => v.id === vehicleId) ?? null;
   const takesVehicle = !!(vehicle && spot?.pricing.some((p) => p.vehicleType === vehicle.vehicleType));
 
   useEffect(() => {
-    if (!token || !id || !range || !vehicle || !takesVehicle) {
+    setQuoteError(null);
+    // A started stay isn't priced -- unless it is already held, and so payable.
+    if (!token || !id || !range || !vehicle || !takesVehicle || (started && !held)) {
       setQuote(null);
       return;
     }
     spotsApi
       .quote(token, id, { vehicleType: vehicle.vehicleType as VehicleType, startsAt: range.from.toISOString(), endsAt: range.to.toISOString() })
       .then(setQuote)
-      .catch(() => setQuote(null));
+      .catch((err) => {
+        // Said, not swallowed: a blank total with a disabled button and no
+        // reason reads as the app being broken.
+        setQuote(null);
+        setQuoteError(err instanceof ApiError ? err.message : "Could not work out the price. Try again.");
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, id, vehicle?.id, takesVehicle, params.from, params.to]);
+  }, [token, id, vehicle?.id, takesVehicle, params.from, params.to, started, !!held]);
 
-  const pay = async (booking: BookingRow) => {
-    if (!token) return;
-    const total = (Number(booking.amount) + Number(booking.platformFee) + Number(booking.taxAmount)).toFixed(2);
-    const result = await payForBooking({ token, bookingId: booking.id, amount: total, method });
-
-    if (result.status === "PAID") {
-      router.replace({ pathname: "/booking/[id]/confirmed", params: { id: booking.id } });
-      return;
-    }
-    setOutcome(result.status);
-    setFailure(result.status === "FAILED" ? result.message : null);
-  };
+  // The gateway needs a mobile number with every order: asked here, once,
+  // and saved to the profile (the API refuses a hold without one).
+  const needsPhone = !!options?.enabled && !user?.phone;
+  const phoneOk = !needsPhone || /^[6-9]\d{9}$/.test(phone);
+  const cardError = method === "CARD" ? cardProblem(card) : null;
 
   const { run: reserve, busy, error } = useAsyncAction(async () => {
     if (!token || !id || !vehicle || !range) return;
     setOutcome(null);
+    // A hold already placed can still be paid; a new one can't start in the past.
+    if (started && !held) throw new UserError(STARTED_MESSAGE);
+    if (!phoneOk) throw new UserError("Enter a 10-digit mobile number, starting 6–9.");
+    if (cardError) throw new UserError(cardError);
+
+    if (needsPhone) setUser(await authApi.updateProfile(token, { phone }));
+
     const startsAt = range.from.toISOString();
     const endsAt = range.to.toISOString();
 
@@ -125,7 +197,31 @@ export default function CheckoutScreen() {
         idempotencyKey: keyFor(attempt, `${id}|${vehicle.id}|${startsAt}|${endsAt}`),
       }));
     setHeld(booking);
-    await pay(booking);
+
+    if (!options?.enabled) {
+      setOutcome("NOT_CONFIGURED");
+      return;
+    }
+
+    if (method === "CARD") {
+      if (!booking.checkout || !options.apiVersion) throw new UserError("Couldn't start the card payment. Try again.");
+      const page = await startCardPayment(booking.checkout, options.apiVersion, {
+        number: card.number,
+        holder: card.holder.trim(),
+        expiryMonth: card.expiry.slice(0, 2),
+        expiryYear: card.expiry.slice(2, 4),
+        cvv: card.cvv,
+      });
+      // The CVV isn't kept a moment longer than the call that needed it.
+      setCard((current) => ({ ...current, cvv: "" }));
+      await openPaymentPage(page, booking.id);
+      // On the web the page has navigated away; the gateway brings the driver
+      // back to the pay screen. In the app the page was a sheet, now closed.
+      if (Platform.OS !== "web") router.push({ pathname: "/booking/[id]/pay", params: { id: booking.id } });
+      return;
+    }
+
+    router.push({ pathname: "/booking/[id]/pay", params: { id: booking.id, method: "UPI", ...(upiApp ? { app: upiApp } : {}) } });
   });
 
   if (isRestoring) return <RestoringScreen />;
@@ -142,16 +238,6 @@ export default function CheckoutScreen() {
         <ScrollView contentContainerStyle={s.body}>
           {loadError ? <ErrorNotice message={loadError} /> : null}
 
-          {outcome === "FAILED" ? (
-            <View style={s.failed}>
-              <Text style={s.failedTitle}>Payment couldn't be completed.</Text>
-              <Text style={s.failedBody}>
-                {failure ? `${failure} ` : ""}Nothing was booked. If money left your account it comes back automatically
-                within 5–7 working days. The space stays held for you for a few more minutes.
-              </Text>
-            </View>
-          ) : null}
-
           {!spot || !vehicles ? (
             loadError ? null : <ActivityIndicator color={colors.ink} style={s.loading} />
           ) : (
@@ -166,9 +252,10 @@ export default function CheckoutScreen() {
                 </View>
               </View>
 
-              <Card title="WHEN" action={{ label: "Change", onPress: back }}>
+              <Card title="WHEN" action={{ label: "Change", onPress: started ? () => router.replace("/home") : back }}>
                 <Text style={s.big}>{describeRange(range.from, range.to)}</Text>
                 <Text style={s.muted}>{formatDuration(range.minutes)}</Text>
+                {started && !held ? <Text style={s.warn}>{STARTED_MESSAGE}</Text> : null}
               </Card>
 
               <View style={s.gap}>
@@ -189,7 +276,7 @@ export default function CheckoutScreen() {
                         style={[s.option, on && s.optionOn, !takes && s.optionOff]}
                       >
                         <View style={s.optionIcon}>
-                          <CarIcon size={19} />
+                          {v.vehicleType === "BIKE" ? <BikeIcon size={19} /> : <CarIcon size={19} />}
                         </View>
                         <View style={s.flex}>
                           <Text style={s.optionTitle}>{v.vehicleNumber}</Text>
@@ -210,13 +297,17 @@ export default function CheckoutScreen() {
                 </Pressable>
               </View>
 
+              {quoteError ? <ErrorNotice message={quoteError} /> : null}
+
               {quote ? (
                 <Card title="PRICE">
                   {quote.available ? (
                     <>
                       <DataRow label={quote.basis === "DAILY" ? "Parking (day rate)" : "Parking"} value={formatRupees(quote.parking)} />
-                      <DataRow label="Platform fee" value={formatRupees(quote.platformFee)} />
-                      <DataRow label="GST on platform fee" value={formatRupees(quote.taxAmount)} />
+                      {/* No driver-side fee: GatePass's service fee comes out of the host's
+                          share. Shown only if a quote ever carries one again. */}
+                      {Number(quote.platformFee) > 0 ? <DataRow label="Fee" value={formatRupees(quote.platformFee)} /> : null}
+                      {Number(quote.taxAmount) > 0 ? <DataRow label="GST" value={formatRupees(quote.taxAmount)} /> : null}
                       <View style={s.totalRow}>
                         <Text style={s.totalLabel}>Total</Text>
                         <Text style={s.total}>{formatRupees(quote.total)}</Text>
@@ -233,28 +324,102 @@ export default function CheckoutScreen() {
 
               <View style={s.gap}>
                 <Text style={s.label}>PAY WITH</Text>
-                {METHODS.map((m) => {
+                {METHODS.filter((m) => m.key === "UPI" || options?.methods.includes(m.key)).map((m) => {
                   const on = m.key === method;
                   return (
-                    <Pressable
-                      key={m.key}
-                      onPress={() => setMethod(m.key)}
-                      accessibilityRole="radio"
-                      accessibilityState={{ checked: on }}
-                      style={[s.option, on && s.optionOn]}
-                    >
-                      <View style={s.optionIcon}>
-                        <WalletIcon size={19} />
-                      </View>
-                      <View style={s.flex}>
-                        <Text style={s.optionTitle}>{m.title}</Text>
-                        <Text style={s.muted}>{m.sub}</Text>
-                      </View>
-                      <Radio on={on} />
-                    </Pressable>
+                    <View key={m.key} style={[s.method, on && s.optionOn]}>
+                      <Pressable
+                        onPress={() => setMethod(m.key)}
+                        accessibilityRole="radio"
+                        accessibilityState={{ checked: on }}
+                        style={s.methodHead}
+                      >
+                        <View style={s.optionIcon}>{m.key === "CARD" ? <CardIcon /> : <WalletIcon size={19} />}</View>
+                        <View style={s.flex}>
+                          <Text style={s.optionTitle}>{m.title}</Text>
+                          <Text style={s.muted}>
+                            {m.key === "UPI" && PLATFORM === "desktop" ? "Scan a QR code with any UPI app on your phone" : m.sub}
+                          </Text>
+                        </View>
+                        <Radio on={on} />
+                      </Pressable>
+
+                      {on && m.key === "UPI" && UPI_APPS.length > 0 ? (
+                        <View style={s.chips}>
+                          {UPI_APPS.map((app) => (
+                            <Pressable
+                              key={app}
+                              onPress={() => setUpiApp(app)}
+                              accessibilityRole="radio"
+                              accessibilityState={{ checked: app === upiApp }}
+                              style={[s.chip, app === upiApp && s.chipOn]}
+                            >
+                              <Text style={[s.chipText, app === upiApp && s.chipTextOn]}>{UPI_APP_LABELS[app]}</Text>
+                            </Pressable>
+                          ))}
+                        </View>
+                      ) : null}
+
+                      {on && m.key === "CARD" ? (
+                        <View style={s.cardForm}>
+                          <Field
+                            label="Card number"
+                            value={card.number}
+                            onChangeText={(t) => setCard((c) => ({ ...c, number: t.replace(/\D/g, "").slice(0, 19) }))}
+                            keyboardType="number-pad"
+                            autoComplete="cc-number"
+                            placeholder="4706 1312 1121 2123"
+                          />
+                          <Field
+                            label="Name on card"
+                            value={card.holder}
+                            onChangeText={(t) => setCard((c) => ({ ...c, holder: t.slice(0, 60) }))}
+                            autoComplete="cc-name"
+                            autoCapitalize="characters"
+                          />
+                          <View style={s.cardRow}>
+                            <View style={s.flex}>
+                              <Field
+                                label="Expiry (MM/YY)"
+                                value={card.expiry.length > 2 ? `${card.expiry.slice(0, 2)}/${card.expiry.slice(2)}` : card.expiry}
+                                onChangeText={(t) => setCard((c) => ({ ...c, expiry: t.replace(/\D/g, "").slice(0, 4) }))}
+                                keyboardType="number-pad"
+                                placeholder="03/28"
+                              />
+                            </View>
+                            <View style={s.flex}>
+                              <Field
+                                label="CVV"
+                                value={card.cvv}
+                                onChangeText={(t) => setCard((c) => ({ ...c, cvv: t.replace(/\D/g, "").slice(0, 4) }))}
+                                keyboardType="number-pad"
+                                secureTextEntry
+                                autoComplete="cc-csc"
+                              />
+                            </View>
+                          </View>
+                          <Text style={s.note}>
+                            Test mode. Use a Cashfree test card (e.g. 4706 1312 1121 2123, 03/28, CVV 123, OTP 111000).
+                            No real money moves.
+                          </Text>
+                        </View>
+                      ) : null}
+                    </View>
                   );
                 })}
               </View>
+
+              {needsPhone ? (
+                <Field
+                  label="Mobile number"
+                  hint="Our payment partner needs it for every payment. Saved to your profile."
+                  value={phone}
+                  onChangeText={(t) => setPhone(t.replace(/\D/g, "").slice(0, 10))}
+                  keyboardType="phone-pad"
+                  autoComplete="tel"
+                  error={phone.length === 10 && !phoneOk ? "A 10-digit Indian mobile number, starting 6-9." : null}
+                />
+              ) : null}
 
               <View style={s.policy}>
                 <Text style={s.policyTitle}>Cancellation</Text>
@@ -292,14 +457,30 @@ export default function CheckoutScreen() {
             <View style={s.flex}>
               <Text style={s.muted}>Total</Text>
               <Text style={s.barPrice}>{quote?.available ? formatRupees(quote.total) : "—"}</Text>
+              {/* Why there is no total yet: the price depends on the vehicle. */}
+              {!quote?.available ? (
+                <Text style={s.barHint}>
+                  {started && !held
+                    ? "This time has passed. Change the time"
+                    : vehicles?.length === 0
+                    ? "Add a vehicle to see the total"
+                    : !vehicle || !takesVehicle
+                      ? "Pick a vehicle this space takes"
+                      : quote && !quote.available
+                        ? "Not available for these hours"
+                        : quoteError
+                          ? "Couldn't price this stay"
+                          : "Working out the price…"}
+                </Text>
+              ) : null}
             </View>
             <View style={s.barCta}>
               <Button
-                label={outcome === "FAILED" ? "Try Again" : "Pay & Reserve"}
+                label={held ? "Pay" : "Pay & Reserve"}
                 size="lg"
                 onPress={reserve}
                 busy={busy}
-                disabled={!quote?.available || !vehicle || outcome === "NOT_CONFIGURED"}
+                disabled={(!held && !quote?.available) || !vehicle || outcome === "NOT_CONFIGURED" || !phoneOk || !!cardError}
               />
             </View>
           </View>
@@ -379,6 +560,22 @@ const s = StyleSheet.create({
     gap: space.md,
   },
   optionOn: { borderWidth: 2, borderColor: colors.ink },
+  method: { borderWidth: 1, borderColor: colors.border, borderRadius: 10 },
+  methodHead: {
+    minHeight: 60,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.md,
+  },
+  chips: { flexDirection: "row", flexWrap: "wrap", gap: space.sm, paddingHorizontal: 14, paddingBottom: 14 },
+  chip: { minHeight: 36, paddingHorizontal: 12, borderRadius: 18, borderWidth: 1, borderColor: colors.border, justifyContent: "center" },
+  chipOn: { backgroundColor: colors.ink, borderColor: colors.ink },
+  chipText: { fontSize: 13, fontWeight: "600", color: colors.ink },
+  chipTextOn: { color: colors.surface },
+  cardForm: { gap: space.md, paddingHorizontal: 14, paddingBottom: 14 },
+  cardRow: { flexDirection: "row", gap: space.md },
   optionOff: { opacity: 0.6 },
   optionIcon: { width: 36, height: 36, borderRadius: 8, backgroundColor: colors.canvas, alignItems: "center", justifyContent: "center" },
   optionTitle: { fontSize: 15, fontWeight: "600", color: colors.ink },
@@ -394,9 +591,6 @@ const s = StyleSheet.create({
   policyTitle: { fontSize: 14, fontWeight: "700", color: colors.ink },
   policyText: { fontSize: 13, lineHeight: 19, color: colors.inkMuted },
   fine: { fontSize: 12, lineHeight: 18, color: colors.inkMuted },
-  failed: { backgroundColor: colors.dangerSurface, borderRadius: radius.md, padding: 14, gap: 4 },
-  failedTitle: { fontSize: 15, fontWeight: "700", color: "#b91c1c" },
-  failedBody: { fontSize: 13, lineHeight: 19, color: "#b91c1c" },
   held: { backgroundColor: colors.accentSurface, borderRadius: radius.md, padding: 14, gap: 6 },
   heldTitle: { fontSize: 15, fontWeight: "700", color: colors.accentInk },
   heldBody: { fontSize: 13, lineHeight: 19, color: colors.accentInk },
@@ -411,5 +605,6 @@ const s = StyleSheet.create({
     borderTopColor: colors.border,
   },
   barPrice: { fontSize: 20, fontWeight: "700", color: colors.ink },
+  barHint: { fontSize: 11, color: colors.inkMuted, marginTop: 2 },
   barCta: { flex: 1.4 },
 });

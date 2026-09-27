@@ -52,6 +52,8 @@ export interface CashfreeRequest {
    * without one is sent once: repeating it could make a second order.
    */
   idempotencyKey?: string;
+  /** Per-call headers on top of auth and version: Order Pay's x-client-*. */
+  headers?: Record<string, string>;
 }
 
 export class CashfreeClient {
@@ -90,6 +92,7 @@ export class CashfreeClient {
         url: call.path,
         data: call.body,
         headers: {
+          ...call.headers,
           "x-request-id": requestId,
           ...(call.idempotencyKey ? { "x-idempotency-key": call.idempotencyKey } : {}),
         },

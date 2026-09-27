@@ -81,7 +81,9 @@ const EnvSchema = z
     STORAGE_PUBLIC_BASE_URL: z
       .string()
       .url()
-      .default("http://localhost:3000/uploads"),
+      // 127.0.0.1, not localhost: on Windows localhost can resolve to ::1,
+      // where WSL's relay holds the port and uploads hang.
+      .default("http://127.0.0.1:3000/uploads"),
     // Refused above this at presign time, so a 40MB photo is rejected before
     // the client wastes a minute uploading it.
     // Where STORAGE_PROVIDER=local writes files. Container-local on purpose:
@@ -109,6 +111,14 @@ const EnvSchema = z
       .string({ message: 'is required, e.g. "0.18" for 18%' })
       .pipe(z.coerce.number().min(0).max(1, 'is a fraction, e.g. "0.18" for 18%')),
 
+    // GatePass's service fee: the share of each booking's parking amount it
+    // keeps; the host is paid the rest. The driver pays the listed price and
+    // nothing on top. Set only in .env, like the GST keys -- no default, so a
+    // pricing decision is never made by a missing line.
+    COMMISSION_RATE: z
+      .string({ message: 'is required, e.g. "0.10" for 10%' })
+      .pipe(z.coerce.number().min(0).max(1, 'is a fraction, e.g. "0.10" for 10%')),
+
     // Payment gateway. "none" keeps bookings working with no order behind
     // them (checkout: null); "cashfree" opens a Cashfree order per booking.
     // The secret only ever travels in a request header -- see
@@ -121,6 +131,28 @@ const EnvSchema = z
       .string()
       .regex(/^\d{4}-\d{2}-\d{2}$/, 'must look like "2026-01-01"')
       .default("2026-01-01"),
+
+    // Where a driver lands after a payment page (card 3-D Secure): the
+    // gateway sends them to API_PUBLIC_URL/payments/return, which forwards
+    // to the app -- the gatepass:// scheme on a phone, APP_WEB_URL in a
+    // desktop browser. On a real phone API_PUBLIC_URL must be an address the
+    // phone can reach (the LAN IP), not 127.0.0.1.
+    API_PUBLIC_URL: z.string().url().default("http://127.0.0.1:3000"),
+    APP_WEB_URL: z.string().url().default("http://localhost:8081"),
+
+    // The public HTTPS address of this API that the gateway posts payment
+    // webhooks to (sent as each order's notify_url, + /webhooks/cashfree).
+    // Production: the API's own domain. Development: a tunnel to this
+    // machine (cloudflared), since the gateway can't reach localhost. Unset,
+    // orders carry no notify_url and payments are confirmed only when a
+    // driver's screen asks (GET /bookings/:id).
+    WEBHOOK_PUBLIC_URL: emptyToUndefined.pipe(
+      z
+        .string()
+        .url()
+        .refine((value) => value.startsWith("https://"), "must be https:// -- Cashfree refuses anything else")
+        .optional()
+    ),
 
     // Structured logs (pino, through Fastify). Security events are `warn`,
     // state changes `info`; see lib/security-log.
@@ -174,6 +206,16 @@ const EnvSchema = z
             message: "required when PAYMENT_PROVIDER=cashfree",
           });
         }
+      }
+
+      // Without it a driver who closes the app after paying stays unconfirmed
+      // until they open the booking again.
+      if (value.NODE_ENV === "production" && !value.WEBHOOK_PUBLIC_URL) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["WEBHOOK_PUBLIC_URL"],
+          message: "required when NODE_ENV=production and PAYMENT_PROVIDER=cashfree",
+        });
       }
 
       // A sandbox payment "succeeds" with test cards; in production it would

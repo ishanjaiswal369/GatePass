@@ -15,7 +15,8 @@
     "test:api": "node --import tsx/esm test/api.ts",
     "test:migrations": "node --import tsx/esm test/migrations.ts",
     "test:fixture": "node --import tsx/esm test/smoke-fixture.ts",
-    "test:cashfree": "node --import tsx/esm test/cashfree.ts"
+    "test:cashfree": "node --import tsx/esm test/cashfree.ts",
+    "tunnel": "cloudflared tunnel --url http://127.0.0.1:3000"
   },
   "dependencies": {
     "@fastify/cors": "^9.0.1",

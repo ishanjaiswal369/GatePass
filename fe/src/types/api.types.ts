@@ -89,41 +89,6 @@ export interface Page<T> {
   nextCursor: string | null;
 }
 
-export interface EventFeedItem {
-  id: string;
-  name: string;
-  venueName: string;
-  eventDate: string;
-  latitude: number | null;
-  longitude: number | null;
-  minPrice: number;
-  spotsLeft: number;
-  vehicleTypes: VehicleType[];
-  /** Null unless the request carried a position. */
-  distanceKm: number | null;
-}
-
-export interface EventCapacity {
-  id: string;
-  vehicleType: VehicleType;
-  gate: string | null;
-  price: string;
-  spotsLeft: number;
-}
-
-export interface EventDetail {
-  id: string;
-  name: string;
-  venueName: string;
-  eventDate: string | null;
-  latitude: string | null;
-  longitude: string | null;
-  listingType: ListingType;
-  status: ListingStatus;
-  organizer: { name: string } | null;
-  capacities: EventCapacity[];
-}
-
 export interface BookingListing {
   id: string;
   name: string;
@@ -135,20 +100,11 @@ export interface BookingListing {
   /** Decimal strings; only a host spot has them. Used for directions. */
   latitude?: string | null;
   longitude?: string | null;
-  eventDate: string | null;
   listingType: ListingType;
   status: ListingStatus;
 }
 
-/**
- * A booking in either of its two shapes.
- *
- * An event booking claims slots from a `parkingCapacity` and reaches its
- * listing through it. A host-spot booking carries its own `listing` plus the
- * hours it covers. Exactly one side is ever populated -- the database
- * enforces it -- so read whichever is not null; `lib/booking.ts` does that in
- * one place rather than at every call site.
- */
+/** A booking: a stretch of time on one host's space. */
 export interface BookingRow {
   id: string;
   quantity: number;
@@ -160,7 +116,7 @@ export interface BookingRow {
   vehicleNumber: string;
   vehicleType: VehicleType | null;
   /**
-   * When an unpaid hold on a host spot lapses. Null on an event booking. It is
+   * When an unpaid hold lapses. It is
    * stamped once at creation and never cleared, so it only means anything
    * while the booking is PENDING -- a confirmed booking is not held, it is
    * booked.
@@ -196,13 +152,6 @@ export interface BookingRow {
     refunded: boolean | null;
     createdAt: string;
   } | null;
-  parkingCapacity: {
-    id: string;
-    vehicleType: VehicleType;
-    gate: string | null;
-    price: string;
-    listing: BookingListing;
-  } | null;
 }
 
 export type BookingPhase =
@@ -216,7 +165,9 @@ export type BookingPhase =
 export interface BookingRefund {
   amount: string;
   status: RefundStatus;
-  /** FULL, LATE: which rule of the cancellation policy set the amount. */
+  /** FULL, LATE: which rule of the cancellation policy set the amount. HOLD_LAPSED,
+   *  CANCELLED_BEFORE_PAYMENT, PAID_AFTER_STAY: a payment that landed on a booking
+   *  that could no longer go ahead, refunded in full. */
   policy: string;
   reference: string | null;
   createdAt: string;
@@ -267,6 +218,7 @@ export interface ExtensionOptions {
 export interface GatePassResult {
   booking: {
     id: string;
+    /** Always null: a spot has no gate (a leftover of event passes). */
     gate: string | null;
     vehicleType: VehicleType;
     eventName: string;
@@ -721,7 +673,7 @@ export interface HostBooking {
 }
 
 export interface HostSummary {
-  month: { net: string; bookings: number };
+  month: { net: string; bookings: number; commissionRate: number };
   available: string;
   today: HostBooking[];
   ratings: Record<string, { rating: number; reviewCount: number }>;
@@ -777,4 +729,39 @@ export interface BookingAccess {
   accessInstructions: string | null;
   bayNumber: string | null;
   parkingMarker: string | null;
+}
+
+/** What the checkout may offer, from GET /payments/options. CARD only in the gateway's sandbox. */
+export interface PaymentOptions {
+  enabled: boolean;
+  environment: "sandbox" | "production" | null;
+  /** The gateway API version the app's own card call sends. */
+  apiVersion: string | null;
+  methods: ("UPI" | "CARD")[];
+}
+
+/** The gateway order behind a new hold; only in the booking's owner's response. */
+export interface PaymentCheckout {
+  provider: "cashfree";
+  environment: "sandbox" | "production";
+  orderId: string;
+  paymentSessionId: string;
+  expiresAt: string;
+}
+
+/** POST /spot-bookings answers with the booking and, with a gateway on, its order. */
+export type HeldSpotBooking = BookingRow & { checkout?: PaymentCheckout | null };
+
+export type UpiApp = "default" | "gpay" | "phonepe" | "paytm" | "bhim";
+
+/** One UPI attempt: links into UPI apps (only the ones the API allow-listed), or a QR. */
+export type UpiPaymentStart =
+  | { channel: "INTENT"; apps: Partial<Record<UpiApp, string>>; expiresAt: string }
+  | { channel: "QR"; qrImage: string; expiresAt: string };
+
+export interface PaymentClientHints {
+  device: "mobile" | "desktop" | "tablet";
+  os: "android" | "ios" | "windows" | "macos" | "linux" | "others";
+  rendering?: "native" | "mweb" | "webview";
+  browser: "chrome" | "safari" | "firefox" | "edge" | "others";
 }

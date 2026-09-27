@@ -9,7 +9,7 @@ export const PAYOUT_ACCOUNT_TYPES = ["INDIVIDUAL", "BUSINESS"] as const;
 export type PayoutAccountType = (typeof PAYOUT_ACCOUNT_TYPES)[number];
 
 /**
- * A business account's category, asked only for BUSINESS.
+ * A business account's category, picked by the host.
  *
  * Cashfree doesn't publish the list of values it accepts. This holds the
  * ones confirmed so far; the rest are added from the Cashfree dashboard's

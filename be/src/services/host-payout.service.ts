@@ -14,6 +14,7 @@ import { normalisePhone } from "../lib/phone.js";
 import { prisma } from "../lib/prisma.js";
 import { audit } from "../lib/security-log.js";
 import * as adminSpotService from "./admin-spot.service.js";
+import * as hostService from "./host.service.js";
 
 /**
  * The host's payout account: the thing that has to exist before money can
@@ -53,12 +54,13 @@ export interface SubmitPayoutInput {
   accountNumber: string;
   ifsc: string;
   accountType: PayoutAccountType;
+  /** A business account only; an individual sends none. */
   businessType?: string;
   phone?: string;
 }
 
 /** Statuses from which a host may (re)submit their details. */
-const SUBMITTABLE = ["NOT_STARTED", "REJECTED"];
+const SUBMITTABLE = ["NOT_STARTED", "REJECTED", "ACTIVATED"];
 
 /** Still being checked: the only statuses worth asking the gateway about again. */
 const IN_PROGRESS = ["PENDING", "UNDER_REVIEW"];
@@ -137,19 +139,74 @@ async function loadProfile(hostProfileId: string) {
 }
 
 /**
- * The host's payout account, with a fresh status from the gateway when it is
- * still being checked -- so a host who opens "Getting paid" after the
- * gateway has finished sees the answer without waiting for a webhook.
+ * The payout account of a signed-in user, host yet or not.
  *
- * The refresh is best-effort: throttled, and a gateway that is down leaves
- * the stored status on screen rather than an error.
+ * Payouts are their own tab, reachable before anything is listed, so a user
+ * without a host profile gets an empty "not set up" account rather than a
+ * 403 -- the same shape the form reads, with no profile created by reading.
+ */
+export async function getStatusForUser(userId: string) {
+  const profile = await activeProfileOf(userId);
+  if (profile) return getStatus(profile.id);
+
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { phone: true } });
+  return view({
+    payoutAccountId: null,
+    payoutKycStatus: "NOT_STARTED",
+    panNumber: null,
+    payoutAccountName: null,
+    payoutAccountNumber: null,
+    payoutIfsc: null,
+    payoutSubmittedAt: null,
+    payoutAccountType: null,
+    payoutBusinessType: null,
+    payoutIssue: null,
+    payoutCheckedAt: null,
+    user: { phone: user.phone },
+  });
+}
+
+/**
+ * Submits a signed-in user's payout details, making them a host if they are
+ * not one yet: the payee the gateway registers is the host profile (its id is
+ * the vendor id), and setting up payouts before listing is allowed.
+ */
+export async function submitForUser(userId: string, input: SubmitPayoutInput) {
+  const hostProfileId = await hostService.ensureProfile(userId);
+  await activeProfileOf(userId);
+  return submit(hostProfileId, input);
+}
+
+/** The user's host profile, or null; a suspended one is refused, as requireHost does. */
+async function activeProfileOf(userId: string) {
+  const profile = await prisma.hostProfile.findUnique({ where: { userId }, select: { id: true, verificationStatus: true } });
+  if (profile && profile.verificationStatus !== "ACTIVE") {
+    throw new AppError("Host profile is not active", 403, "HOST_PROFILE_INACTIVE");
+  }
+  return profile;
+}
+
+/**
+ * The host's payout account, read from the database -- and from the gateway
+ * only while the gateway still owes an answer.
+ *
+ * When the gateway is asked (Get Vendor):
+ *   - never with no vendor yet (NOT_STARTED): there is nothing to ask about;
+ *   - never once settled: ACTIVATED is the answer, and REJECTED waits on the
+ *     host fixing their details (which calls Update Vendor, not this);
+ *   - while PENDING / UNDER_REVIEW, at most once per REFRESH_AFTER_MS across
+ *     every request for this host. The slot is claimed with one conditional
+ *     write, so the Host tab and the Payouts tab loading at once make one
+ *     call between them, not two.
+ *
+ * Best-effort: a gateway that is down leaves the stored status on screen
+ * rather than an error. The vendor-status webhook will replace the polling.
  */
 export async function getStatus(hostProfileId: string) {
   const profile = await loadProfile(hostProfileId);
   const gateway = getPaymentGateway();
 
-  const stale = !profile.payoutCheckedAt || Date.now() - profile.payoutCheckedAt.getTime() > REFRESH_AFTER_MS;
-  if (gateway && profile.payoutAccountId && IN_PROGRESS.includes(profile.payoutKycStatus) && stale) {
+  if (gateway && profile.payoutAccountId && IN_PROGRESS.includes(profile.payoutKycStatus) && (await claimRefresh(hostProfileId))) {
     try {
       const vendor = await gateway.getVendor(profile.payoutAccountId);
       const refreshed = await record(hostProfileId, profile.userId, vendor, "getVendor");
@@ -163,13 +220,34 @@ export async function getStatus(hostProfileId: string) {
 }
 
 /**
+ * Takes this host's refresh slot if it is free: stamps payoutCheckedAt only
+ * when the last check is older than REFRESH_AFTER_MS. Whoever's write lands
+ * asks the gateway; a concurrent request finds the slot taken and reads the
+ * database.
+ */
+async function claimRefresh(hostProfileId: string): Promise<boolean> {
+  const claimed = await prisma.hostProfile.updateMany({
+    where: {
+      id: hostProfileId,
+      OR: [{ payoutCheckedAt: null }, { payoutCheckedAt: { lt: new Date(Date.now() - REFRESH_AFTER_MS) } }],
+    },
+    data: { payoutCheckedAt: new Date() },
+  });
+  return claimed.count === 1;
+}
+
+/**
  * Submits the host's payout details.
  *
  * With a gateway: registers the host as its payee (Create Vendor), or updates
  * the payee they already are (Update Vendor) -- a host fixing a rejected
- * account. The gateway's answer sets the status. Nothing but the phone is
- * saved if the gateway refuses the details, so a failed submission never
- * shows as "being checked".
+ * account, or an active one changing bank account. The gateway's answer sets
+ * the status, whatever it was: an active host who changes account goes back
+ * to "being checked" until the gateway verifies the new one, and their spaces
+ * stop taking bookings meanwhile (search and booking need ACTIVATED) -- money
+ * never goes to an account nobody has verified (owner's decision,
+ * 2026-09-26). Nothing but the phone is saved if the gateway refuses the
+ * details, so a failed submission never shows as "being checked".
  *
  * Without one: the details are recorded and the host waits at UNDER_REVIEW
  * for an admin.
@@ -178,11 +256,9 @@ export async function submit(hostProfileId: string, input: SubmitPayoutInput) {
   const profile = await loadProfile(hostProfileId);
 
   if (!SUBMITTABLE.includes(profile.payoutKycStatus) && !needsDetails(profile)) {
-    throw conflict(
-      profile.payoutKycStatus === "ACTIVATED"
-        ? "Payout account is already active"
-        : "Payout details are already under review"
-    );
+    // Only an account mid-verification can't change: the gateway is still
+    // checking what was sent, and a second set would race its answer.
+    throw conflict("Payout details are being verified. You can change them once that finishes.");
   }
 
   // Update Vendor sends status ACTIVE; a blocked payee re-submitting must not
@@ -197,6 +273,8 @@ export async function submit(hostProfileId: string, input: SubmitPayoutInput) {
     payoutAccountNumber: input.accountNumber,
     payoutIfsc: input.ifsc,
     payoutAccountType: input.accountType,
+    // What the host chose -- a business's category. An individual chose
+    // nothing, so nothing is kept, though the gateway is sent a default.
     payoutBusinessType: input.accountType === "BUSINESS" ? input.businessType ?? null : null,
     payoutSubmittedAt: new Date(),
   };
@@ -225,7 +303,12 @@ export async function submit(hostProfileId: string, input: SubmitPayoutInput) {
     email: profile.user.email,
     phone,
     bank: { accountNumber: input.accountNumber, accountHolder: input.accountHolderName, ifsc: input.ifsc },
-    kyc: { accountType: input.accountType, businessType: details.payoutBusinessType ?? undefined, pan: input.panNumber },
+    kyc: {
+      accountType: input.accountType,
+      // A business account only; an individual is sent without one.
+      businessType: input.accountType === "BUSINESS" ? input.businessType : undefined,
+      pan: input.panNumber,
+    },
     // One per submission, reused by the client's retries of it.
     idempotencyKey: randomUUID(),
   };

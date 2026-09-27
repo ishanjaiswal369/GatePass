@@ -5,7 +5,6 @@ import type {
   CancellationInput,
   CreateExtensionInput,
   ExtensionOptionsInput,
-  CreateBookingInput,
   CreateSpotBookingInput,
   GetBookingInput,
   ListBookingsInput,
@@ -62,19 +61,6 @@ export const bookingController = {
     );
   },
 
-  create: async (
-    input: CreateBookingInput,
-    request: FastifyRequest,
-    reply: FastifyReply
-  ) => {
-    const { booking, replayed } = await bookingService.create(
-      input.body,
-      request.user.userId
-    );
-
-    // A replay is not a creation, so it does not answer 201.
-    return reply.code(replayed ? 200 : 201).send(booking);
-  },
 
   createSpot: async (
     input: CreateSpotBookingInput,

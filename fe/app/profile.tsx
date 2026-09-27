@@ -54,8 +54,8 @@ export default function ProfileScreen() {
         <View style={s.heading}>
           <Text style={s.title}>Email verified</Text>
           <Text style={s.sub}>
-            One last thing — what should we call you? Organizers see this on
-            your pass at the gate.
+            One last thing — what should we call you? Hosts see this with your
+            booking.
           </Text>
         </View>
 

@@ -4,7 +4,7 @@
  * agree by convention -- keep this file in step when the backend changes.
  */
 
-export const ROLES = ["DRIVER", "ORGANIZER", "ADMIN"] as const;
+export const ROLES = ["DRIVER", "ADMIN"] as const;
 export type Role = (typeof ROLES)[number];
 
 export const DEVICE_TYPES = ["IOS", "ANDROID", "WEB", "OTHER"] as const;
@@ -22,13 +22,9 @@ export const BOOKING_STATUSES = [
 ] as const;
 export type BookingStatus = (typeof BOOKING_STATUSES)[number];
 
-export const LISTING_TYPES = [
-  "EVENT",
-  "RECURRING",
-  "COMMERCIAL",
-  // A private spot rented out by an individual host.
-  "INDEPENDENT_SPOT",
-] as const;
+// A private spot rented out by an individual host -- the only kind since
+// event parking was removed (2026-09-27).
+export const LISTING_TYPES = ["INDEPENDENT_SPOT"] as const;
 export type ListingType = (typeof LISTING_TYPES)[number];
 
 export const VERIFICATION_PURPOSES = [
@@ -45,9 +41,6 @@ export const VERIFICATION_STATUSES = [
   "SUSPENDED",
 ] as const;
 export type VerificationStatus = (typeof VERIFICATION_STATUSES)[number];
-
-export const ORGANIZER_MEMBER_ROLES = ["OWNER", "MANAGER", "STAFF"] as const;
-export type OrganizerMemberRole = (typeof ORGANIZER_MEMBER_ROLES)[number];
 
 export const PAYMENT_STATUSES = [
   "CREATED",

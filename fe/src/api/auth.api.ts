@@ -42,7 +42,7 @@ export const getMe = (token: string) => request<MeResult>("/auth/me", { token })
 
 export const updateProfile = (
   token: string,
-  input: { firstName?: string; lastName?: string | null }
+  input: { firstName?: string; lastName?: string | null; phone?: string }
 ) => request<MeResult>("/auth/me", { method: "PATCH", body: input, token });
 
 export const listSessions = (token: string) =>

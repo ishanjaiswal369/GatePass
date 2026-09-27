@@ -1,28 +1,19 @@
 import type { ChipTone } from "@/components/ui";
-import type { BookingListing, BookingPhase, BookingRow, VehicleType } from "@/types/api.types";
+import type { BookingListing, BookingPhase, BookingRow } from "@/types/api.types";
 
 /**
- * Reading a booking without caring which shape it is.
- *
- * A booking is either slots at a dated event (through `parkingCapacity`) or
- * hours at a host's spot (through `listing` plus a time range). Every screen
- * shows the same four things about both -- where, what vehicle, when, how
- * much -- so the branching happens here once instead of at each of them.
+ * Reading a booking the same way on every screen -- where, when, how much.
  */
 
 export function bookingListing(row: BookingRow): BookingListing | null {
-  return row.listing ?? row.parkingCapacity?.listing ?? null;
+  return row.listing;
 }
 
-export function bookingVehicleType(row: BookingRow): VehicleType | null {
-  return row.parkingCapacity?.vehicleType ?? row.vehicleType ?? null;
-}
-
-/** A host spot has no gate: getting in is the access instructions' job. */
-export function bookingGate(row: BookingRow): string | null {
-  return row.parkingCapacity?.gate ?? null;
-}
-
+/**
+ * Always true since event parking was removed (2026-09-27): every booking is
+ * a stretch of time at a host's spot. Screens that still branch on it can
+ * drop their other side.
+ */
 export function isSpotBooking(row: BookingRow): boolean {
   return row.startsAt !== null;
 }
@@ -50,9 +41,7 @@ function dayOf(date: Date): string {
 /**
  * When the booking is for, in one line.
  *
- * A spot booking is a range and says so; an event booking is a start time. An
- * undated event ("Any time") is a real state -- a listing can be published
- * without a date -- rather than missing data.
+ * A range, collapsed to one day when it starts and ends on the same one.
  */
 export function bookingWhen(row: BookingRow): string {
   if (row.startsAt && row.endsAt) {
@@ -66,19 +55,14 @@ export function bookingWhen(row: BookingRow): string {
       : `${dayOf(from)} ${timeOf(from)} – ${dayOf(to)} ${timeOf(to)}`;
   }
 
-  const eventDate = bookingListing(row)?.eventDate;
-  if (!eventDate) return "Any time";
-
-  const date = new Date(eventDate);
-  return `${dayOf(date)} · ${timeOf(date)}`;
+  return "";
 }
 
 /**
  * How much longer an unpaid hold lasts, in whole minutes.
  *
- * Null when the booking is not holding anything: an event booking, which has
- * no hold, or a spot booking past PENDING, whose `holdExpiresAt` is still set
- * but no longer decides anything. 0 means the hold has lapsed and the next
+ * Null when the booking is not holding anything: past PENDING its
+ * `holdExpiresAt` is still set but no longer decides anything. 0 means the hold has lapsed and the next
  * driver to ask for those hours will sweep it.
  */
 export function holdMinutesLeft(row: BookingRow): number | null {

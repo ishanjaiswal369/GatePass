@@ -21,7 +21,9 @@ export const WIZARD_STEPS = [
   "pricing",
   "access",
   "documents",
-  "payout",
+  // No payout step: the payout account is the host's, not a listing's, and
+  // is set up on its own Payouts tab (app/payouts). A listing is submitted
+  // without it and goes live once it is active.
   "review",
 ] as const;
 

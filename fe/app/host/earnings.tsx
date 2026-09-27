@@ -4,6 +4,8 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import { ApiError, hostApi } from "@/api";
 import { DataRow, ErrorNotice, PhoneFrame, RestoringScreen, ScreenHeader, StatusChip, type ChipTone } from "@/components/ui";
 import { formatRupees } from "@/lib/money";
+import { serviceFeeLabel } from "@/lib/fees";
+import { PAYOUTS_PATH } from "@/lib/payoutAccount";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, radius, space } from "@/theme";
 import type { HostEarnings, PayoutState } from "@/types/api.types";
@@ -22,10 +24,11 @@ const EXAMPLE = 250;
  * Earnings & payouts.
  *
  * Every number comes from the API's ledger: a host earns the parking they
- * keep (after any refund) less the commission; the driver's platform fee and
- * GST are never theirs to lose. Payouts are sent by GatePass (an admin
- * creates the settlement today), so the screen says what is available rather
- * than promising a payout date nothing schedules yet.
+ * keep (after any refund) less GatePass's service fee (lib/fees); the driver
+ * pays the listed price and nothing on top. The host's share is paid out by
+ * the payment gateway from each order (Easy Split), so the screen says what
+ * is available rather than promising a payout date; transfers to the bank
+ * show up here once the gateway's settlement webhook is wired.
  */
 export default function HostEarningsScreen() {
   const { token, isRestoring } = useSession();
@@ -90,16 +93,16 @@ export default function HostEarningsScreen() {
               <View style={s.card}>
                 <Text style={s.label}>THIS MONTH · {data.month.label.toUpperCase()}</Text>
                 <DataRow label="Total earnings (gross)" value={formatRupees(data.month.gross)} />
-                <DataRow label={`Platform fee (${Math.round(rate * 100)}%)`} value={`− ${formatRupees(data.month.commission)}`} />
+                <DataRow label={serviceFeeLabel(rate)} value={`− ${formatRupees(data.month.commission)}`} />
                 <DataRow label="Net" value={formatRupees(data.month.net)} />
               </View>
 
               <View style={s.split}>
                 <Text style={s.splitTitle}>How one booking splits</Text>
                 <DataRow label="Driver pays for parking" value={formatRupees(EXAMPLE)} />
-                <DataRow label={`GatePass commission (${Math.round(rate * 100)}%)`} value={`− ${formatRupees(EXAMPLE * rate)}`} />
+                <DataRow label={serviceFeeLabel(rate)} value={`− ${formatRupees(EXAMPLE * rate)}`} />
                 <DataRow label="You receive" value={formatRupees(EXAMPLE * (1 - rate))} />
-                <Text style={s.small}>The driver's own platform fee and GST are separate and never come out of your share.</Text>
+                <Text style={s.small}>The driver pays your listed price and nothing more. GatePass keeps the service fee; the rest is yours.</Text>
               </View>
 
               <Text style={s.label}>TRANSACTIONS</Text>
@@ -125,7 +128,7 @@ export default function HostEarningsScreen() {
               )}
 
               <Text style={s.label}>PAYOUT ACCOUNT</Text>
-              <Pressable onPress={() => router.push("/host/spot/payout")} accessibilityRole="button" style={s.card}>
+              <Pressable onPress={() => router.push(PAYOUTS_PATH)} accessibilityRole="button" style={s.card}>
                 <Text style={s.txTitle}>
                   {account?.accountNumberLast4 ? `Bank account •• ${account.accountNumberLast4}` : "No payout account yet"}
                 </Text>

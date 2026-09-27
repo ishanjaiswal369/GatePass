@@ -20,8 +20,18 @@ model Payment {
   gatewaySessionId    String?
   /// When the gateway stops accepting payment for the order: the hold's expiry.
   gatewayExpiresAt    DateTime?
-  /// Everything the driver pays: parking + platform fee + GST.
+  /// When the gateway was last asked how the order's payments stand. Claimed
+  /// with one conditional write, so screens polling a booking make at most
+  /// one gateway call per few seconds between them.
+  gatewayCheckedAt    DateTime?
+  /// Everything the driver pays: the booking's amount + platformFee + taxAmount (the last two now zero).
   amount              Decimal
+  /// The host's payee at the gateway (Easy Split vendor id) and what the order
+  /// routes to them: the parking less GatePass's service fee. Fixed when the
+  /// order is first opened, so a retry sends the same split and a later change
+  /// of COMMISSION_RATE never rewrites an order already made.
+  splitVendorId       String?
+  splitAmount         Decimal?
   status              String        @default("CREATED")
   createdBy           String?
   updatedBy           String?

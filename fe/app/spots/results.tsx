@@ -13,11 +13,19 @@ import {
   SlidersIcon,
   SpotListItem,
 } from "@/components/ui";
-import type { VehicleSize, VehicleType } from "@/constants/enums";
+import type { VehicleType } from "@/constants/enums";
 import { ResultsMap } from "@/features/search/ResultsMap";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { leadRate } from "@/lib/money";
-import { describeCriteria, formatDuration, fromParams, toParams, type SearchCriteria } from "@/lib/searchCriteria";
+import {
+  describeCriteria,
+  formatDuration,
+  fromParams,
+  hasStarted,
+  STARTED_MESSAGE,
+  toParams,
+  type SearchCriteria,
+} from "@/lib/searchCriteria";
 import {
   activeFilterCount,
   filtersFromParams,
@@ -26,6 +34,7 @@ import {
   NO_FILTERS,
   type SearchFilters,
 } from "@/lib/searchFilters";
+import { searchVehicle } from "@/lib/searchVehicle";
 import { VEHICLE_LABELS } from "@/lib/spotLabels";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, radius, space } from "@/theme";
@@ -57,31 +66,41 @@ export default function SpotResultsScreen() {
   const [selected, setSelected] = useState<string | null>(null);
   const [mapOn, setMapOn] = useState(true);
   const [vehicleType, setVehicleType] = useState<VehicleType | null | undefined>(undefined);
-  // SUVs and vans are sizes of car: the default car's size hides spaces it won't fit.
-  const [vehicleSize, setVehicleSize] = useState<VehicleSize | null>(null);
+  const [vehicleNumber, setVehicleNumber] = useState<string | null>(null);
 
   const scroller = useRef<ScrollView>(null);
   const offsets = useRef<Record<string, number>>({});
 
-  // The default vehicle decides which rate the cards show. `undefined` until
-  // known, so the search waits for it rather than running twice.
+  // The vehicle picked on the search form (lib/searchVehicle) decides which
+  // spaces come back and which rate the cards show -- by type only: a bike
+  // sees bike spaces, any car sees every car space. `undefined` until known,
+  // so the search waits for it rather than running twice.
   useEffect(() => {
     if (!token) return;
     profileApi
       .listVehicles(token)
       .then(({ vehicles }) => {
-        const main = vehicles.find((v) => v.isDefault) ?? vehicles[0];
-        setVehicleSize(main?.vehicleType === "CAR" ? main.size ?? null : null);
-        setVehicleType(main?.vehicleType ?? null);
+        const chosen = searchVehicle(vehicles, criteria?.vehicle);
+        setVehicleNumber(chosen?.vehicleNumber ?? null);
+        setVehicleType(chosen?.vehicleType ?? null);
       })
       .catch(() => setVehicleType(null));
-  }, [token]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, criteria?.vehicle]);
 
   const load = useCallback(
     async (search: SearchCriteria, narrow: SearchFilters, vehicle: VehicleType | null) => {
       if (!token) return;
       setSpots(null);
       setError(null);
+
+      // A search reopened from history or a tab left open carries the time it
+      // was made with; one that has started can't be booked, so it isn't run.
+      if (hasStarted(search.from)) {
+        setSpots([]);
+        setError(STARTED_MESSAGE);
+        return;
+      }
 
       try {
         const { spots: found } = await spotsApi.nearby(token, {
@@ -91,7 +110,6 @@ export default function SpotResultsScreen() {
           at: search.from,
           durationMinutes: Math.round((Date.parse(search.to) - Date.parse(search.from)) / 60_000),
           vehicleType: vehicle ?? undefined,
-          vehicleSize: vehicleSize ?? undefined,
           amenities: narrow.amenities,
           spaceTypes: narrow.spaceTypes,
           maxPricePerHour: narrow.maxPricePerHour ?? undefined,
@@ -106,7 +124,7 @@ export default function SpotResultsScreen() {
         setError(err instanceof ApiError ? err.message : "Could not search for spaces");
       }
     },
-    [token, vehicleSize]
+    [token]
   );
 
   // On focus: coming back from Filters or a spot (where it may have been
@@ -220,7 +238,9 @@ export default function SpotResultsScreen() {
                 {spots.length === 1 ? "1 space" : `${spots.length} spaces`} within {radiusKm} km
               </Text>
               <Text style={s.sub}>
-                {vehicleType ? `Prices for your ${VEHICLE_LABELS[vehicleType].toLowerCase()}` : "Lowest price for any vehicle"}
+                {vehicleType
+                  ? `Spaces for your ${VEHICLE_LABELS[vehicleType].toLowerCase()}${vehicleNumber ? ` ${vehicleNumber}` : ""}`
+                  : "Every space · lowest price for any vehicle"}
               </Text>
             </View>
             <Pressable
@@ -244,9 +264,15 @@ export default function SpotResultsScreen() {
             <Skeleton />
           ) : spots.length === 0 ? (
             error ? (
-              <EmptyState icon={<SearchIcon size={28} color={colors.ink} />} title="Something went wrong." body={error}>
-                <Button label="Retry" onPress={() => vehicleType !== undefined && void load(criteria, filters, vehicleType)} />
-              </EmptyState>
+              hasStarted(criteria.from) ? (
+                <EmptyState icon={<SearchIcon size={28} color={colors.ink} />} title="That time has passed." body={error}>
+                  <Button label="Change Time" onPress={() => router.replace("/home")} />
+                </EmptyState>
+              ) : (
+                <EmptyState icon={<SearchIcon size={28} color={colors.ink} />} title="Something went wrong." body={error}>
+                  <Button label="Retry" onPress={() => vehicleType !== undefined && void load(criteria, filters, vehicleType)} />
+                </EmptyState>
+              )
             ) : (
               <EmptyState
                 icon={<SearchIcon size={28} color={colors.ink} />}

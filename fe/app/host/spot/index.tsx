@@ -19,8 +19,9 @@ import { useSpotDraft } from "@/hooks/useSpotDraft";
 import { groupByHours } from "@/lib/hours";
 import { listingStatus } from "@/lib/listingRules";
 import { rateLine } from "@/lib/money";
+import { PAYOUTS_PATH, payoutAccountState, type PayoutAccountState } from "@/lib/payoutAccount";
 import { colors, radius, space, type } from "@/theme";
-import type { SpotListing } from "@/types/api.types";
+import type { PayoutAccount, SpotListing } from "@/types/api.types";
 
 const SECTION_TITLES: Partial<Record<WizardStep, string>> = {
   type: "Your space",
@@ -31,7 +32,6 @@ const SECTION_TITLES: Partial<Record<WizardStep, string>> = {
   pricing: "Pricing",
   access: "Getting in",
   documents: "Proof & permission",
-  payout: "Getting paid",
 };
 
 /**
@@ -48,6 +48,7 @@ export default function SpotStatusScreen() {
   const { spot, loading, error, isRestoring, token } = useSpotDraft();
   const { submitted } = useLocalSearchParams<{ submitted?: string }>();
   const [resume, setResume] = useState<string | null>(null);
+  const [payout, setPayout] = useState<PayoutAccount | null>(null);
 
   // A draft: find the first step with something missing.
   useEffect(() => {
@@ -60,6 +61,13 @@ export default function SpotStatusScreen() {
         setResume(stepHref(first, spot.id));
       })
       .catch(() => setResume(firstStepPath(spot.id)));
+  }, [token, spot]);
+
+  // Past the wizard, the one thing between an approved listing and a live
+  // one can be the host's payout account; the card says which.
+  useEffect(() => {
+    if (!token || !spot || spot.status === "DRAFT") return;
+    spotListingApi.getPayoutAccount(token).then(setPayout, () => setPayout(null));
   }, [token, spot]);
 
   if (isRestoring || loading) return <RestoringScreen />;
@@ -81,7 +89,7 @@ export default function SpotStatusScreen() {
             <ActivityIndicator color={colors.ink} style={s.loader} />
           ) : (
             <>
-              <StatusCard spot={spot} justSubmitted={submitted === "1"} />
+              <StatusCard spot={spot} payout={payout} justSubmitted={submitted === "1"} />
               <SpotSummary spot={spot} />
             </>
           )}
@@ -102,7 +110,7 @@ export default function SpotStatusScreen() {
  * who is told only about the document reads an activated payout account as
  * the listing being stuck.
  */
-function StatusCard({ spot, justSubmitted }: { spot: SpotListing; justSubmitted: boolean }) {
+function StatusCard({ spot, payout, justSubmitted }: { spot: SpotListing; payout: PayoutAccount | null; justSubmitted: boolean }) {
   const chip = listingStatus(spot);
 
   if (spot.status === "REJECTED") {
@@ -127,6 +135,7 @@ function StatusCard({ spot, justSubmitted }: { spot: SpotListing; justSubmitted:
 
   if (spot.status === "PENDING_REVIEW") {
     const approved = Boolean(spot.docApprovedAt);
+    const payoutState = payoutAccountState(payout);
     return (
       <View style={[s.status, approved && s.statusGood]}>
         <View style={s.statusHead}>
@@ -138,13 +147,27 @@ function StatusCard({ spot, justSubmitted }: { spot: SpotListing; justSubmitted:
         <StatusChip label={approved ? "APPROVED" : "UNDER REVIEW"} tone={chip.tone} />
         <Text style={s.statusBody}>
           {approved
-            ? "Your document has been approved. Your listing goes live as soon as your payout account is active."
+            ? payoutState === "none"
+              ? "Your document has been approved. Add your payout account and your listing goes live."
+              : "Your document has been approved. Your listing goes live as soon as your payout account is active."
             : justSubmitted
               ? "Your parking space has been submitted for verification. We'll review your information and notify you when your listing is approved."
               : "We'll review your information and notify you when your listing is approved."}
         </Text>
         <Step done={approved} text="We check the ownership proof you attached." />
-        <Step done={false} text="Your payout account is verified, so you can be paid." />
+        <Step
+          done={payoutState === "ready"}
+          text={PAYOUT_STEP_TEXT[payoutState]}
+        />
+        {/* The account is set up off the Host tab, not in this listing, so
+            the way there is offered wherever the listing waits on it. */}
+        {payout && payoutState !== "ready" ? (
+          <Button
+            label={payoutState === "none" ? "Add payout account" : payoutState === "failed" ? "Fix payout details" : "View payout account"}
+            variant={payoutState === "pending" ? "ghost" : "primary"}
+            onPress={() => router.push(PAYOUTS_PATH)}
+          />
+        ) : null}
       </View>
     );
   }
@@ -169,6 +192,14 @@ function StatusCard({ spot, justSubmitted }: { spot: SpotListing; justSubmitted:
   );
 }
 
+/** The payout gate, as the second step on an approved or pending listing. */
+const PAYOUT_STEP_TEXT: Record<PayoutAccountState, string> = {
+  ready: "Your payout account is active.",
+  pending: "Your payout account is being verified.",
+  failed: "Your payout account needs attention.",
+  none: "Add a payout account, so you can be paid.",
+};
+
 function Step({ done, text }: { done: boolean; text: string }) {
   return (
     <View style={s.step}>
@@ -178,7 +209,7 @@ function Step({ done, text }: { done: boolean; text: string }) {
   );
 }
 
-/** What was sent, so the host can check it without reopening ten steps. */
+/** What was sent, so the host can check it without reopening every step. */
 function SpotSummary({ spot }: { spot: SpotListing }) {
   const hours = groupByHours(spot.availability.filter((window) => window.isActive));
 

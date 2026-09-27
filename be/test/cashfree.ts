@@ -27,6 +27,7 @@ process.env.CASHFREE_CLIENT_ID = "test-client-id";
 process.env.CASHFREE_CLIENT_SECRET = "test-secret-must-never-leak";
 process.env.CASHFREE_API_VERSION = "2026-01-01";
 process.env.INTEGRATION_MAX_RETRIES = "2";
+process.env.WEBHOOK_PUBLIC_URL = "https://hooks.gatepass.test";
 
 const SECRET = process.env.CASHFREE_CLIENT_SECRET;
 
@@ -56,6 +57,7 @@ const orderFor = (req: Seen) => ({
     order_status: "ACTIVE",
     payment_session_id: `session_${req.body.order_id}_${seen.length}`,
     order_expiry_time: req.body.order_expiry_time,
+    order_splits: req.body.order_splits ?? [],
     created_at: new Date().toISOString(),
     customer_details: req.body.customer_details,
   },
@@ -74,8 +76,59 @@ const vendorFor = (status: string) => (req: Seen) => ({
   },
 });
 
+/** An Order Pay answer for UPI, shaped as the sandbox answered on 2026-09-27. */
+const QR_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+const upiFor = (links?: Record<string, string>) => (req: Seen) => {
+  const channel = req.body.payment_method.upi.channel;
+  const sim = "https://payments-test.cashfree.com/pgbillpayuiapi/simulator/1457655315005187584?txnId=1";
+  return {
+    status: 200,
+    body: {
+      action: "custom",
+      cf_payment_id: "1457655315005187584",
+      channel,
+      payment_method: "upi",
+      payment_amount: 40,
+      data: {
+        url: null,
+        payload:
+          channel === "qrcode"
+            ? { qrcode: QR_PNG }
+            : links ?? { bhim: sim, default: sim, gpay: sim, paytm: sim, phonepe: sim, web: "https://sandbox.cashfree.com/pg/view/upi/x" },
+        content_type: null,
+        method: null,
+      },
+    },
+  };
+};
+
+/** A Get Payments for Order answer: one attempt per entry, shaped as the sandbox answered on 2026-09-27. */
+const paymentsFor = (entries: { status: string; amount: number; ref?: string; orderId?: string }[]) => (req: Seen) => ({
+  status: 200,
+  body: entries.map((e, i) => ({
+    cf_payment_id: e.ref ?? `14576624119185505${String(i).padStart(2, "0")}`,
+    entity: "payment",
+    order_id: e.orderId ?? decodeURIComponent(req.url.split("/")[2]!),
+    order_amount: e.amount,
+    order_currency: "INR",
+    payment_amount: e.amount,
+    payment_currency: "INR",
+    payment_status: e.status,
+    payment_group: "upi",
+    payment_completion_time: "2026-09-27T14:40:50+05:30",
+    is_captured: e.status === "SUCCESS",
+  })),
+});
+
 /** Whatever Cashfree would say by default: an order for /orders, a vendor being set up otherwise. */
-const byDefault = (req: Seen) => (req.url.startsWith("/easy-split/vendors") ? vendorFor("IN_BENE_CREATION")(req) : orderFor(req));
+const byDefault = (req: Seen) =>
+  req.url.startsWith("/easy-split/vendors")
+    ? vendorFor("IN_BENE_CREATION")(req)
+    : req.url === "/orders/sessions"
+      ? upiFor()(req)
+      : /^\/orders\/[^/]+\/payments$/.test(req.url)
+        ? paymentsFor([])(req)
+        : orderFor(req);
 
 const server = createServer((request, response) => {
   let data = "";
@@ -131,7 +184,21 @@ const client = new CashfreeClient({
   timeoutMs: 2000,
   maxRetries: 2,
 });
-const gateway = new CashfreeGateway(client, "sandbox");
+const gateway = new CashfreeGateway(client, "sandbox", SECRET!);
+
+/** A webhook as Cashfree signs it: Base64(HMAC-SHA256(timestamp + raw body, secret)). */
+const { createHmac } = await import("node:crypto");
+const signed = (body: object, secret = SECRET!) => {
+  const raw = JSON.stringify(body);
+  const timestamp = String(Date.now());
+  const signature = createHmac("sha256", secret).update(timestamp + raw).digest("base64");
+  return { raw, headers: { "x-webhook-timestamp": timestamp, "x-webhook-signature": signature, "content-type": "application/json" } };
+};
+const successWebhook = (orderId: string) => ({
+  type: "PAYMENT_SUCCESS_WEBHOOK",
+  event_time: new Date().toISOString(),
+  data: { order: { order_id: orderId, order_amount: 60, order_currency: "INR" }, payment: { cf_payment_id: 1457662411918550528, payment_status: "SUCCESS", payment_amount: 60 } },
+});
 
 const orderInput = () => ({
   orderId: `bk_${randomUUID()}`,
@@ -159,6 +226,30 @@ console.log("\nClient and gateway");
   check("body maps to Cashfree's names", req?.body.order_id === input.orderId && req.body.order_amount === 140 && req.body.order_currency === "INR" && req.body.customer_details.customer_phone === "9876543210" && req.body.customer_details.customer_id === "abc123" && req.body.order_tags.booking_id === "b1");
   check("expiry sent as ISO", req?.body.order_expiry_time === input.expiresAt.toISOString());
   check("answer mapped back", order.orderId === input.orderId && order.status === "ACTIVE" && order.amount === "140.00" && order.sessionId.startsWith("session_") && typeof order.orderRef === "string");
+}
+
+{
+  reset();
+  const input = { ...orderInput(), splits: [{ vendorId: "host_abc123", amount: "126.00" }] };
+  await gateway.createOrder(input);
+  check("splits sent as order_splits (vendor_id + amount in rupees)", JSON.stringify(seen[0]?.body.order_splits) === JSON.stringify([{ vendor_id: "host_abc123", amount: 126 }]), seen[0]?.body.order_splits);
+}
+
+{
+  reset();
+  script.push((req) => {
+    const ok = orderFor(req);
+    return { ...ok, body: { ...ok.body, order_splits: [{ vendor_id: "host_abc123", amount: 140 }] } };
+  });
+  const error = await rejects(() => gateway.createOrder({ ...orderInput(), splits: [{ vendorId: "host_abc123", amount: "126.00" }] }));
+  check("an order whose split isn't the one asked for is refused", error instanceof IntegrationError && /split/.test(error.message), error?.message);
+}
+
+{
+  reset();
+  script.push({ status: 400, body: { message: "Vendor Not found", code: "order_splits_invalid", type: "invalid_request_error" } });
+  const error = await rejects(() => gateway.createOrder({ ...orderInput(), splits: [{ vendorId: "host_gone", amount: "126.00" }] }));
+  check("unknown vendor (Cashfree 400) -> not retried, IntegrationError", seen.length === 1 && error instanceof IntegrationError && error.statusCode === 400, error?.message);
 }
 
 {
@@ -216,6 +307,114 @@ console.log("\nClient and gateway");
   check("answer without a session id is refused", error instanceof IntegrationError && /payment_session_id/.test(error.message), error?.message);
 }
 
+console.log("\nOrder Pay: UPI (gateway)");
+
+const client_ = { device: "mobile" as const, os: "android" as const, rendering: "native" as const, browser: "others" as const };
+
+{
+  reset();
+  const attempt = await gateway.startUpiPayment({ sessionId: "session_abc", channel: "INTENT", client: client_ });
+  const [req] = seen;
+  check("POST /orders/sessions with the session and upi link", req?.method === "POST" && req.url === "/orders/sessions" && req.body.payment_session_id === "session_abc" && req.body.payment_method.upi.channel === "link");
+  check("x-client-* headers sent", req?.headers["x-client-device"] === "mobile" && req.headers["x-client-os"] === "android" && req.headers["x-client-rendering-type"] === "native" && req.headers["x-client-browser"] === "others");
+  check("no idempotency key on Order Pay", req?.headers["x-idempotency-key"] === undefined);
+  check("INTENT: the five app links, not the 'web' page", attempt.channel === "INTENT" && Object.keys(attempt.apps).sort().join() === "bhim,default,gpay,paytm,phonepe" && attempt.paymentRef === "1457655315005187584", attempt);
+}
+
+{
+  reset();
+  script.push(
+    upiFor({
+      default: "upi://pay?pa=cashfree@testbank&am=40.00",
+      gpay: "tez://upi/pay?pa=cashfree@testbank",
+      phonepe: "javascript:alert(1)",
+      paytm: "https://cashfree.com.evil.example/pay",
+      bhim: "http://payments-test.cashfree.com/x",
+    })
+  );
+  const attempt = await gateway.startUpiPayment({ sessionId: "session_abc", channel: "INTENT", client: client_ });
+  check("links outside the allow-list are dropped (javascript:, lookalike host, plain http)", attempt.channel === "INTENT" && Object.keys(attempt.apps).sort().join() === "default,gpay", attempt);
+}
+
+{
+  reset();
+  script.push(upiFor({ default: "https://evil.example/pay" }));
+  const error = await rejects(() => gateway.startUpiPayment({ sessionId: "session_abc", channel: "INTENT", client: client_ }));
+  check("no safe link left -> refused", error instanceof IntegrationError && /Unexpected/.test(error.message), error?.message);
+}
+
+{
+  reset();
+  const attempt = await gateway.startUpiPayment({ sessionId: "session_abc", channel: "QR", client: { device: "desktop", os: "windows", browser: "chrome" } });
+  check("QR: channel qrcode, PNG data URL back", seen[0]?.body.payment_method.upi.channel === "qrcode" && attempt.channel === "QR" && attempt.qrImage === QR_PNG);
+  check("QR: no rendering header when not given", seen[0]?.headers["x-client-rendering-type"] === undefined);
+}
+
+{
+  reset();
+  script.push((req) => {
+    const ok = upiFor()(req);
+    return { ...ok, body: { ...ok.body, data: { ...ok.body.data, payload: { qrcode: "data:text/html;base64,PHNjcmlwdD4=" } } } };
+  });
+  const error = await rejects(() => gateway.startUpiPayment({ sessionId: "session_abc", channel: "QR", client: client_ }));
+  check("QR that isn't a PNG data URL -> refused", error instanceof IntegrationError, error?.message);
+}
+
+{
+  reset();
+  script.push({ status: 500, body: { message: "oops", code: "internal_error", type: "api_error" } });
+  const error = await rejects(() => gateway.startUpiPayment({ sessionId: "session_abc", channel: "INTENT", client: client_ }));
+  check("Order Pay 500 -> not retried (an attempt isn't idempotent)", seen.length === 1 && error instanceof IntegrationError, seen.length);
+}
+
+console.log("\nWebhook signature (gateway)");
+
+{
+  const { raw, headers } = signed(successWebhook("bk_abc"));
+  const notice = gateway.readWebhook(raw, headers);
+  check("valid signature -> the order id and event type", notice?.orderId === "bk_abc" && notice.type === "PAYMENT_SUCCESS_WEBHOOK", notice);
+  check("body changed after signing -> refused", gateway.readWebhook(raw.replace('"order_amount":60', '"order_amount":1'), headers) === null);
+  check("same body re-serialised with other spacing -> refused (raw bytes only)", gateway.readWebhook(JSON.stringify(JSON.parse(raw), null, 2), headers) === null);
+  const forged = signed(successWebhook("bk_abc"), "not-the-secret");
+  check("signed with another secret -> refused", gateway.readWebhook(forged.raw, forged.headers) === null);
+  check("timestamp changed -> refused", gateway.readWebhook(raw, { ...headers, "x-webhook-timestamp": "1" }) === null);
+  check("no signature headers -> refused", gateway.readWebhook(raw, {}) === null);
+}
+
+{
+  reset();
+  await gateway.createOrder({ ...orderInput(), notifyUrl: "https://hooks.gatepass.test/webhooks/cashfree", returnUrl: "https://app.test/r" });
+  check("notify_url and return_url sent in order_meta", seen[0]?.body.order_meta?.notify_url === "https://hooks.gatepass.test/webhooks/cashfree" && seen[0].body.order_meta.return_url === "https://app.test/r");
+}
+
+console.log("\nGet Payments for Order (gateway)");
+
+{
+  reset();
+  script.push(paymentsFor([{ status: "USER_DROPPED", amount: 60 }, { status: "SUCCESS", amount: 60, ref: "1457662411918550528" }, { status: "SOMETHING_NEW", amount: 60 }]));
+  const list = await gateway.getOrderPayments("bk_abc");
+  check("GET /orders/:id/payments", seen[0]?.method === "GET" && seen[0].url === "/orders/bk_abc/payments");
+  check("statuses mapped; an unknown one is UNKNOWN, never paid", list.map((p) => p.status).join() === "USER_DROPPED,SUCCESS,UNKNOWN");
+  check("19-digit payment id kept exactly, amount to the paisa", list[1]?.paymentRef === "1457662411918550528" && list[1].amount === "60.00" && list[1].method === "upi");
+}
+
+{
+  reset();
+  script.push(paymentsFor([{ status: "SUCCESS", amount: 60, orderId: "bk_someone_else" }]));
+  const error = await rejects(() => gateway.getOrderPayments("bk_abc"));
+  check("a payment of another order -> refused", error instanceof IntegrationError, error?.message);
+}
+
+{
+  reset();
+  script.push((req) => {
+    const ok = paymentsFor([{ status: "SUCCESS", amount: 60 }])(req);
+    return { ...ok, body: ok.body.map((p) => ({ ...p, cf_payment_id: 1457662411918550528 })) };
+  });
+  const error = await rejects(() => gateway.getOrderPayments("bk_abc"));
+  check("a numeric payment id (would lose digits) -> refused", error instanceof IntegrationError, error?.message);
+}
+
 console.log("\nVendor (gateway)");
 
 const { VendorExistsError } = await import("../src/integrations/payment/provider.js");
@@ -226,7 +425,7 @@ const vendorInput = (accountType: "INDIVIDUAL" | "BUSINESS" = "INDIVIDUAL") => (
   email: "ravi@gatepass.test",
   phone: "9876543210",
   bank: { accountNumber: "026291800001191", accountHolder: "RAVI KUMAR", ifsc: "YESB0000262" },
-  kyc: { accountType, businessType: accountType === "BUSINESS" ? "Travel and Hospitality" : undefined, pan: "ABCPV1234D" },
+  kyc: { accountType, businessType: "Travel and Hospitality", pan: "ABCPV1234D" },
   idempotencyKey: randomUUID(),
 });
 
@@ -238,7 +437,7 @@ const vendorInput = (accountType: "INDIVIDUAL" | "BUSINESS" = "INDIVIDUAL") => (
   check("createVendor: POST /easy-split/vendors", req?.method === "POST" && req.url === "/easy-split/vendors", req?.url);
   check("createVendor: id, contact, bank mapped", req?.body.vendor_id === "host_abc123" && req.body.email === "ravi@gatepass.test" && req.body.phone === "9876543210" && req.body.bank.account_number === "026291800001191" && req.body.bank.account_holder === "RAVI KUMAR" && req.body.bank.ifsc === "YESB0000262");
   check("createVendor: status ACTIVE, penny-drop on, no dashboard", req?.body.status === "ACTIVE" && req.body.verify_account === true && req.body.dashboard_access === false);
-  check("createVendor: individual KYC sends account_type + pan, no business_type", req?.body.kyc_details.account_type === "INDIVIDUAL" && req.body.kyc_details.pan === "ABCPV1234D" && !("business_type" in req.body.kyc_details));
+  check("createVendor: individual KYC sends account_type and pan, no business_type (even if one is passed)", req?.body.kyc_details.account_type === "INDIVIDUAL" && req.body.kyc_details.pan === "ABCPV1234D" && !("business_type" in req.body.kyc_details));
   check("createVendor: name stripped to Cashfree's characters", req?.body.name === "Ravi Kumar", req?.body.name);
   check("createVendor: idempotency key sent", req?.headers["x-idempotency-key"] === input.idempotencyKey);
   check("IN_BENE_CREATION -> PENDING", vendor.state === "PENDING" && vendor.providerStatus === "IN_BENE_CREATION" && !vendor.issue);
@@ -307,7 +506,8 @@ try {
   userIds.push(host.id, noPhone.id, driver.id);
 
   const now = new Date();
-  const profile = await prisma.hostProfile.create({ data: { userId: host.id, verificationStatus: "ACTIVE", payoutKycStatus: "ACTIVATED" } });
+  const HOST_VENDOR = `host_cftest${RUN}`;
+  const profile = await prisma.hostProfile.create({ data: { userId: host.id, verificationStatus: "ACTIVE", payoutKycStatus: "ACTIVATED", payoutAccountId: HOST_VENDOR } });
   const spot = await prisma.listing.create({
     data: {
       hostProfileId: profile.id,
@@ -370,6 +570,52 @@ try {
   check("idempotency key is the payment row's id", seen[0]?.headers["x-idempotency-key"] === row?.id);
   check("customer: 10-digit phone, alphanumeric id", sent?.customer_details.customer_phone === phone.slice(3) && sent.customer_details.customer_id === driver.id.replace(/-/g, ""));
   check("tags carry ids only", sent?.order_tags.booking_id === booking.id && sent.order_tags.listing_id === spot.id && Object.keys(sent.order_tags).length === 2);
+  const share = booking.amount.mul(1 - Number(process.env.COMMISSION_RATE)).toDecimalPlaces(2);
+  check("order carries the host's split: their vendor, parking less the service fee", JSON.stringify(sent?.order_splits) === JSON.stringify([{ vendor_id: HOST_VENDOR, amount: Number(share.toFixed(2)) }]), { sent: sent?.order_splits, share: share.toString() });
+  check("split fixed on the payment row", row?.splitVendorId === HOST_VENDOR && row.splitAmount?.equals(share), { vendor: row?.splitVendorId, amount: row?.splitAmount?.toString() });
+  check("notify_url is WEBHOOK_PUBLIC_URL + /webhooks/cashfree", sent?.order_meta?.notify_url === "https://hooks.gatepass.test/webhooks/cashfree", sent?.order_meta);
+  check("return_url points at /payments/return with Cashfree's {order_id}", /\/payments\/return\?order_id=\{order_id\}$/.test(sent?.order_meta?.return_url ?? ""), sent?.order_meta);
+
+  // Order Pay through the service.
+  console.log("\nOrder Pay: UPI (service)");
+  reset();
+  const upi = await paymentService.startUpi(booking.id, driver.id, { channel: "INTENT", client: client_ });
+  check("startUpi: one Order Pay call with the booking's session, no second order", seen.length === 1 && seen[0]?.url === "/orders/sessions" && seen[0].body.payment_session_id === row?.gatewaySessionId, seen.map((s) => s.url));
+  check("startUpi: app links + the hold's expiry", upi.channel === "INTENT" && Boolean(upi.apps.gpay) && upi.expiresAt.getTime() === booking.holdExpiresAt?.getTime());
+  reset();
+  const qrAttempt = await paymentService.startUpi(booking.id, driver.id, { channel: "QR", client: { device: "desktop", os: "windows", browser: "chrome" } });
+  check("a second attempt (QR) on the same order", qrAttempt.channel === "QR" && seen.length === 1);
+
+  reset();
+  const notMine = await rejects(() => paymentService.startUpi(booking.id, noPhone.id, { channel: "INTENT", client: client_ }));
+  check("someone else's booking -> 404, Cashfree not called", notMine?.statusCode === 404 && seen.length === 0, notMine?.message);
+
+  const lapsed = await bookingService.createSpotBooking(stay(8), driver.id);
+  await prisma.booking.update({ where: { id: lapsed.booking.id }, data: { holdExpiresAt: new Date(Date.now() - 60_000) } });
+  reset();
+  const late = await rejects(() => paymentService.startUpi(lapsed.booking.id, driver.id, { channel: "INTENT", client: client_ }));
+  check("hold ended -> 409 NOT_PAYABLE, Cashfree not called", late?.statusCode === 409 && late?.code === "NOT_PAYABLE" && seen.length === 0, late?.message);
+
+  const { paymentRequests } = await import("../src/requests/payment.request.js");
+  const body = paymentRequests.startUpi.body;
+  check("payload: an amount or a link is refused (strict)", !body.safeParse({ channel: "INTENT", client: client_, amount: 1 }).success && !body.safeParse({ channel: "INTENT", client: { ...client_, url: "x" } }).success);
+  check("payload: COLLECT / netbanking aren't channels", !body.safeParse({ channel: "COLLECT", client: client_ }).success && !body.safeParse({ channel: "NETBANKING", client: client_ }).success);
+
+  const options = paymentService.paymentOptions();
+  check("options: sandbox offers UPI and CARD", options.enabled && options.methods.join() === "UPI,CARD" && options.environment === "sandbox");
+
+  const id = booking.id;
+  check("return: phone -> gatepass:// pay screen", paymentService.returnTarget(`bk_${id}`, "Mozilla/5.0 (Linux; Android 14)") === `gatepass://booking/${id}/pay`);
+  check("return: desktop -> web app pay screen", paymentService.returnTarget(`bk_${id}`, "Mozilla/5.0 (Windows NT 10.0)").endsWith(`/booking/${id}/pay`) && paymentService.returnTarget(`bk_${id}`, undefined).startsWith("http"));
+  const badReturn = [`bk_${id}/../../x`, "https://evil.example", `bk_${id}?next=//evil`, "bk_not-a-uuid"].map((v) => {
+    try {
+      paymentService.returnTarget(v, "");
+      return false;
+    } catch (e: any) {
+      return e.statusCode === 400;
+    }
+  });
+  check("return: anything but bk_<uuid> -> 400", badReturn.every(Boolean), badReturn);
 
   // Replay: same order, no second call.
   reset();
@@ -387,11 +633,155 @@ try {
   const recovered = await bookingService.createSpotBooking(stay(4), driver.id);
   check("replay after failure opens the order", recovered.replayed && Boolean(recovered.booking.checkout?.paymentSessionId) && seen.length === 1);
   check("...with the same order id and idempotency key", seen[0]?.body.order_id === `bk_${kept?.id}` && seen[0]?.headers["x-idempotency-key"] === kept?.payment?.id);
+  check("...and the same split", seen[0]?.body.order_splits?.[0]?.vendor_id === HOST_VENDOR);
 
   // History: no gateway ids.
   const history = await paymentService.listForDriver(driver.id);
   const keys = new Set(history.flatMap((p) => Object.keys(p)));
-  check("GET /payments rows carry no gateway ids or session", history.length === 2 && ![...keys].some((k) => k.startsWith("gateway") || k === "provider"), [...keys]);
+  check("GET /payments rows carry no gateway ids or session", history.length === 3 && ![...keys].some((k) => k.startsWith("gateway") || k === "provider"), [...keys]);
+
+  // ---- A host the gateway can't pay: no hold, no order ----
+  console.log("\nHost without a payee (dev database)");
+  await prisma.hostProfile.update({ where: { id: profile.id }, data: { payoutAccountId: null } });
+  reset();
+  const unpayable = await rejects(() => bookingService.createSpotBooking(stay(36), driver.id));
+  const heldUnpayable = await prisma.booking.count({ where: { idempotencyKey: `cf-test-${RUN}-36` } });
+  check("host with no vendor -> 409 HOST_NOT_PAYABLE, nothing held, Cashfree not called", unpayable?.statusCode === 409 && unpayable?.code === "HOST_NOT_PAYABLE" && heldUnpayable === 0 && seen.length === 0, unpayable?.message);
+  await prisma.hostProfile.update({ where: { id: profile.id }, data: { payoutAccountId: HOST_VENDOR } });
+
+  // ---- Get Payments for Order -> confirm, or refund ----
+  console.log("\nPaid -> confirmed or refunded (dev database)");
+  const confirm = await import("../src/services/payment-confirmation.service.js");
+  const seenPayments = () => seen.filter((r) => /\/payments$/.test(r.url)).length;
+  const paid = async (bookingId: string, amount?: number) => {
+    const p = await prisma.payment.findUniqueOrThrow({ where: { bookingId } });
+    script.push(paymentsFor([{ status: "FAILED", amount: Number(p.amount) }, { status: "SUCCESS", amount: amount ?? Number(p.amount) }]));
+  };
+  const state = (id: string) =>
+    prisma.booking.findUniqueOrThrow({
+      where: { id },
+      select: { status: true, payment: { select: { status: true, gatewayPaymentId: true } }, refund: { select: { policy: true, amount: true, status: true } } },
+    });
+
+  // Nothing paid yet: stays as it is.
+  const unpaid = await bookingService.createSpotBooking(stay(12), driver.id);
+  reset();
+  await confirm.refreshPayment(unpaid.booking.id, driver.id);
+  check("no SUCCESS yet -> still PENDING / CREATED", (await state(unpaid.booking.id)).status === "PENDING" && seenPayments() === 1);
+  reset();
+  await confirm.refreshPayment(unpaid.booking.id, driver.id);
+  check("asked again within 5 s -> Cashfree not called", seen.length === 0, seen.length);
+
+  // Paid while held: confirmed, through the booking read the pay screen polls.
+  await prisma.payment.update({ where: { bookingId: unpaid.booking.id }, data: { gatewayCheckedAt: null } });
+  reset();
+  await paid(unpaid.booking.id);
+  const detail = await bookingService.getForDriver(unpaid.booking.id, driver.id);
+  const after = await state(unpaid.booking.id);
+  check("SUCCESS -> booking CONFIRMED, payment CAPTURED with the payment id", detail.status === "CONFIRMED" && after.payment?.status === "CAPTURED" && after.payment.gatewayPaymentId === "1457662411918550501", after);
+  check("...and the detail read now releases the access details", Boolean(detail.access));
+  reset();
+  await bookingService.getForDriver(unpaid.booking.id, driver.id);
+  check("settled -> later reads don't call Cashfree", seen.length === 0);
+
+  // Someone else's booking: no check on their behalf.
+  const other = await bookingService.createSpotBooking(stay(16), driver.id);
+  reset();
+  await confirm.refreshPayment(other.booking.id, noPhone.id);
+  check("another driver's read -> Cashfree not called", seen.length === 0);
+
+  // Wrong amount: never confirmed.
+  reset();
+  await paid(other.booking.id, 1);
+  await confirm.refreshPayment(other.booking.id, driver.id);
+  const wrong = await state(other.booking.id);
+  check("SUCCESS for a different amount -> not captured, not confirmed", wrong.status === "PENDING" && wrong.payment?.status === "CREATED", wrong);
+
+  // Hold lapsed but nobody took the hours (still PENDING): confirmed.
+  await prisma.booking.update({ where: { id: other.booking.id }, data: { holdExpiresAt: new Date(Date.now() - 60_000) } });
+  await prisma.payment.update({ where: { bookingId: other.booking.id }, data: { gatewayCheckedAt: null } });
+  reset();
+  await paid(other.booking.id);
+  await confirm.refreshPayment(other.booking.id, driver.id);
+  check("paid after the hold lapsed, hours untouched -> CONFIRMED", (await state(other.booking.id)).status === "CONFIRMED");
+
+  // Lapsed, swept by someone else's attempt, hours still free: revived.
+  const swept = await bookingService.createSpotBooking(stay(20), driver.id);
+  await prisma.booking.update({ where: { id: swept.booking.id }, data: { holdExpiresAt: new Date(Date.now() - 60_000), status: "CANCELLED" } });
+  reset();
+  await paid(swept.booking.id);
+  await confirm.refreshPayment(swept.booking.id, driver.id);
+  check("swept hold, hours still free -> CONFIRMED again", (await state(swept.booking.id)).status === "CONFIRMED");
+
+  // Lapsed, swept, and the hours taken by another driver: full refund.
+  const second = await prisma.user.create({
+    data: { email: `cf-test-${RUN}-second@gatepass.test`, firstName: "Second", lastName: "Driver", phone: `+918${String(Math.floor(Math.random() * 1e9)).padStart(9, "0")}` },
+  });
+  userIds.push(second.id);
+  const lost = await bookingService.createSpotBooking(stay(24), driver.id);
+  await prisma.booking.update({ where: { id: lost.booking.id }, data: { holdExpiresAt: new Date(Date.now() - 60_000) } });
+  const taker = await bookingService.createSpotBooking({ ...stay(24), idempotencyKey: `cf-test-${RUN}-taker` }, second.id);
+  check("(setup) another driver's attempt sweeps the lapsed hold and takes the hours", (await state(lost.booking.id)).status === "CANCELLED" && taker.booking.status === "PENDING");
+  reset();
+  await paid(lost.booking.id);
+  await confirm.refreshPayment(lost.booking.id, driver.id);
+  const lostState = await state(lost.booking.id);
+  check(
+    "hours taken -> stays CANCELLED, payment CAPTURED, full refund HOLD_LAPSED",
+    lostState.status === "CANCELLED" && lostState.payment?.status === "CAPTURED" && lostState.refund?.policy === "HOLD_LAPSED" && lostState.refund.status === "REFUND_PENDING" && Number(lostState.refund.amount) === Number(lost.booking.amount),
+    lostState
+  );
+  const outcome = await confirm.resolvePaidBooking(lost.booking.id);
+  check("running it again changes nothing (one refund)", outcome === "ALREADY_SETTLED" && (await prisma.refund.count({ where: { bookingId: lost.booking.id } })) === 1);
+
+  // Cancelled by the driver before the payment landed: full refund.
+  const quit = await bookingService.createSpotBooking(stay(28), driver.id);
+  await prisma.booking.update({ where: { id: quit.booking.id }, data: { status: "CANCELLED", cancelledAt: new Date() } });
+  reset();
+  await paid(quit.booking.id);
+  await confirm.refreshPayment(quit.booking.id, driver.id);
+  check("driver cancelled, then the payment landed -> refund CANCELLED_BEFORE_PAYMENT", (await state(quit.booking.id)).refund?.policy === "CANCELLED_BEFORE_PAYMENT");
+
+  // ---- Webhook: signature, then the same Get Payments check ----
+  console.log("\nWebhook -> confirmed (dev database)");
+  const hooked = await bookingService.createSpotBooking(stay(40), driver.id);
+  const hookedOrder = `bk_${hooked.booking.id}`;
+  // A screen checked a moment ago: a webhook isn't held back by that.
+  await prisma.payment.update({ where: { bookingId: hooked.booking.id }, data: { gatewayCheckedAt: new Date() } });
+
+  reset();
+  const forgedHook = signed(successWebhook(hookedOrder), "not-the-secret");
+  const refusedHook = await confirm.receiveWebhook(forgedHook.raw, forgedHook.headers);
+  check("forged webhook -> BAD_SIGNATURE, Cashfree not asked, still PENDING", refusedHook === "BAD_SIGNATURE" && seen.length === 0 && (await state(hooked.booking.id)).status === "PENDING");
+
+  reset();
+  script.push({ status: 503, body: {} }, { status: 503, body: {} }, { status: 503, body: {} });
+  const realHook = signed(successWebhook(hookedOrder));
+  const outage = await rejects(() => confirm.receiveWebhook(realHook.raw, realHook.headers));
+  check("Cashfree down while handling -> throws (route answers 5xx, Cashfree retries)", outage instanceof IntegrationError);
+
+  reset();
+  await paid(hooked.booking.id);
+  const handled = await confirm.receiveWebhook(realHook.raw, realHook.headers);
+  const hookedState = await state(hooked.booking.id);
+  check("genuine webhook -> Get Payments asked despite a recent check -> CONFIRMED", handled === "HANDLED" && seenPayments() === 1 && hookedState.status === "CONFIRMED" && hookedState.payment?.status === "CAPTURED", { handled, hookedState });
+  check("payment id taken from Get Payments (string), not the webhook's JSON number", hookedState.payment?.gatewayPaymentId === "1457662411918550501", hookedState.payment?.gatewayPaymentId);
+
+  reset();
+  await paid(hooked.booking.id);
+  const repeated = await confirm.receiveWebhook(realHook.raw, realHook.headers);
+  check("the same webhook again -> nothing changes", repeated === "HANDLED" && (await state(hooked.booking.id)).status === "CONFIRMED" && (await prisma.refund.count({ where: { bookingId: hooked.booking.id } })) === 0);
+
+  reset();
+  const stranger = signed(successWebhook("bk_00000000-0000-4000-8000-000000000000"));
+  check("webhook for an order that isn't ours -> IGNORED (200), Cashfree not asked", (await confirm.receiveWebhook(stranger.raw, stranger.headers)) === "IGNORED" && seen.length === 0);
+
+  // An order long closed isn't asked about any more.
+  const old = await bookingService.createSpotBooking(stay(32), driver.id);
+  await prisma.payment.update({ where: { bookingId: old.booking.id }, data: { gatewayExpiresAt: new Date(Date.now() - 2 * 60 * 60_000) } });
+  reset();
+  await confirm.refreshPayment(old.booking.id, driver.id);
+  check("order closed over 30 min ago -> Cashfree not called", seen.length === 0);
 
   // ---- Step 9: the host's payout account as a Cashfree vendor ----
   console.log("\nHost payout -> vendor (dev database)");
@@ -430,6 +820,27 @@ try {
 
   const details = { panNumber: "ABCPV1234D", accountHolderName: "RAVI KUMAR", accountNumber: "026291800001191", ifsc: "YESB0000262", accountType: "INDIVIDUAL" as const };
 
+  // The accepted payload (requests/host-payout.request): what the route lets through.
+  const { hostPayoutRequests } = await import("../src/requests/host-payout.request.js");
+  const accepts = (body: object) => hostPayoutRequests.submit.body.safeParse(body).success;
+  check("payload: an individual sends no businessType", accepts(details));
+  check("payload: a business must send businessType", !accepts({ ...details, accountType: "BUSINESS" }) && accepts({ ...details, accountType: "BUSINESS", businessType: "Travel and Hospitality" }));
+  check("payload: businessType on an individual is refused", !accepts({ ...details, businessType: "Travel and Hospitality" }));
+  check("payload: accountType is required", !accepts({ ...details, accountType: undefined }));
+  check("payload: an unknown businessType is refused", !accepts({ ...details, accountType: "BUSINESS", businessType: "Casino" }));
+  check("payload: an unknown field is refused (strict)", !accepts({ ...details, payoutKycStatus: "ACTIVATED" }));
+  check("payload: phone must be a 10-digit Indian mobile", accepts({ ...details, phone: "9876543210" }) && accepts({ ...details, phone: "+919876543210" }) && !accepts({ ...details, phone: "12345" }));
+
+
+  // Payout is set up off the Host tab now, not in the wizard: a listing is
+  // ready to submit without it, and no rejection can point at it.
+  const spotListing = await import("../src/services/spot-listing.service.js");
+  const { adminSpotRequests } = await import("../src/requests/admin-spot.request.js");
+  const readinessItems = await spotListing.readiness(waiting.id, newProfile.id);
+  check("readiness never asks for a payout account", !readinessItems.some((item) => item.step === "payout"), readinessItems);
+  const rejectBody = (adminSpotRequests as any).reject?.body;
+  check("admin can't reject into a 'payout' section", rejectBody && !rejectBody.safeParse({ reason: "Bank details look wrong", section: "payout" }).success);
+
   const before = await payout.getStatus(newProfile.id);
   check("a host without a phone is asked for one", before.needsPhone === true && before.payoutKycStatus === "NOT_STARTED");
 
@@ -449,6 +860,7 @@ try {
   const submitted = await payout.submit(newProfile.id, { ...details, phone: hostPhone });
   const savedUser = await prisma.user.findUniqueOrThrow({ where: { id: newHost.id } });
   const expectedVendorId = `host_${newProfile.id.replace(/-/g, "")}`;
+  check("an individual is sent to Cashfree without business_type, and none is stored", seen[0]?.body.kyc_details.account_type === "INDIVIDUAL" && !("business_type" in (seen[0]?.body.kyc_details ?? {})) && submitted.businessType === null);
   check("submit -> Create Vendor with the host's id and 10-digit phone", seen.length === 1 && seen[0]?.method === "POST" && seen[0].body.vendor_id === expectedVendorId && seen[0].body.phone === hostPhone && seen[0].body.name === "Ravi Kumar");
   check("phone saved to the profile", savedUser.phone === `+91${hostPhone}`);
   check("IN_BENE_CREATION -> UNDER_REVIEW, vendor id stored, no phone asked any more", submitted.payoutKycStatus === "UNDER_REVIEW" && submitted.payoutAccountId === expectedVendorId && submitted.needsPhone === false && submitted.accountType === "INDIVIDUAL");
@@ -472,6 +884,45 @@ try {
   check("ACTIVE -> ACTIVATED, issue cleared", fixed.payoutKycStatus === "ACTIVATED" && fixed.issue === null);
   check("activation publishes the listing that was waiting on it", published.status === "PUBLISHED", published.status);
 
+  // Once active, the status is the database's: no gateway call.
+  reset();
+  await prisma.hostProfile.update({ where: { id: newProfile.id }, data: { payoutCheckedAt: new Date(Date.now() - 60_000) } });
+  const activeView = await payout.getStatus(newProfile.id);
+  check("active: GET reads the database, Cashfree not asked", seen.length === 0 && activeView.payoutKycStatus === "ACTIVATED", seen.length);
+
+  // An active host changes bank account: Update Vendor, and the status follows
+  // the gateway's re-check (owner's decision).
+  reset();
+  script.push(vendorFor("IN_BANK_VALIDATION"));
+  const changed = await payout.submit(newProfile.id, { ...details, accountNumber: "026291800001193" });
+  check("active host updating -> Update Vendor (PATCH)", seen.length === 1 && seen[0]?.method === "PATCH" && seen[0].url === `/easy-split/vendors/${expectedVendorId}`, seen.map((s) => s.method));
+  check("...and goes back to 'being checked' until the new account is verified", changed.payoutKycStatus === "UNDER_REVIEW" && changed.accountNumberLast4 === "1193");
+
+  const busy = await rejects(() => payout.submit(newProfile.id, details));
+  check("while being checked, another change is refused (409)", busy?.statusCode === 409, busy?.message);
+
+  // Two requests at once (Host tab + Payouts tab): one gateway call between them.
+  reset();
+  await prisma.hostProfile.update({ where: { id: newProfile.id }, data: { payoutCheckedAt: new Date(Date.now() - 60_000) } });
+  await Promise.all([payout.getStatus(newProfile.id), payout.getStatus(newProfile.id), payout.getStatus(newProfile.id)]);
+  check("three concurrent GETs while pending -> one Get Vendor call", seen.length === 1, seen.length);
+
+  // The Payouts tab, before anything is listed: a signed-in user with no host
+  // profile reads an empty account, and submitting makes them a host.
+  const newcomer = await prisma.user.create({ data: { email: `cf-test-${RUN}-newcomer@gatepass.test`, firstName: "New", lastName: "Comer" } });
+  userIds.push(newcomer.id);
+  const empty = await payout.getStatusForUser(newcomer.id);
+  const profilesAfterRead = await prisma.hostProfile.count({ where: { userId: newcomer.id } });
+  check("no host profile: GET reads an empty NOT_STARTED account and asks for a phone", empty.payoutKycStatus === "NOT_STARTED" && empty.needsDetails && empty.needsPhone && empty.payoutAccountId === null);
+  check("...and reading creates no host profile", profilesAfterRead === 0);
+  reset();
+  const newcomerPhone = `8${String(Math.floor(Math.random() * 1e9)).padStart(9, "0")}`;
+  const firstPayout = await payout.submitForUser(newcomer.id, { ...details, phone: newcomerPhone });
+  const newcomerProfile = await prisma.hostProfile.findUnique({ where: { userId: newcomer.id } });
+  check("submitting before listing creates the host profile and the vendor for it", Boolean(newcomerProfile) && seen[0]?.method === "POST" && seen[0].body.vendor_id === `host_${newcomerProfile!.id.replace(/-/g, "")}` && firstPayout.payoutKycStatus === "UNDER_REVIEW");
+  const again = await payout.getStatusForUser(newcomer.id);
+  check("GET after that reads the same account", again.payoutAccountId === firstPayout.payoutAccountId && again.needsPhone === false);
+
   // A create whose answer was lost: the id is taken, so it becomes an update.
   const lostHost = await prisma.user.create({ data: { email: `cf-test-${RUN}-losthost@gatepass.test`, firstName: "Lost", lastName: "Answer", phone: `+919${String(Math.floor(Math.random() * 1e9)).padStart(9, "0")}` } });
   userIds.push(lostHost.id);
@@ -482,6 +933,7 @@ try {
   check("create -> 409 already exists -> update instead", seen.length === 2 && seen[0]?.method === "POST" && seen[1]?.method === "PATCH" && recoveredVendor.payoutKycStatus === "UNDER_REVIEW", seen.map((s) => s.method));
 } finally {
   for (const id of [listingId, ...extraListingIds].filter(Boolean) as string[]) {
+    await prisma.refund.deleteMany({ where: { booking: { listingId: id } } });
     await prisma.payment.deleteMany({ where: { booking: { listingId: id } } });
     await prisma.booking.deleteMany({ where: { listingId: id } });
     await prisma.listing.deleteMany({ where: { id } });

@@ -22,6 +22,13 @@ import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { clockTime } from "@/lib/booking";
 import { listingStatus } from "@/lib/listingRules";
+import {
+  PAYOUTS_PATH,
+  PAYOUT_ISSUE_COPY,
+  PAYOUT_STATE_COPY,
+  payoutAccountState,
+  payoutWaitLine,
+} from "@/lib/payoutAccount";
 import { formatRupees, rateLine } from "@/lib/money";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, radius, space } from "@/theme";
@@ -102,6 +109,7 @@ export default function HostScreen() {
   const navigate = (key: NavKey) => {
     if (key === "home") router.push("/home");
     if (key === "bookings") router.push("/bookings");
+    if (key === "payouts") router.push("/payouts");
     if (key === "profile") router.push("/account");
   };
 
@@ -141,6 +149,7 @@ export default function HostScreen() {
                   <SpaceCard
                     key={spot.id}
                     spot={spot}
+                    payout={payout}
                     rating={summary?.ratings[spot.id] ?? null}
                     deleting={deletingId === spot.id}
                     onDelete={() => deleteSpot(spot.id)}
@@ -211,7 +220,7 @@ function TodayCard({ summary }: { summary: HostSummary }) {
 }
 
 /** Where a space stands, in a chip and a line, and the one next step. */
-function statusOf(spot: SpotListing): { label: string; tone: ChipTone; line: string | null } {
+function statusOf(spot: SpotListing, payout: PayoutAccount | null): { label: string; tone: ChipTone; line: string | null } {
   const { label, tone } = listingStatus(spot);
   switch (spot.status) {
     case "DRAFT":
@@ -220,7 +229,7 @@ function statusOf(spot: SpotListing): { label: string; tone: ChipTone; line: str
       return {
         label,
         tone,
-        line: spot.docApprovedAt ? "Goes live once your payout account is active" : "Documents being checked · usually 48 hours",
+        line: spot.docApprovedAt ? payoutWaitLine(payout) : "Documents being checked · usually 48 hours",
       };
     case "REJECTED":
       return { label, tone, line: spot.rejectionReason ?? "Edit the listing and submit it again" };
@@ -238,16 +247,18 @@ function priceLine(spot: SpotListing): string {
 
 function SpaceCard({
   spot,
+  payout,
   rating,
   deleting,
   onDelete,
 }: {
   spot: SpotListing;
+  payout: PayoutAccount | null;
   rating: { rating: number; reviewCount: number } | null;
   deleting: boolean;
   onDelete: () => void;
 }) {
-  const status = statusOf(spot);
+  const status = statusOf(spot, payout);
   const live = ["PUBLISHED", "ONGOING", "SUSPENDED"].includes(spot.status);
   const draft = spot.status === "DRAFT" || spot.status === "REJECTED";
   const where = [spot.addressLine, spot.city].filter(Boolean).join(", ");
@@ -289,57 +300,47 @@ function SpaceCard({
 }
 
 /**
- * The payout gate, once, at the top -- not per spot.
+ * The payout account, once, at the top -- not per spot -- and the way into
+ * the Payouts screen, which is the only place it is set up or fixed.
  *
- * It is one account for the whole host, and it blocks every one of their
- * spots at the same time, so repeating it on each card would say the same
- * thing three times. Hidden once activated: a gate that is open is not news.
+ * It is one account for the whole host, and until it is active it holds back
+ * every one of their spots at once, so repeating it on each card would say the
+ * same thing three times. Always shown: while it is not active it says what to
+ * do; once it is, it is the quiet row that leads to the account.
  */
 function PayoutCard({ payout }: { payout: PayoutAccount }) {
-  if (payout.payoutKycStatus === "ACTIVATED") return null;
+  const state = payoutAccountState(payout);
+  const open = () => router.push(PAYOUTS_PATH);
 
-  // Whatever the status says, a host with nothing stored has not really
-  // submitted anything -- see the API's needsDetails.
-  if (payout.needsDetails) {
+  if (state === "ready") {
     return (
-      <View style={s.status}>
-        <Text style={s.statusHeading}>No payout account yet</Text>
-        <Text style={s.statusBody}>
-          Your spots cannot go live until we know where to send your earnings.
-          The listing wizard asks for this.
-        </Text>
-      </View>
+      <Pressable onPress={open} accessibilityRole="button" style={({ pressed }) => [s.today, pressed && s.pressed]}>
+        <View style={s.flex}>
+          <Text style={s.todayTitle}>Payouts</Text>
+          <Text style={s.todaySub}>
+            {payout.accountNumberLast4 ? `Bank account •• ${payout.accountNumberLast4} · ` : ""}Verified
+          </Text>
+        </View>
+        <ChevronRightIcon />
+      </Pressable>
     );
   }
 
-  const copy = {
-    NOT_STARTED: {
-      title: "No payout account yet",
-      body: "Your spots cannot go live until we know where to send your earnings. The listing wizard asks for this.",
-    },
-    PENDING: {
-      title: "Payout details received",
-      body: "We are sending them for verification.",
-    },
-    UNDER_REVIEW: {
-      title: "Payout account being verified",
-      body: `We are checking the account ending ${payout.accountNumberLast4 ?? "••••"}. This usually takes a day or two, and your spots go live once it clears.`,
-    },
-    REJECTED: {
-      title: "Payout account could not be verified",
-      body: "The details did not check out. Enter them again in the listing wizard.",
-    },
-  }[payout.payoutKycStatus];
+  const copy = PAYOUT_STATE_COPY[state];
+  const body =
+    state === "failed" && payout.issue
+      ? PAYOUT_ISSUE_COPY[payout.issue]
+      : state === "pending" && payout.accountNumberLast4
+        ? `We are checking the account ending ${payout.accountNumberLast4}. This usually takes a day or two, and your spaces go live once it clears.`
+        : copy.body;
+  const action =
+    state === "none" ? "Add payout account" : state === "failed" && payout.issue !== "BLOCKED" ? "Fix details" : "View payout account";
 
   return (
-    <View
-      style={[
-        s.status,
-        payout.payoutKycStatus === "REJECTED" && s.statusWarn,
-      ]}
-    >
+    <View style={[s.status, state === "failed" && s.statusWarn]}>
       <Text style={s.statusHeading}>{copy.title}</Text>
-      <Text style={s.statusBody}>{copy.body}</Text>
+      <Text style={s.statusBody}>{body}</Text>
+      <Button label={action} variant={state === "pending" ? "ghost" : "primary"} onPress={open} />
     </View>
   );
 }

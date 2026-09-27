@@ -4,6 +4,7 @@ import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import {
   Button,
   CalendarIcon,
+  BikeIcon,
   CarIcon,
   CheckIcon,
   ClockIcon,
@@ -62,7 +63,7 @@ export function BookingCard({ row, now }: { row: BookingRow; now: number }) {
       <View style={s.lines}>
         {where ? <Line icon={<PinIcon size={15} color={colors.inkMuted} />} text={where} muted /> : null}
         <Line icon={<CalendarIcon size={15} color={colors.inkMuted} />} text={bookingWhen(row)} />
-        <Line icon={<CarIcon size={15} color={colors.inkMuted} />} text={row.vehicleNumber} muted />
+        <Line icon={row.vehicleType === "BIKE" ? <BikeIcon size={15} color={colors.inkMuted} /> : <CarIcon size={15} color={colors.inkMuted} />} text={row.vehicleNumber} muted />
         {row.phase === "PENDING" && row.holdExpiresAt ? (
           <Line
             icon={<ClockIcon size={15} color={colors.accentInk} />}

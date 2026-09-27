@@ -27,7 +27,9 @@ export function getPaymentGateway(): PaymentGateway | null {
           timeoutMs: env.INTEGRATION_TIMEOUT_MS,
           maxRetries: env.INTEGRATION_MAX_RETRIES,
         }),
-        env.CASHFREE_ENV
+        env.CASHFREE_ENV,
+        // Webhooks are signed with the same secret the API calls use.
+        env.CASHFREE_CLIENT_SECRET!
       );
       break;
     default:
@@ -37,9 +39,16 @@ export function getPaymentGateway(): PaymentGateway | null {
   return cached;
 }
 
-export { VendorExistsError } from "./provider.js";
+export { UPI_APPS, VendorExistsError } from "./provider.js";
 export type {
+  ClientHints,
   CreateOrderInput,
+  GatewayNotice,
+  GatewayPayment,
+  GatewayPaymentStatus,
+  StartUpiInput,
+  UpiApp,
+  UpiAttempt,
   GatewayOrder,
   GatewayOrderStatus,
   GatewayVendor,

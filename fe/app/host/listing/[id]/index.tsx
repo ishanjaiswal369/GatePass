@@ -1,7 +1,7 @@
 import { Redirect, router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
-import { ApiError, hostApi } from "@/api";
+import { ApiError, hostApi, spotListingApi } from "@/api";
 import {
   CalendarIcon,
   CameraIcon,
@@ -18,9 +18,10 @@ import { HostBookingCard } from "@/features/host/HostBookingCard";
 import { listingStatus } from "@/lib/listingRules";
 import { clockTime } from "@/lib/booking";
 import { formatRupees } from "@/lib/money";
+import { PAYOUTS_PATH, PAYOUT_ISSUE_COPY, payoutAccountState } from "@/lib/payoutAccount";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, radius, space } from "@/theme";
-import type { HostOverview } from "@/types/api.types";
+import type { HostOverview, PayoutAccount } from "@/types/api.types";
 
 /** "today, 3:00 PM" / "Fri, 3:00 PM". */
 function whenShort(iso: string): string {
@@ -44,12 +45,15 @@ export default function ListingDashboardScreen() {
   const [data, setData] = useState<HostOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pausing, setPausing] = useState(false);
+  const [payout, setPayout] = useState<PayoutAccount | null>(null);
 
   const load = useCallback(async () => {
     if (!token || !id) return;
     try {
       setData(await hostApi.overview(token, id));
       setError(null);
+      // Best-effort: the warning below is extra, never a reason to fail the page.
+      spotListingApi.getPayoutAccount(token).then(setPayout, () => setPayout(null));
     } catch (err) {
       setError(err instanceof ApiError && err.status === 404 ? "This space isn't yours, or no longer exists." : "Could not load this space.");
     }
@@ -101,6 +105,22 @@ export default function ListingDashboardScreen() {
             error ? null : <ActivityIndicator color={colors.ink} style={s.loading} />
           ) : (
             <>
+              {/* A live space stops taking bookings the moment its host's payout
+                  account stops being active (search needs it), so this is the
+                  first thing on the page when it happens. */}
+              {payout && payoutAccountState(payout) !== "ready" ? (
+                <Pressable onPress={() => router.push(PAYOUTS_PATH)} style={[s.tip, s.tipWarn]} accessibilityRole="button">
+                  <WalletIcon size={20} />
+                  <View style={s.flex}>
+                    <Text style={s.tipTitle}>Your payout account needs attention</Text>
+                    <Text style={s.muted}>
+                      {payout.issue ? PAYOUT_ISSUE_COPY[payout.issue] : "Drivers can't book your spaces until your payout account is active."}
+                    </Text>
+                  </View>
+                  <ChevronRightIcon />
+                </Pressable>
+              ) : null}
+
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.nav}>
                 <NavChip label="Overview" on />
                 <NavChip label="Bookings" onPress={() => router.push({ pathname: "/host/bookings", params: { listingId: id! } })} />
@@ -121,7 +141,7 @@ export default function ListingDashboardScreen() {
                 <Tile
                   title="This month"
                   value={formatRupees(data.month.net)}
-                  sub={`after ${Math.round(data.month.commissionRate * 100)}% fee`}
+                  sub={`after ${Math.round(data.month.commissionRate * 100)}% service fee`}
                 />
                 <Tile
                   title="Rating"
@@ -240,6 +260,7 @@ const s = StyleSheet.create({
   muted: { fontSize: 13, color: colors.inkMuted },
   tip: { flexDirection: "row", alignItems: "center", gap: space.md, backgroundColor: colors.accentSurface, borderRadius: radius.md, padding: space.lg },
   tipTitle: { fontSize: 14, fontWeight: "700", color: colors.ink },
+  tipWarn: { backgroundColor: colors.devSurface, borderWidth: 1, borderColor: colors.devBorder },
   flex: { flex: 1, gap: 2 },
   card: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: space.lg },
   row: { flexDirection: "row", alignItems: "center", gap: space.md, minHeight: 56, borderBottomWidth: 1, borderBottomColor: colors.border },

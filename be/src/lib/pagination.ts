@@ -4,8 +4,8 @@ import { badRequest } from "./errors.js";
  * Keyset (cursor) pagination rather than offset.
  *
  * The driver feed is ordered by a date that new rows land in the middle of, so
- * an offset page would skip or repeat rows the moment an organizer publishes
- * while someone is scrolling. A cursor points at the last row of the previous
+ * an offset page would skip or repeat rows the moment one is added while
+ * someone is scrolling. A cursor points at the last row of the previous
  * page, so the next page always continues from a fixed position.
  *
  * The encoded value is opaque on purpose -- callers pass back what they were

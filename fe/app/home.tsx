@@ -58,6 +58,7 @@ export default function HomeScreen() {
   const navigate = (key: NavKey) => {
     if (key === "bookings") router.push("/bookings");
     if (key === "host") router.push("/host");
+    if (key === "payouts") router.push("/payouts");
     if (key === "profile") router.push("/account");
   };
 

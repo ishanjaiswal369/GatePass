@@ -16,7 +16,7 @@ import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { clockTime, timeLeft } from "@/lib/booking";
 import { keyFor, type Attempt } from "@/lib/idempotency";
 import { formatRupees } from "@/lib/money";
-import { payForBooking } from "@/lib/payments";
+import { payForExtension } from "@/lib/payments";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, radius, space } from "@/theme";
 import type { ExtensionOptions } from "@/types/api.types";
@@ -60,9 +60,9 @@ export default function ExtendScreen() {
     void load();
   }, [load]);
 
-  const pay = async (bookingId: string, amount: string) => {
+  const pay = async () => {
     if (!token) return;
-    const outcome = await payForBooking({ token, bookingId, amount, method: "UPI" });
+    const outcome = await payForExtension();
     if (outcome.status === "PAID") {
       router.replace({ pathname: "/booking/[id]", params: { id: id! } });
     } else if (outcome.status === "FAILED") {
@@ -79,10 +79,9 @@ export default function ExtendScreen() {
     // One key per choice: a retry after a dropped response replays the same
     // hold, while picking a different length is a new attempt.
     const idempotencyKey = keyFor(attempt, `${id}|${minutes}`);
-    const { extensionId } = await bookingsApi.createExtension(token, id, { minutes, idempotencyKey });
+    await bookingsApi.createExtension(token, id, { minutes, idempotencyKey });
     await load();
-    const chosen = data?.options.find((o) => o.minutes === minutes);
-    await pay(extensionId, chosen?.amount ?? "0");
+    await pay();
   });
 
   if (isRestoring) return <RestoringScreen />;
@@ -116,7 +115,7 @@ export default function ExtendScreen() {
               <Button
                 label={`Pay ${formatRupees(data.pending.amount)} & Extend`}
                 size="lg"
-                onPress={() => void pay(data.pending!.id, data.pending!.amount)}
+                onPress={() => void pay()}
               />
               {payNote ? <Text style={s.note}>{payNote}</Text> : null}
             </View>

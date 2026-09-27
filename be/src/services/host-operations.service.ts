@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client";
-import { pricing } from "../config/pricing.js";
+import { hostShareOf, pricing } from "../config/pricing.js";
 import { conflict, notFound } from "../lib/errors.js";
 import { bookingRef, clock, day } from "../lib/format.js";
 import { lockListing } from "../lib/listing-lock.js";
@@ -19,8 +19,8 @@ import * as reviewService from "./review.service.js";
  * host's space, booking or block answers exactly like one that doesn't exist.
  *
  * Money: a host earns the parking they *keep* -- the amount minus anything
- * refunded, never below zero -- less GatePass's commission. The driver's
- * platform fee and its GST are GatePass's and never come out of it.
+ * refunded, never below zero -- less GatePass's service fee (COMMISSION_RATE).
+ * The driver pays the listed price and nothing on top.
  */
 
 const HOST_BOOKINGS_CAP = 50;
@@ -47,7 +47,6 @@ const hostBookingSelect = {
     where: { status: "CONFIRMED", payment: { status: "CAPTURED" } },
     select: { endsAt: true, amount: true },
   },
-  settlementItems: { select: { settlement: { select: { status: true } } } },
 } satisfies Prisma.BookingSelect;
 
 type HostBookingRow = Prisma.BookingGetPayload<{ select: typeof hostBookingSelect }>;
@@ -72,13 +71,14 @@ function earningOf(row: HostBookingRow): { gross: Prisma.Decimal; earning: Prism
   const parking = row.extensions.reduce((sum, ext) => sum.add(ext.amount), row.amount);
   const refunded = row.refund?.amount ?? new Prisma.Decimal(0);
   const kept = Prisma.Decimal.max(parking.sub(refunded), 0);
-  return { gross: parking, earning: kept.mul(1 - pricing.hostCommissionRate).toDecimalPlaces(2) };
+  return { gross: parking, earning: hostShareOf(kept) };
 }
 
 function payoutState(row: HostBookingRow, now: Date): PayoutState {
   const { earning } = earningOf(row);
   if (earning.lte(0)) return "NONE";
-  if (row.settlementItems.some((item) => item.settlement.status === "PAID")) return "PAID_OUT";
+  // PAID_OUT comes back when the gateway's settlement webhook tells us a
+  // transfer reached the host's bank: Easy Split pays hosts now, not us.
   // A cancellation settles what the host keeps at once; a stay, when it ends.
   if (row.status === "CANCELLED") return "AVAILABLE";
   const end = effectiveEnd(row);
@@ -295,7 +295,12 @@ export async function summary(hostProfileId: string) {
   const labels = await vehicleLabels(todays);
 
   return {
-    month: { net: net.toString(), bookings: month.filter((row) => row.status !== "CANCELLED").length },
+    month: {
+      net: net.toString(),
+      bookings: month.filter((row) => row.status !== "CANCELLED").length,
+      // GatePass's service fee, for screens that preview a host's share.
+      commissionRate: pricing.hostCommissionRate,
+    },
     available: available.toString(),
     today: todays.map((row) => present(row, labels, now)),
     /** Per space, for the list below the card. */
@@ -331,14 +336,7 @@ export async function earnings(hostProfileId: string) {
   const monthStart = startOfVenueMonth(now);
   const { rows, available, pending } = await ledgerTotals(hostProfileId, now);
 
-  const [payouts, account] = await Promise.all([
-    prisma.settlement.findMany({
-      where: { hostProfileId, status: "PAID" },
-      select: { id: true, netPayable: true, updatedAt: true },
-      orderBy: { updatedAt: "desc" },
-    }),
-    payoutService.getStatus(hostProfileId),
-  ]);
+  const account = await payoutService.getStatus(hostProfileId);
 
   let gross = new Prisma.Decimal(0);
   let net = new Prisma.Decimal(0);
@@ -350,8 +348,12 @@ export async function earnings(hostProfileId: string) {
   }
 
   const labels = await vehicleLabels(rows.slice(0, 30));
-  const transactions = [
-    ...rows.slice(0, 30).map((row) => {
+  // Bookings only. Transfers to the host's bank ("Payout to your bank") are
+  // the gateway's, from each order's split; they return here with its
+  // settlement webhook.
+  const transactions = rows
+    .slice(0, 30)
+    .map((row) => {
       const view = present(row, labels, now);
       return {
         kind: "BOOKING" as const,
@@ -362,22 +364,14 @@ export async function earnings(hostProfileId: string) {
         state: view.payout,
         at: row.startsAt,
       };
-    }),
-    ...payouts.map((p) => ({
-      kind: "PAYOUT" as const,
-      id: p.id,
-      title: "Payout to your bank",
-      sub: day(p.updatedAt),
-      amount: p.netPayable.neg().toString(),
-      state: "PAID_OUT" as PayoutState,
-      at: p.updatedAt,
-    })),
-  ].sort((a, b) => (b.at?.getTime() ?? 0) - (a.at?.getTime() ?? 0));
+    })
+    .sort((a, b) => (b.at?.getTime() ?? 0) - (a.at?.getTime() ?? 0));
 
   return {
     available: available.toString(),
     pending: pending.toString(),
-    paidOut: payouts.reduce((sum, p) => sum.add(p.netPayable), new Prisma.Decimal(0)).toString(),
+    // Not known to GatePass until the settlement webhook is wired.
+    paidOut: "0",
     month: {
       label: now.toLocaleDateString("en-IN", { month: "long", timeZone: VENUE_TIME_ZONE }),
       gross: gross.toString(),

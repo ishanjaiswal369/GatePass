@@ -31,7 +31,7 @@ export function WizardShell({
 }: {
   title: string;
   sub?: string;
-  /** 1-based, for "3 of 10". */
+  /** 1-based, for "3 of 9". */
   step: number;
   totalSteps: number;
   onBack: () => void;

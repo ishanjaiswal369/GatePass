@@ -36,7 +36,6 @@ export const LISTING_SECTIONS = [
   "pricing",
   "access",
   "documents",
-  "payout",
 ] as const;
 
 export type ListingSection = (typeof LISTING_SECTIONS)[number];

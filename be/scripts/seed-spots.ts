@@ -36,7 +36,7 @@ const PHOTO_SOURCE = path.join(path.dirname(fileURLToPath(import.meta.url)), "se
 // seeded photo sits exactly where an uploaded one would and is served by the
 // same route.
 const STORAGE_DIR = process.env.STORAGE_LOCAL_DIR ?? "uploads";
-const STORAGE_BASE_URL = process.env.STORAGE_PUBLIC_BASE_URL ?? "http://localhost:3000/uploads";
+const STORAGE_BASE_URL = process.env.STORAGE_PUBLIC_BASE_URL ?? "http://127.0.0.1:3000/uploads";
 
 const CENTRE = { latitude: 26.544690259350563, longitude: 80.48458390470928 };
 

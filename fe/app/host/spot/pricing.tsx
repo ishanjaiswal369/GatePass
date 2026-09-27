@@ -1,7 +1,7 @@
 import { Redirect, router } from "expo-router";
 import { useEffect, useState } from "react";
 import { StyleSheet, Switch, Text, View } from "react-native";
-import { spotListingApi } from "@/api";
+import { hostApi, spotListingApi } from "@/api";
 import { Button, Field, RestoringScreen, WizardShell } from "@/components/ui";
 import { TOTAL_STEPS, firstStepPath, stepHref, stepNumber } from "@/constants/wizard";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
@@ -50,11 +50,6 @@ const MODES: { key: Mode; label: string; unit: string }[] = [
   { key: "day", label: "Daily", unit: "per day" },
 ];
 
-/**
- * GatePass's cut of the parking, mirrored from be/src/config/pricing.ts for
- * the preview only -- what the host is actually paid is computed by the API.
- */
-const HOST_COMMISSION_RATE = 0.1;
 
 const EMPTY: Rate = { on: { hour: true, day: false }, value: { hour: "", day: "" } };
 
@@ -75,6 +70,14 @@ export default function PricingScreen() {
   const back = useWizardBack("pricing", spot?.id);
   const proceed = useWizardContinue("pricing");
   const [rates, setRates] = useState<Partial<Record<Vehicle, Rate>>>({});
+  // GatePass's service fee, from the API (COMMISSION_RATE in its .env) --
+  // for the preview only; what the host is actually paid is computed there.
+  const [feeRate, setFeeRate] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!token) return;
+    hostApi.summary(token).then((summary) => setFeeRate(summary.month.commissionRate), () => setFeeRate(null));
+  }, [token]);
 
   useEffect(() => {
     if (!spot) return;
@@ -179,15 +182,15 @@ export default function PricingScreen() {
         );
       })}
 
-      {example ? (
+      {example && feeRate !== null ? (
         <View style={s.split}>
           <Text style={s.splitTitle}>
             For a {formatRupees(example.value.hour)} hour you receive{" "}
-            {formatRupees(Math.round(Number(example.value.hour) * (1 - HOST_COMMISSION_RATE) * 100) / 100)}
+            {formatRupees(Math.round(Number(example.value.hour) * (1 - feeRate) * 100) / 100)}
           </Text>
           <Text style={s.note}>
-            GatePass keeps a {Math.round(HOST_COMMISSION_RATE * 100)}% commission. Drivers pay the cheaper of hourly and
-            daily for their stay.
+            GatePass keeps a {Math.round(feeRate * 100)}% service fee. Drivers pay your price with nothing added -- the
+            cheaper of hourly and daily for their stay.
           </Text>
         </View>
       ) : null}

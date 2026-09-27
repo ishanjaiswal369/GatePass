@@ -59,9 +59,11 @@ export async function exists(userId: string): Promise<boolean> {
  *
  * Now the first thing the wizard asks for is the listing's name, and the
  * profile is a side effect of creating that listing -- so there is no state
- * between "not a host" and "a host with a named spot". This returns only the
- * id because that is all its one caller (spot-listing.service.createSpot)
- * needs.
+ * between "not a host" and "a host with a named spot" -- except the one the
+ * Payouts tab makes on purpose: submitting payout details before listing
+ * creates the profile too (host-payout.service.submitForUser), since the
+ * gateway's payee is the profile. Returns only the id, which is all either
+ * caller needs.
  */
 export async function ensureProfile(userId: string): Promise<string> {
   const existing = await prisma.hostProfile.findUnique({

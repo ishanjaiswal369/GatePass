@@ -2,9 +2,11 @@ import { Redirect, router } from "expo-router";
 import { useEffect, useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { CardIcon, CheckIcon, PhoneFrame, RestoringScreen, ScreenHeader, ShieldIcon, StatusChip, WalletIcon } from "@/components/ui";
-import { listSavedMethods, paymentsConfigured, type SavedPaymentMethod } from "@/lib/payments";
+import { paymentsApi } from "@/api";
+import { listSavedMethods, type SavedPaymentMethod } from "@/lib/payments";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, radius, space } from "@/theme";
+import type { PaymentOptions } from "@/types/api.types";
 
 /**
  * How a driver can pay, and anything the gateway has saved for them.
@@ -18,10 +20,12 @@ import { colors, radius, space } from "@/theme";
 export default function PaymentMethodsScreen() {
   const { token, isRestoring } = useSession();
   const [saved, setSaved] = useState<SavedPaymentMethod[]>([]);
+  const [options, setOptions] = useState<PaymentOptions | null>(null);
 
   useEffect(() => {
     if (!token) return;
     listSavedMethods(token).then(setSaved).catch(() => setSaved([]));
+    paymentsApi.options(token).then(setOptions).catch(() => setOptions(null));
   }, [token]);
 
   if (isRestoring) return <RestoringScreen />;
@@ -36,7 +40,7 @@ export default function PaymentMethodsScreen() {
         <ScreenHeader title="Payment Methods" onBack={() => (router.canGoBack() ? router.back() : router.replace("/account"))} />
 
         <ScrollView contentContainerStyle={s.body}>
-          {!paymentsConfigured ? (
+          {options && !options.enabled ? (
             <View style={s.notice}>
               <Text style={s.noticeTitle}>Online payment isn't switched on yet</Text>
               <Text style={s.noticeBody}>
@@ -57,16 +61,15 @@ export default function PaymentMethodsScreen() {
             />
           </Section>
 
-          <Section title="CARDS">
-            {cards.map((m) => (
-              <Method key={m.id} icon={<CardIcon />} title={m.label} sub={m.detail} isDefault={m.isDefault} />
-            ))}
-            <Method icon={<CardIcon />} title="Credit or debit card" sub="Visa, Mastercard, RuPay — entered at checkout" />
-          </Section>
-
-          <Section title="NETBANKING">
-            <Method icon={<WalletIcon size={18} />} title="All major banks" sub="Choose your bank at checkout" tag="Available" />
-          </Section>
+          {/* Card is test-only for now (owner's call); netbanking isn't offered. */}
+          {options?.methods.includes("CARD") ? (
+            <Section title="CARDS">
+              {cards.map((m) => (
+                <Method key={m.id} icon={<CardIcon />} title={m.label} sub={m.detail} isDefault={m.isDefault} />
+              ))}
+              <Method icon={<CardIcon />} title="Credit or debit card" sub="Test mode only — entered at checkout" />
+            </Section>
+          ) : null}
 
           <View style={s.safe}>
             <ShieldIcon size={18} color="#166534" />

@@ -236,6 +236,17 @@ export function CarIcon({ size = 18, color = colors.ink }: IconProps) {
   );
 }
 
+/** A two-wheeler: bikes and scooters, in the vehicle lists. */
+export function BikeIcon({ size = 18, color = colors.ink }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Circle cx={5.5} cy={16} r={3.5} stroke={color} strokeWidth={2} />
+      <Circle cx={18.5} cy={16} r={3.5} stroke={color} strokeWidth={2} />
+      <Path d="M5.5 16 9 9h6l3.5 7M9 9 12 16h6.5M14 6h2.5L15 9" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
 export function KeyIcon({ size = 18, color = colors.ink }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">

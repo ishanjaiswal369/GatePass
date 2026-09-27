@@ -1,9 +1,9 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { colors, HIT_SLOP_MIN, space } from "@/theme";
-import { CalendarIcon, HomeIcon, HostIcon, UserIcon } from "./Icon";
+import { CalendarIcon, HomeIcon, HostIcon, UserIcon, WalletIcon } from "./Icon";
 
-export type NavKey = "home" | "bookings" | "host" | "profile";
+export type NavKey = "home" | "bookings" | "host" | "payouts" | "profile";
 
 const ITEMS: { key: NavKey; label: string; Icon: typeof HomeIcon }[] = [
   { key: "home", label: "Home", Icon: HomeIcon },
@@ -11,6 +11,9 @@ const ITEMS: { key: NavKey; label: string; Icon: typeof HomeIcon }[] = [
   // Host is one nav item, not a whole mode switch: tapping it opens
   // onboarding or the dashboard depending on whether a profile exists.
   { key: "host", label: "Host", Icon: HostIcon },
+  // Its own tab, open before anything is listed: bank details can be added
+  // (and the gateway payee created) ahead of the first listing.
+  { key: "payouts", label: "Payouts", Icon: WalletIcon },
   { key: "profile", label: "Profile", Icon: UserIcon },
 ];
 
@@ -36,7 +39,7 @@ export function BottomNav({
             accessibilityState={{ selected: isActive }}
             style={s.item}
           >
-            <Icon color={isActive ? colors.ink : colors.inkFaint} />
+            <Icon size={21} color={isActive ? colors.ink : colors.inkFaint} />
             <Text style={[s.label, isActive && s.labelActive]}>{label}</Text>
           </Pressable>
         );

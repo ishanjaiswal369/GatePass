@@ -20,7 +20,8 @@ export type SecurityEventName =
   | "ACCESS_DENIED"
   | "NOT_FOUND"
   | "RATE_LIMITED"
-  | "VALIDATION_FAILED";
+  | "VALIDATION_FAILED"
+  | "WEBHOOK_SIGNATURE_INVALID";
 
 export function securityEvent(
   request: FastifyRequest,

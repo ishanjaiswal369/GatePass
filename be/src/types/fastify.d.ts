@@ -8,7 +8,5 @@ declare module "fastify" {
      * is optional here and non-null at every use site behind that middleware.
      */
     hostProfileId?: string;
-    /** Set by requireOrganizerStaff: the organizers this user acts for. */
-    organizerIds?: string[];
   }
 }

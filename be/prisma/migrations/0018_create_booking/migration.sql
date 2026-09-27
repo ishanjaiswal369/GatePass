@@ -1,8 +1,7 @@
--- Migration: Create the Booking table -- a driver's claim on a slot or a stretch of time
+-- Migration: Create the Booking table -- a driver's claim on a stretch of time on a host's space
 
 CREATE TABLE "Booking" (
     "id" TEXT NOT NULL,
-    "parkingCapacityId" TEXT,
     "listingId" TEXT,
     "startsAt" TIMESTAMP(3),
     "endsAt" TIMESTAMP(3),
@@ -34,41 +33,24 @@ CREATE INDEX "Booking_listingId_startsAt_idx" ON "Booking"("listingId", "startsA
 CREATE INDEX "Booking_driverId_idx" ON "Booking"("driverId");
 CREATE INDEX "Booking_driverId_status_idx" ON "Booking"("driverId", "status");
 CREATE INDEX "Booking_extendsBookingId_idx" ON "Booking"("extendsBookingId");
-CREATE INDEX "Booking_parkingCapacityId_idx" ON "Booking"("parkingCapacityId");
 CREATE INDEX "Booking_createdBy_idx" ON "Booking"("createdBy");
 CREATE INDEX "Booking_updatedBy_idx" ON "Booking"("updatedBy");
 
-ALTER TABLE "Booking" ADD CONSTRAINT "Booking_parkingCapacityId_fkey" FOREIGN KEY ("parkingCapacityId") REFERENCES "ParkingCapacity"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "Booking" ADD CONSTRAINT "Booking_listingId_fkey" FOREIGN KEY ("listingId") REFERENCES "Listing"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "Booking" ADD CONSTRAINT "Booking_driverId_fkey" FOREIGN KEY ("driverId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "Booking" ADD CONSTRAINT "Booking_extendsBookingId_fkey" FOREIGN KEY ("extendsBookingId") REFERENCES "Booking"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "Booking" ADD CONSTRAINT "Booking_createdBy_fkey" FOREIGN KEY ("createdBy") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 ALTER TABLE "Booking" ADD CONSTRAINT "Booking_updatedBy_fkey" FOREIGN KEY ("updatedBy") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
--- A booking is one of two shapes: a claim on an event's ParkingCapacity (a
--- count of interchangeable slots, guarded by a conditional UPDATE on
--- bookedCount), or a stretch of time on a host's spot (one space, guarded by
--- Booking_no_overlap below). They share a table because everything downstream
--- of a booking -- payments, passes, settlement items -- is the same either way.
-
--- Exactly one of the two shapes, never a mixture and never neither. Written
--- as one CHECK rather than three so a row cannot satisfy each rule separately
--- and still be nonsense.
+-- A booking is a stretch of time on one host's space: the listing and both
+-- ends are required and the stay runs forwards. (It also allowed an event
+-- booking -- a slot from a ParkingCapacity -- until event parking was removed
+-- on 2026-09-27; the name is kept so nothing that refers to it breaks.)
 ALTER TABLE "Booking" ADD CONSTRAINT "Booking_one_target" CHECK (
-    (
-        "parkingCapacityId" IS NOT NULL
-        AND "listingId" IS NULL
-        AND "startsAt" IS NULL
-        AND "endsAt" IS NULL
-    )
-    OR
-    (
-        "parkingCapacityId" IS NULL
-        AND "listingId" IS NOT NULL
-        AND "startsAt" IS NOT NULL
-        AND "endsAt" IS NOT NULL
-        AND "endsAt" > "startsAt"
-    )
+    "listingId" IS NOT NULL
+    AND "startsAt" IS NOT NULL
+    AND "endsAt" IS NOT NULL
+    AND "endsAt" > "startsAt"
 );
 
 -- Already created with HostAvailability; repeated so this table does not

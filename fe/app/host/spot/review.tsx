@@ -18,18 +18,19 @@ import { useWizardBack } from "@/hooks/useWizardBack";
 import { groupByHours } from "@/lib/hours";
 import { listingStatus, vehicleTypesOf } from "@/lib/listingRules";
 import { rateLine } from "@/lib/money";
+import { PAYOUTS_PATH, payoutAccountState, type PayoutAccountState } from "@/lib/payoutAccount";
 import { AMENITY_LABELS, ENTRY_METHOD_LABELS, VEHICLE_SIZE_LABELS, spaceLabel } from "@/lib/spotLabels";
 import { colors, radius, space, type } from "@/theme";
 import type { PayoutAccount, SpotListing, SpotReadiness } from "@/types/api.types";
 
 /**
- * Step 10. The listing as it will read, and what's still missing.
+ * The last step. The listing as it will read, and what's still missing.
  *
  * Each section has Edit, which opens its step with everything kept. What is
  * missing comes from the API -- the same check Submit runs -- as items that
  * each name their step, so a tap goes straight to the fix. Submitting sends
  * the listing to review; it goes live only when the document is approved and
- * the payout account is active.
+ * the payout account (the host's, set up on the Payouts screen) is active.
  */
 const SECTION_TITLES: Record<string, string> = {
   type: "Your space",
@@ -40,7 +41,6 @@ const SECTION_TITLES: Record<string, string> = {
   pricing: "Pricing",
   access: "Getting in",
   documents: "Proof & permission",
-  payout: "Getting paid",
 };
 
 export default function ReviewScreen() {
@@ -79,6 +79,7 @@ export default function ReviewScreen() {
   const items = readiness?.items ?? [];
   const ready = readiness?.ready === true;
   const edit = (step: WizardStep) => router.push(stepHref(step, spot.id, "review"));
+  const payoutState = payoutAccountState(payout);
 
   return (
     <WizardShell
@@ -96,7 +97,9 @@ export default function ReviewScreen() {
         readiness === null
           ? "Checking your listing…"
           : ready
-            ? "We check your document; your listing goes live once your payout account is active too."
+            ? payoutState === "ready"
+              ? "We check your document; your listing goes live once it is approved."
+              : "We check your document; your listing goes live once your payout account is active too."
             : "Complete the items above to submit."
       }
     >
@@ -187,8 +190,12 @@ export default function ReviewScreen() {
         />
       </Section>
 
-      <Section title="Getting paid" onEdit={() => edit("payout")}>
-        <Status ok={payoutOk(payout)} text={`Payout: ${payoutLabel(payout)}`} />
+      {/* Not a wizard step: the account is the host's, set up on the Payouts
+          screen. Shown so a host submitting without one knows the listing
+          will wait for it -- but it never blocks Submit. */}
+      <Section title="Getting paid" onEdit={() => router.push(PAYOUTS_PATH)} action={payoutState === "ready" || payoutState === "pending" ? "View" : "Set up"}>
+        <Status ok={payoutState === "ready"} text={`Payout: ${PAYOUT_STATE_LABELS[payoutState]}`} />
+        {payoutState !== "ready" ? <Line text="You can submit now; the listing goes live once your payout account is active." muted /> : null}
       </Section>
     </WizardShell>
   );
@@ -245,15 +252,25 @@ function Rejected({ spot }: { spot: SpotListing }) {
   );
 }
 
-function Section({ title, onEdit, children }: { title: string; onEdit: () => void; children: React.ReactNode }) {
+function Section({
+  title,
+  onEdit,
+  action = "Edit",
+  children,
+}: {
+  title: string;
+  onEdit: () => void;
+  action?: string;
+  children: React.ReactNode;
+}) {
   return (
     <View style={s.section}>
       <View style={s.sectionHead}>
         <Text style={s.sectionTitle} accessibilityRole="header">
           {title}
         </Text>
-        <Pressable onPress={onEdit} accessibilityRole="link" accessibilityLabel={`Edit ${title}`} hitSlop={10} style={s.editLink}>
-          <Text style={s.edit}>Edit</Text>
+        <Pressable onPress={onEdit} accessibilityRole="link" accessibilityLabel={`${action} ${title}`} hitSlop={10} style={s.editLink}>
+          <Text style={s.edit}>{action}</Text>
           <ChevronRightIcon color={colors.ink} size={14} />
         </Pressable>
       </View>
@@ -286,16 +303,12 @@ function vehicleSummary(spot: SpotListing): string {
     .join(" · ");
 }
 
-function payoutOk(account: PayoutAccount | null): boolean {
-  return account?.payoutKycStatus === "ACTIVATED" || (!!account && !account.needsDetails && account.payoutKycStatus !== "REJECTED");
-}
-
-function payoutLabel(account: PayoutAccount | null): string {
-  if (!account || account.needsDetails) return "Not configured";
-  if (account.payoutKycStatus === "ACTIVATED") return "Active";
-  if (account.payoutKycStatus === "REJECTED") return "Needs attention";
-  return "Verification pending";
-}
+const PAYOUT_STATE_LABELS: Record<PayoutAccountState, string> = {
+  ready: "Active",
+  pending: "Verification pending",
+  failed: "Needs attention",
+  none: "Not set up",
+};
 
 const s = StyleSheet.create({
   gaps: {

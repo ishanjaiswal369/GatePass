@@ -4,6 +4,7 @@ import type {
   CancellationQuote,
   ExtensionOptions,
   GatePassResult,
+  HeldSpotBooking,
   Page,
   ReviewInput,
   VehicleType,
@@ -28,27 +29,10 @@ export const getPass = (token: string, bookingId: string) =>
   request<GatePassResult>(`/bookings/${bookingId}/pass`, { token });
 
 /**
- * The key makes a retry after a dropped response resolve to the same booking
- * instead of a second one, so it is generated once per attempt by the caller
- * and reused across retries -- never regenerated inside this function.
- */
-export const create = (
-  token: string,
-  input: {
-    parkingCapacityId: string;
-    vehicleNumber: string;
-    quantity: number;
-    idempotencyKey: string;
-  }
-) => request<BookingRow>("/bookings", { method: "POST", body: input, token });
-
-/**
- * Books a host's spot for a stretch of time.
- *
- * Separate from `create` because it claims a range on a listing rather than
- * slots from a capacity, and is priced from an hourly rate. The key is
- * generated once per attempt by the caller and reused across retries, so a
- * dropped response resolves to the same booking rather than a second one.
+ * Books a host's spot for a stretch of time. The key is generated once per
+ * attempt by the caller and reused across retries, so a dropped response
+ * resolves to the same booking rather than a second one -- never regenerated
+ * inside this function.
  */
 export const createSpotBooking = (
   token: string,
@@ -60,7 +44,7 @@ export const createSpotBooking = (
     endsAt: string;
     idempotencyKey: string;
   }
-) => request<BookingRow>("/spot-bookings", { method: "POST", body: input, token });
+) => request<HeldSpotBooking>("/spot-bookings", { method: "POST", body: input, token });
 
 /** One booking; `access` is filled in only once it is paid. */
 export const get = (token: string, bookingId: string) =>

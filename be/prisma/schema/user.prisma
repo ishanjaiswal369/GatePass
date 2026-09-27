@@ -17,7 +17,7 @@ model User {
   bankAccountId   String?
   // Set when the user deletes their account. Deletion is soft: the row and
   // all its data are kept as they were, sign-in is refused, and clearing this
-  // restores the account. Bookings, payments and settlements point here too.
+  // restores the account. Bookings and payments point here too.
   deletedAt       DateTime?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -32,7 +32,6 @@ model User {
   listingBlocks   ListingBlock[] @relation("ListingBlockCreatedBy")
   notificationPreference NotificationPreference?
   address         UserAddress?
-  organizerMemberships OrganizerMember[]
   bookings        Booking[]
   sessions        UserSession[]
   createdListings Listing[]   @relation("ListingCreatedBy")
@@ -42,6 +41,4 @@ model User {
   updatedBookings Booking[]   @relation("BookingUpdatedBy")
   createdPayments Payment[]   @relation("PaymentCreatedBy")
   updatedPayments Payment[]   @relation("PaymentUpdatedBy")
-  createdSettlements Settlement[] @relation("SettlementCreatedBy")
-  updatedSettlements Settlement[] @relation("SettlementUpdatedBy")
 }

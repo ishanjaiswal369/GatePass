@@ -17,24 +17,12 @@ import { windowsCover } from "../lib/venue-time.js";
 import * as passService from "./pass.service.js";
 import * as paymentService from "./payment.service.js";
 import type { Checkout } from "./payment.service.js";
-
-export interface CreateBookingInput {
-  parkingCapacityId: string;
-  vehicleNumber: string;
-  quantity: number;
-  idempotencyKey: string;
-}
+import * as paymentConfirmation from "./payment-confirmation.service.js";
 
 export type BookingScope = "upcoming" | "active" | "past";
 
 /** Listing states a driver is allowed to book into. */
 const BOOKABLE_LISTING_STATUSES = ["PUBLISHED", "ONGOING"];
-
-/**
- * How long after an event starts its pass still counts as "upcoming". Covers
- * a driver who arrives late and still needs the QR at the gate.
- */
-const PASS_GRACE_MS = 12 * 60 * 60 * 1000;
 
 /**
  * 32 random bytes, so the token cannot be guessed from a booking id or from
@@ -48,11 +36,8 @@ export function generateQrToken(): string {
 /**
  * The projection every driver-facing booking response is built from.
  *
- * Both shapes are selected because a driver's list holds both: an event
- * booking reaches its listing through ParkingCapacity, a host-spot booking
- * carries its own plus the hours it covers. Exactly one side is ever
- * populated -- a DB CHECK enforces that -- so a reader picks whichever is
- * not null rather than branching on a type flag.
+ * The spot and the hours it covers, the money state, and what the driver has
+ * added since (a review, a report, extra time).
  *
  * Access instructions are deliberately NOT here. They are worth money and are
  * released only on a paid booking, by `getForDriver`.
@@ -65,10 +50,9 @@ const bookingView = {
   taxAmount: true,
   status: true,
   vehicleNumber: true,
-  // Only a host-spot booking carries these. `vehicleType` is on the booking
-  // because a spot has no ParkingCapacity to read it from, and
-  // `holdExpiresAt` is here because an unpaid hold that silently lapses is
-  // worse than one the driver can watch running out.
+  // `vehicleType` picks which of the spot's rates applies; `holdExpiresAt` is
+  // here because an unpaid hold that silently lapses is worse than one the
+  // driver can watch running out.
   vehicleType: true,
   holdExpiresAt: true,
   cancelledAt: true,
@@ -84,29 +68,10 @@ const bookingView = {
       city: true,
       latitude: true,
       longitude: true,
-      eventDate: true,
       listingType: true,
       status: true,
       // The cover, for the Rate screen and the booking header.
       photos: { select: { url: true }, orderBy: { position: "asc" }, take: 1 },
-    },
-  },
-  parkingCapacity: {
-    select: {
-      id: true,
-      vehicleType: true,
-      gate: true,
-      price: true,
-      listing: {
-        select: {
-          id: true,
-          name: true,
-          venueName: true,
-          eventDate: true,
-          listingType: true,
-          status: true,
-        },
-      },
     },
   },
   // Money state, each on its own: whether it was paid, and whether any of it
@@ -198,16 +163,11 @@ function phaseOf(row: BookingRow, now: Date): BookingPhase {
       return row.holdExpiresAt && row.holdExpiresAt <= now ? "EXPIRED" : "PENDING";
   }
 
-  // CONFIRMED: where it sits against the clock.
-  if (row.startsAt) {
-    const end = effectiveEnd(row)!;
-    if (now < row.startsAt) return "UPCOMING";
-    return now < end ? "ACTIVE" : "COMPLETED";
-  }
-
-  const eventDate = row.parkingCapacity?.listing.eventDate;
-  if (!eventDate || now < eventDate) return "UPCOMING";
-  return now.getTime() < eventDate.getTime() + PASS_GRACE_MS ? "ACTIVE" : "COMPLETED";
+  // CONFIRMED: where it sits against the clock. Every booking has both ends
+  // (the Booking_one_target CHECK).
+  const end = effectiveEnd(row);
+  if (!row.startsAt || !end || now < row.startsAt) return "UPCOMING";
+  return now < end ? "ACTIVE" : "COMPLETED";
 }
 
 /**
@@ -246,17 +206,12 @@ function stripOwner(
   return present(view);
 }
 
-function graceCutoff(now = new Date()): Date {
-  return new Date(now.getTime() - PASS_GRACE_MS);
-}
-
 /**
  * A confirmed stay that is running right now.
  *
- * A spot booking counts from its start until its last paid extension ends --
+ * A booking counts from its start until its last paid extension ends --
  * hence the second branch, for a stay whose own end has passed but whose
- * extension has not. An event booking counts from the event until the grace
- * period after it, the window in which a late arrival still needs the pass.
+ * extension has not.
  */
 function runningWhere(now: Date): Prisma.BookingWhereInput {
   return {
@@ -267,18 +222,13 @@ function runningWhere(now: Date): Prisma.BookingWhereInput {
         startsAt: { lte: now },
         extensions: { some: { status: "CONFIRMED", endsAt: { gt: now } } },
       },
-      {
-        parkingCapacity: {
-          listing: { eventDate: { lte: now, gte: graceCutoff(now) } },
-        },
-      },
     ],
   };
 }
 
 /**
  * Not started yet: a hold still being paid for, or a confirmed booking whose
- * time is ahead. An undated event booking never starts, so it stays here.
+ * time is ahead.
  */
 function upcomingWhere(now: Date): Prisma.BookingWhereInput {
   return {
@@ -288,12 +238,6 @@ function upcomingWhere(now: Date): Prisma.BookingWhereInput {
         OR: [{ holdExpiresAt: null }, { holdExpiresAt: { gt: now } }],
       },
       { status: "CONFIRMED", startsAt: { gt: now } },
-      {
-        status: "CONFIRMED",
-        parkingCapacity: {
-          listing: { OR: [{ eventDate: null }, { eventDate: { gt: now } }] },
-        },
-      },
     ],
   };
 }
@@ -408,6 +352,11 @@ export async function getForDriver(
   bookingId: string,
   driverId: string
 ): Promise<BookingView & { access: BookingAccess | null }> {
+  // A booking waiting on payment asks the gateway first (throttled, and a
+  // no-op for anything already settled), so the pay screen's polling is what
+  // confirms a paid booking even before the webhook arrives.
+  await paymentConfirmation.refreshPayment(bookingId, driverId);
+
   const booking = await prisma.booking.findFirst({
     // driverId in the filter, not checked after the read: a "not yours" and a
     // "does not exist" must be indistinguishable, or booking ids become an
@@ -439,122 +388,6 @@ export async function getForDriver(
 }
 
 /**
- * Creates a booking, or returns the one an earlier identical attempt created.
- *
- * Three things are deliberately NOT taken from the request: the driver comes
- * from the JWT, the price from ParkingCapacity, and the QR token is generated
- * here. Accepting any of them from the caller lets someone book as another
- * user, at a price they choose, with a pass they minted.
- */
-export async function create(
-  input: CreateBookingInput,
-  driverId: string
-): Promise<{ booking: BookingView; replayed: boolean }> {
-  try {
-    const booking = await prisma.$transaction(async (tx) => {
-      const existing = await tx.booking.findUnique({
-        where: { idempotencyKey: input.idempotencyKey },
-        select: bookingViewWithOwner,
-      });
-
-      if (existing) {
-        // The key is unique across all users, so a guessed or copied key must
-        // not hand back someone else's booking.
-        if (existing.driverId !== driverId) {
-          throw conflict("Idempotency key already used");
-        }
-        return { booking: stripOwner(existing), replayed: true };
-      }
-
-      const capacity = await tx.parkingCapacity.findUnique({
-        where: { id: input.parkingCapacityId },
-        include: { listing: true },
-      });
-
-      if (!capacity) {
-        throw notFound("Parking capacity not found");
-      }
-
-      if (capacity.listing.listingType === "INDEPENDENT_SPOT") {
-        // Host spots are priced per hour against a HostAvailability window,
-        // not per slot. Booking one through this path would charge the wrong
-        // amount, so it is refused rather than approximated.
-        throw badRequest("Host spots are booked through the spot flow");
-      }
-
-      if (!BOOKABLE_LISTING_STATUSES.includes(capacity.listing.status)) {
-        throw badRequest("This listing is not open for booking");
-      }
-
-      if (
-        capacity.listing.eventDate &&
-        capacity.listing.eventDate < graceCutoff()
-      ) {
-        throw badRequest("This event has already finished");
-      }
-
-      // The whole point of the bookedCount column. The condition lives in the
-      // WHERE clause so the check and the increment are one statement: two
-      // concurrent bookings for the last slot cannot both read "1 left" and
-      // both write "2 booked". A read-then-write in application code oversells
-      // under exactly the load an event sale produces.
-      const claimed = await tx.$executeRaw`
-        UPDATE "ParkingCapacity"
-        SET "bookedCount" = "bookedCount" + ${input.quantity},
-            "updatedAt" = NOW()
-        WHERE "id" = ${input.parkingCapacityId}
-          AND "bookedCount" + ${input.quantity} <= "totalCapacity"
-      `;
-
-      if (claimed === 0) {
-        throw conflict("Not enough spots left");
-      }
-
-      const created = await tx.booking.create({
-        data: {
-          parkingCapacityId: input.parkingCapacityId,
-          driverId,
-          vehicleNumber: input.vehicleNumber,
-          quantity: input.quantity,
-          amount: capacity.price.mul(input.quantity),
-          idempotencyKey: input.idempotencyKey,
-          qrToken: generateQrToken(),
-          createdBy: driverId,
-          updatedBy: driverId,
-        },
-        select: bookingView,
-      });
-
-      return { booking: present(created), replayed: false };
-    });
-
-    return booking;
-  } catch (error) {
-    // Two identical requests can both pass the lookup above and race to the
-    // insert. The loser's whole transaction rolls back -- its capacity
-    // increment included -- so replaying the winner here is safe and does not
-    // double-count a slot.
-    if (
-      error instanceof Prisma.PrismaClientKnownRequestError &&
-      error.code === "P2002"
-    ) {
-      const existing = await prisma.booking.findUnique({
-        where: { idempotencyKey: input.idempotencyKey },
-        select: bookingViewWithOwner,
-      });
-
-      if (existing && existing.driverId === driverId) {
-        return { booking: stripOwner(existing), replayed: true };
-      }
-
-      throw conflict("Idempotency key already used");
-    }
-
-    throw error;
-  }
-}
-
-/**
  * Mints a short-lived pass for the driver's own booking.
  *
  * qrToken is read here and handed straight to the signer; it is not part of
@@ -570,16 +403,7 @@ export async function issuePassForDriver(bookingId: string, driverId: string) {
       qrToken: true,
       vehicleType: true,
       startsAt: true,
-      listing: { select: { name: true, venueName: true, eventDate: true } },
-      parkingCapacity: {
-        select: {
-          gate: true,
-          vehicleType: true,
-          listing: {
-            select: { name: true, venueName: true, eventDate: true },
-          },
-        },
-      },
+      listing: { select: { name: true, venueName: true } },
     },
   });
 
@@ -591,25 +415,22 @@ export async function issuePassForDriver(bookingId: string, driverId: string) {
     throw badRequest("This booking has no pass yet");
   }
 
-  // Exactly one side is populated -- the DB CHECK guarantees it -- so this
-  // reads whichever is there rather than branching on a type flag. A host
-  // spot has no gate: what a driver needs there is the access instructions,
-  // which arrive with the booking rather than on the pass.
-  const listing = booking.listing ?? booking.parkingCapacity?.listing;
-
+  const listing = booking.listing;
   if (!listing) {
     throw notFound("Booking not found");
   }
 
+  // The field names are the pass screen's, from when event passes carried a
+  // gate and an event date. A spot has no gate -- the access instructions come
+  // with the booking instead -- and its "date" is when the stay starts.
   return {
     booking: {
       id: booking.id,
-      gate: booking.parkingCapacity?.gate ?? null,
-      vehicleType:
-        booking.parkingCapacity?.vehicleType ?? booking.vehicleType ?? "CAR",
+      gate: null,
+      vehicleType: booking.vehicleType ?? "CAR",
       eventName: listing.name,
       venueName: listing.venueName,
-      eventDate: listing.eventDate ?? booking.startsAt,
+      eventDate: booking.startsAt,
     },
     pass: passService.issue(booking.id, booking.qrToken),
   };
@@ -679,15 +500,10 @@ export async function releaseExpiredHolds(
 /**
  * Books a host's spot for a stretch of time.
  *
- * Separate from `create` because almost nothing about it is the same: the
- * price comes from an hourly rate rather than a slot price, the thing being
- * claimed is a range rather than a count, and what makes a claim valid is the
- * host's weekly schedule rather than an event date. Sharing one function
- * would mean two disjoint halves behind a flag.
- *
- * As with the event path, three things are never taken from the request: the
- * driver comes from the JWT, the price from SpotPricing, and the QR token is
- * generated here.
+ * Three things are never taken from the request: the driver comes from the
+ * JWT, the price from SpotPricing, and the QR token is generated here.
+ * Accepting any of them from the caller would let someone book as another
+ * user, at a price they choose, with a pass they minted.
  *
  * With a payment gateway configured, the hold comes with its gateway order:
  * the driver's phone is checked before anything is held, the Payment row is
@@ -700,7 +516,7 @@ export async function createSpotBooking(
   input: CreateSpotBookingInput,
   driverId: string
 ): Promise<{ booking: BookingView & { checkout: Checkout | null }; replayed: boolean }> {
-  await paymentService.assertCanPay(driverId);
+  await paymentService.assertCanPay(driverId, input.listingId);
 
   const { booking, replayed } = await placeSpotBooking(input, driverId);
 
@@ -792,8 +608,9 @@ async function placeSpotBooking(
       if (broken) throw conflict(broken);
 
       // The same price the checkout quoted: the cheaper of hourly and daily,
-      // by the minute. Plus GatePass's fee and its GST, fixed now so a later
-      // change to the fee never reprices a booking already made.
+      // by the minute. The driver pays nothing on top (driverFees is zero:
+      // GatePass's service fee comes out of the host's side); the fee
+      // columns are still written so every booking row adds up the same way.
       const price = stayPrice(rate, minutes);
       if (!price) throw conflict("This space isn't priced for that vehicle yet.");
       const { amount } = price;

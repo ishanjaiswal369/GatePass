@@ -1,8 +1,6 @@
 export const LISTING_STATUSES = [
   "DRAFT",
-  // Host spots only: submitted by the host, waiting on an admin to check the
-  // ownership document. Event listings go straight from DRAFT to PUBLISHED --
-  // an organizer is onboarded by a human before they ever reach the API.
+  // Submitted by the host, waiting on an admin to check the ownership document.
   "PENDING_REVIEW",
   "REJECTED",
   "PUBLISHED",

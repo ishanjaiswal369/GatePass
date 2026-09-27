@@ -18,12 +18,21 @@ function csvOf<T extends string>(values: readonly T[]) {
 /** The longest single stay a search, quote or booking answers. */
 const MAX_STAY_MINUTES = 30 * MINUTES_IN_DAY;
 
+/**
+ * A start this far back still counts as "now": the app sends a time the
+ * driver picked a moment ago. The same allowance as POST /spot-bookings, so
+ * a search or a price is never offered for a time the booking would refuse.
+ */
+const PAST_GRACE_MS = 5 * 60_000;
+const notPast = (date: Date) => date.getTime() > Date.now() - PAST_GRACE_MS;
+const PAST_MESSAGE = "That time has already passed. Pick a time from now on.";
+
 const nearbyQuery = z
   .object({
     latitude: z.coerce.number().min(-90).max(90),
     longitude: z.coerce.number().min(-180).max(180),
     radiusKm: z.coerce.number().positive().max(25).default(5),
-    at: z.coerce.date().optional(),
+    at: z.coerce.date().refine(notPast, PAST_MESSAGE).optional(),
     // Up to 30 days: the app lets a driver book that long, so the search has
     // to be able to ask about it (it stopped at one day before).
     durationMinutes: z.coerce.number().int().positive().max(MAX_STAY_MINUTES).default(60),
@@ -55,7 +64,8 @@ const quoteQuery = z
   .refine((value) => value.endsAt.getTime() - value.startsAt.getTime() <= MAX_STAY_MINUTES * 60_000, {
     path: ["endsAt"],
     message: "that stay is too long to book here",
-  });
+  })
+  .refine((value) => notPast(value.startsAt), { path: ["startsAt"], message: PAST_MESSAGE });
 
 export const spotRequests = {
   nearby: { query: nearbyQuery } satisfies RequestSchemas,

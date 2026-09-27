@@ -218,7 +218,7 @@ export const submitPayoutAccount = (
     accountNumber: string;
     ifsc: string;
     accountType: PayoutAccountType;
-    /** Only for a BUSINESS account. */
+    /** A BUSINESS account only (required there); an individual is sent a default by the API. */
     businessType?: string;
     /** Only when the profile has no phone (PayoutAccount.needsPhone). */
     phone?: string;

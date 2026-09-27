@@ -5,22 +5,20 @@ import { consumeCode, requestCode } from "./auth.service.js";
 
 /** Booking states that still involve money or a car turning up. */
 const OPEN_BOOKING_STATUSES = ["PENDING", "CONFIRMED"];
-/** Settlement states where a payout to the host is not finished. */
-const UNSETTLED_STATUSES = ["PENDING", "PROCESSING", "DISPUTED"];
 
 /**
  * Reasons this account cannot be deleted right now, in the words the app
  * shows. Empty means it can go.
  *
  * Deletion is soft, so nothing here protects the database -- the rows all
- * stay. These protect people: a driver who is expected at a gate, drivers
- * booked into this host's spot, a payout still owed, an organizer that would
- * be left with nobody to run it.
+ * stay. These protect people: a driver who is expected at a gate, and drivers
+ * booked into this host's spot. (A host's money is paid out by the gateway
+ * from each order -- Easy Split -- so no payout of ours can be left owing.)
  */
 export async function deletionBlockers(userId: string): Promise<string[]> {
   const blockers: string[] = [];
 
-  const [openBookings, host, memberships] = await Promise.all([
+  const [openBookings, host] = await Promise.all([
     prisma.booking.count({
       where: { driverId: userId, status: { in: OPEN_BOOKING_STATUSES } },
     }),
@@ -28,7 +26,6 @@ export async function deletionBlockers(userId: string): Promise<string[]> {
       where: { userId },
       select: { id: true },
     }),
-    prisma.organizerMember.count({ where: { userId } }),
   ]);
 
   if (openBookings > 0) {
@@ -38,36 +35,22 @@ export async function deletionBlockers(userId: string): Promise<string[]> {
   }
 
   if (host) {
-    const [hostBookings, unsettled] = await Promise.all([
-      prisma.booking.count({
-        where: {
-          status: { in: OPEN_BOOKING_STATUSES },
-          parkingCapacity: { listing: { hostProfileId: host.id } },
-        },
-      }),
-      prisma.settlement.count({
-        where: { hostProfileId: host.id, status: { in: UNSETTLED_STATUSES } },
-      }),
-    ]);
+    // Through the spot itself: the old count went through an event's
+    // ParkingCapacity, which a spot booking never has, so it was always zero.
+    const hostBookings = await prisma.booking.count({
+      where: {
+        status: { in: OPEN_BOOKING_STATUSES },
+        listing: { hostProfileId: host.id },
+      },
+    });
 
     if (hostBookings > 0) {
       blockers.push(
         `Drivers have ${hostBookings} upcoming booking${hostBookings === 1 ? "" : "s"} at your spot.`
       );
     }
-
-    if (unsettled > 0) {
-      blockers.push(
-        `${unsettled} payout${unsettled === 1 ? " to you is" : "s to you are"} still being processed.`
-      );
-    }
   }
 
-  if (memberships > 0) {
-    blockers.push(
-      "You manage an organizer account. Hand it over or close it first."
-    );
-  }
 
   return blockers;
 }

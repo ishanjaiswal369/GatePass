@@ -51,13 +51,10 @@ model HostProfile {
 
   user               User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   listings           Listing[]         @relation("ListingHost")
-  settlements        Settlement[]
 }
 
-/// When a host's spot can be booked, as weekly recurring windows. This cannot
-/// live in ParkingCapacity: that models a fixed count of slots for one fixed
-/// date, while a host's spot is the same single space offered again every
-/// week.
+/// When a host's spot can be booked, as weekly recurring windows: the same
+/// single space offered again every week.
 ///
 /// Price does NOT live here -- see SpotPricing. Two windows on one spot
 /// quoting different rates was a bug waiting for the first driver who booked

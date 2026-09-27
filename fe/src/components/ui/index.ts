@@ -18,6 +18,7 @@ export {
   ChatIcon,
   ArrowRightIcon,
   CalendarIcon,
+  BikeIcon,
   CarIcon,
   CheckIcon,
   ChevronLeftIcon,
@@ -47,7 +48,6 @@ export {
   WalletIcon,
   WarningIcon,
 } from "./Icon";
-export { EventListItem } from "./EventListItem";
 export { HeaderAction } from "./HeaderAction";
 export { HomeHeader } from "./HomeHeader";
 export { LocationPrompt } from "./LocationPrompt";

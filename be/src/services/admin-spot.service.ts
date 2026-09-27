@@ -15,6 +15,22 @@ async function tellHost(listingId: string, title: (name: string) => string, body
 }
 
 /**
+ * Why an approved listing isn't live yet, as the one thing the host can do
+ * about it. The payout account is set up from the Host tab, not the listing
+ * wizard, so a host who submitted without one is told where to go.
+ */
+async function payoutWaitMessage(listingId: string): Promise<string> {
+  const listing = await prisma.listing.findUnique({
+    where: { id: listingId },
+    select: { hostProfile: { select: { payoutKycStatus: true, payoutAccountNumber: true } } },
+  });
+  const payout = listing?.hostProfile;
+  if (!payout?.payoutAccountNumber) return "Add your payout account from the Host tab and it goes live.";
+  if (payout.payoutKycStatus === "REJECTED") return "Your payout account needs attention. Fix it from the Host tab and it goes live.";
+  return "It goes live as soon as your payout account is verified.";
+}
+
+/**
  * Review and publication of host spots.
  *
  * Two independent gates stand between a submitted spot and a bookable one:
@@ -195,9 +211,7 @@ export async function approve(listingId: string, adminUserId: string) {
   await tellHost(
     listingId,
     (name) => (result.published ? `${name} is live` : `${name}: documents approved`),
-    result.published
-      ? "Drivers can find and book it now."
-      : "We're waiting on your payout account before it goes live."
+    result.published ? "Drivers can find and book it now." : await payoutWaitMessage(listingId)
   );
 
   return {

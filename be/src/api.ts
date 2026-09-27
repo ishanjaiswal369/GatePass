@@ -2,19 +2,15 @@ import { addressController } from "./controllers/address.controller.js";
 import { adminSpotController } from "./controllers/admin-spot.controller.js";
 import { authController } from "./controllers/auth.controller.js";
 import { bookingController } from "./controllers/booking.controller.js";
-import { capacityController } from "./controllers/capacity.controller.js";
-import { eventController } from "./controllers/event.controller.js";
 import { geocodeController } from "./controllers/geocode.controller.js";
 import { healthController } from "./controllers/health.controller.js";
 import { hostController } from "./controllers/host.controller.js";
 import { hostOperationsController } from "./controllers/host-operations.controller.js";
 import { hostPayoutController } from "./controllers/host-payout.controller.js";
-import { listingController } from "./controllers/listing.controller.js";
 import { notificationController } from "./controllers/notification.controller.js";
 import { paymentController } from "./controllers/payment.controller.js";
 import { problemController } from "./controllers/problem.controller.js";
 import { reviewController } from "./controllers/review.controller.js";
-import { settlementController } from "./controllers/settlement.controller.js";
 import { spotController } from "./controllers/spot.controller.js";
 import { spotListingController } from "./controllers/spot-listing.controller.js";
 import { uploadController } from "./controllers/upload.controller.js";
@@ -24,22 +20,18 @@ import { request } from "./lib/request.js";
 import { authenticate } from "./middleware/authenticate.js";
 import { requireAdmin } from "./middleware/require-admin.js";
 import { requireHost } from "./middleware/require-host.js";
-import { requireOrganizerStaff } from "./middleware/require-organizer-staff.js";
 import { addressRequests } from "./requests/address.request.js";
 import { adminSpotRequests } from "./requests/admin-spot.request.js";
 import { authRequests } from "./requests/auth.request.js";
 import { bookingRequests } from "./requests/booking.request.js";
-import { capacityRequests } from "./requests/capacity.request.js";
-import { eventRequests } from "./requests/event.request.js";
 import { geocodeRequests } from "./requests/geocode.request.js";
+import { paymentRequests } from "./requests/payment.request.js";
 import { hostRequests } from "./requests/host.request.js";
 import { hostOperationsRequests } from "./requests/host-operations.request.js";
 import { hostPayoutRequests } from "./requests/host-payout.request.js";
-import { listingRequests } from "./requests/listing.request.js";
 import { notificationRequests } from "./requests/notification.request.js";
 import { problemRequests } from "./requests/problem.request.js";
 import { reviewRequests } from "./requests/review.request.js";
-import { settlementRequests } from "./requests/settlement.request.js";
 import { spotRequests } from "./requests/spot.request.js";
 import { spotListingRequests } from "./requests/spot-listing.request.js";
 import { vehicleRequests } from "./requests/vehicle.request.js";
@@ -48,13 +40,12 @@ import { vehicleRequests } from "./requests/vehicle.request.js";
  * Route registration, grouped by who is allowed to call it.
  *
  * Every route below `/health` and `/auth/*` runs `authenticate`. Driver routes
- * stop there -- any signed-in user is a driver -- while host and organizer
+ * stop there -- any signed-in user is a driver -- while host and admin
  * routes add a database-backed check on top. There is no "open" group.
  */
 export function registerApi(app: App): void {
   const driver = { preHandler: [authenticate] };
   const host = { preHandler: [authenticate, requireHost] };
-  const organizer = { preHandler: [authenticate, requireOrganizerStaff] };
   const admin = { preHandler: [authenticate, requireAdmin] };
 
   // Health
@@ -169,14 +160,6 @@ export function registerApi(app: App): void {
     request(addressRequests.save, addressController.save)
   );
 
-  // Driver discovery -- the Events tab of the home screen.
-  app.get("/events", driver, request(eventRequests.list, eventController.list));
-  app.get(
-    "/events/:id",
-    driver,
-    request(eventRequests.getById, eventController.getById)
-  );
-
   // Driver discovery -- the Nearby tab.
   app.get(
     "/spots/nearby",
@@ -266,11 +249,6 @@ export function registerApi(app: App): void {
     driver,
     request(bookingRequests.pass, bookingController.pass)
   );
-  app.post(
-    "/bookings",
-    driver,
-    request(bookingRequests.create, bookingController.create)
-  );
   // Cancelling: the quote first, so the driver sees the refund before
   // committing; the POST applies the same policy to the same row.
   app.get(
@@ -318,8 +296,7 @@ export function registerApi(app: App): void {
     driver,
     request(reviewRequests.create, reviewController.create)
   );
-  // A host spot is booked by the hour against its own listing, not by the
-  // slot against a ParkingCapacity -- see booking.service.createSpotBooking.
+  // A spot is booked by the stretch of time -- see booking.service.createSpotBooking.
   app.post(
     "/spot-bookings",
     driver,
@@ -329,6 +306,37 @@ export function registerApi(app: App): void {
   // The driver's own payments. There is no POST: a payment row is opened with
   // its booking (POST /spot-bookings), never on the app's say-so.
   app.get("/payments", driver, paymentController.list);
+  app.get("/payments/options", driver, paymentController.options);
+  // A UPI attempt on the booking's order: app links or a QR. Card never comes
+  // through here -- the app sends it straight to the gateway (sandbox only).
+  app.post(
+    "/bookings/:id/pay/upi",
+    driver,
+    request(paymentRequests.startUpi, paymentController.startUpi)
+  );
+  // Public: Cashfree's payment webhooks (each order's notify_url). Checked by
+  // signature, not a token. Registered in a scope of its own so its JSON
+  // parser can keep the raw body -- the signature is over the exact bytes
+  // sent -- without changing how any other route parses.
+  app.register(async (scope) => {
+    scope.removeContentTypeParser("application/json");
+    scope.addContentTypeParser("application/json", { parseAs: "string" }, (request, body, done) => {
+      (request as typeof request & { rawBody?: string }).rawBody = body as string;
+      try {
+        done(null, JSON.parse(body as string));
+      } catch {
+        // Unparseable: left for the signature check to refuse.
+        done(null, {});
+      }
+    });
+    scope.post("/webhooks/cashfree", paymentController.cashfreeWebhook);
+  });
+  // Public: the gateway's payment page sends the driver here, with no token.
+  // It only redirects to the booking's pay screen; see payment.service.
+  app.get(
+    "/payments/return",
+    request(paymentRequests.paymentReturn, paymentController.paymentReturn)
+  );
 
   // Host
   //
@@ -357,7 +365,6 @@ export function registerApi(app: App): void {
     host,
     request(hostRequests.removeAvailability, hostController.removeAvailability)
   );
-  app.get("/host/settlements", host, settlementController.listForHost);
 
   // Host spot wizard. A host can list more than one spot; every step writes
   // to a specific listing id, so a host who drops out halfway keeps what they
@@ -506,32 +513,15 @@ export function registerApi(app: App): void {
     request(spotListingRequests.submit, spotListingController.submit)
   );
 
-  // Host payout account -- the second gate on going live.
-  app.get("/host/payout-account", host, hostPayoutController.getStatus);
+  // Payout account -- the second gate on going live. Signed-in users, not
+  // only hosts: the Payouts tab is open before anything is listed, and
+  // submitting creates the host profile the payee belongs to.
+  app.get("/host/payout-account", driver, hostPayoutController.getStatus);
   app.post(
     "/host/payout-account",
-    host,
+    driver,
     request(hostPayoutRequests.submit, hostPayoutController.submit)
   );
-
-  // Organizer
-  app.get("/listings", organizer, listingController.list);
-  app.post(
-    "/listings",
-    organizer,
-    request(listingRequests.create, listingController.create)
-  );
-  app.get(
-    "/capacities",
-    organizer,
-    request(capacityRequests.list, capacityController.list)
-  );
-  app.post(
-    "/capacities",
-    organizer,
-    request(capacityRequests.create, capacityController.create)
-  );
-  app.get("/settlements", organizer, settlementController.list);
 
   // Admin: host spot review. Approving clears the ownership document only --
   // publication also waits on the host's payout account, so approve() reports
@@ -581,23 +571,5 @@ export function registerApi(app: App): void {
     "/admin/host-payout-status",
     admin,
     request(adminSpotRequests.setPayoutStatus, adminSpotController.setPayoutStatus)
-  );
-
-  // Admin. Settlements are written by the payout engine, which does not exist
-  // yet; until it does, only an admin can create one by hand.
-  app.post(
-    "/settlements",
-    admin,
-    request(settlementRequests.create, settlementController.create)
-  );
-  app.get(
-    "/settlement-items",
-    admin,
-    request(settlementRequests.listItems, settlementController.listItems)
-  );
-  app.post(
-    "/settlement-items",
-    admin,
-    request(settlementRequests.createItem, settlementController.createItem)
   );
 }

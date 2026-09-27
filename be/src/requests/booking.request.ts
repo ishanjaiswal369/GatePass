@@ -4,20 +4,6 @@ import { EXTENSION_STEPS } from "../config/pricing.js";
 import { MAX_PAGE_SIZE } from "../lib/pagination.js";
 import type { RequestInput, RequestSchemas } from "../lib/request.js";
 
-/**
- * driverId, amount and qrToken are absent by design. The driver comes from the
- * JWT, the price from ParkingCapacity and the token from the server -- see
- * booking.service. Anything accepted here is attacker-controlled.
- */
-const createBookingBody = z.object({
-  parkingCapacityId: z.string().uuid(),
-  vehicleNumber: z.string().trim().min(1).max(32),
-  quantity: z.number().int().positive().max(10),
-  // Supplied by the app so a retried request after a dropped response
-  // resolves to the same booking instead of a second one.
-  idempotencyKey: z.string().min(8).max(128),
-});
-
 /** The shortest stay worth selling, and the longest one this flow handles. */
 const MIN_STAY_MINUTES = 15;
 const MAX_STAY_MINUTES = 30 * 24 * 60;
@@ -52,7 +38,7 @@ const createSpotBookingBody = z
     // A small allowance, because the app sends a time the driver picked a
     // moment ago and a strict "in the future" would refuse the present.
     (value) => value.startsAt.getTime() > Date.now() - 5 * 60_000,
-    { path: ["startsAt"], message: "cannot book a time in the past" }
+    { path: ["startsAt"], message: "That start time has already passed. Pick a later time." }
   );
 
 const listBookingsQuery = z.object({
@@ -85,7 +71,6 @@ const createExtensionBody = z.object({
 
 export const bookingRequests = {
   list: { query: listBookingsQuery } satisfies RequestSchemas,
-  create: { body: createBookingBody } satisfies RequestSchemas,
   createSpot: { body: createSpotBookingBody } satisfies RequestSchemas,
   getById: { params: bookingIdParams } satisfies RequestSchemas,
   pass: { params: bookingIdParams } satisfies RequestSchemas,
@@ -96,7 +81,6 @@ export const bookingRequests = {
 };
 
 export type ListBookingsInput = RequestInput<typeof bookingRequests.list>;
-export type CreateBookingInput = RequestInput<typeof bookingRequests.create>;
 export type CreateSpotBookingInput = RequestInput<
   typeof bookingRequests.createSpot
 >;

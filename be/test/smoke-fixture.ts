@@ -82,7 +82,6 @@ async function removeSpots(hostProfileId: string): Promise<void> {
   await prisma.problemReport.deleteMany({ where: { listingId: { in: ids } } });
   await prisma.refund.deleteMany({ where: bookings });
   await prisma.payment.deleteMany({ where: bookings });
-  await prisma.settlementItem.deleteMany({ where: bookings });
   await prisma.booking.deleteMany({ where: { listingId: { in: ids }, extendsBookingId: { not: null } } });
   await prisma.booking.deleteMany({ where: { listingId: { in: ids } } });
   await prisma.listing.deleteMany({ where: { id: { in: ids } } });
