@@ -13,14 +13,15 @@ Driver payment, in build order:
 | 5 | Booking confirmation + 15-min hold handling | PENDING → CONFIRMED; paid-after-expiry | **done** (with step 3) |
 | 6 | Create Refund | Cancellation / problem report | later |
 | 7 | Refund status + refund webhook | `Refund` REFUND_PENDING → REFUNDED / FAILED | later |
-| 8 | Host payouts shown in earnings: Easy Split settlement webhook (the manual `Settlement` tables were deleted 2026-09-27) | earnings `paidOut`, `HOST_PAYOUT` notice | later |
+| 8 | Host payouts shown in earnings: Easy Split settlement webhook (the manual `Settlement` tables were deleted 2026-09-27) | earnings `paidOut`, `HOST_PAYOUT` notice | **done** |
 
 Host side, separate from the driver's payment:
 
 | Cashfree API | Where | Status |
 |---|---|---|
 | Easy Split: Create Vendor / Update Vendor Details / Get Vendor | Payouts screen (`/host/payouts`, from the Host tab card) — see `host-payouts_design.md` | **done** |
-| Easy Split: vendor status webhook (`VENDOR_STATUS_UPDATE`) | `POST /webhooks/cashfree` | with the payment webhook |
+| Easy Split: vendor status webhook (`VENDOR_STATUS_UPDATE`) | `POST /webhooks/cashfree` → Get Vendor → `record` | **done** (URL set in the Cashfree dashboard) |
+| Easy Split: vendor settlement webhook (`VENDOR_SETTLEMENT_*`) | `POST /webhooks/cashfree` → `HostPayout` rows, earnings, notifications | **done** (URL set in the Cashfree dashboard) |
 | Easy Split: **split on the order** (`order_splits` in Create Order) — replaced Split After Payment on 2026-09-27 | `openOrder`: host's vendor + parking less the service fee | **done** |
 
 Refunds after a split: by default Cashfree debits the vendor's balance **in proportion to their share** (Easy Split FAQ). For a ₹40 order with ₹36 to the host, a ₹20 refund takes ₹18 from the host, leaving 90% of what was kept, which is our earnings formula. So `refund_splits` may not be needed; confirm at the Create Refund step.
@@ -201,6 +202,23 @@ Refunds are `Refund` rows (full amount, `REFUND_PENDING`); sending them to Cashf
 - **Responses:** `200` handled or ignored (not our order), `401` bad or missing signature (security event `WEBHOOK_SIGNATURE_INVALID`), `5xx` when Cashfree can't be asked, so Cashfree retries (default at 2, 10 and 30 min). Audit `PAYMENT_WEBHOOK_RECEIVED`.
 - **Rate limit:** exempt (Cashfree sends from a few shared IPs; the signature bounds it).
 - **Verified 2026-09-27:** fake suite (forged, tampered, re-serialised, wrong timestamp, outage → throws, genuine → CONFIRMED despite a recent check, duplicate → no change, foreign order → ignored). Real HTTP against the Docker API: genuine 200, wrong secret, tampered or no headers 401, 70/min from one IP all 200. **Not yet:** Cashfree actually delivering one, which needs the tunnel.
+
+## Easy Split webhooks — vendor status and settlements
+
+**Owner decisions (2026-09-27):** hosts are paid automatically by Easy Split, with no wallet and no withdraw button. A new `HostPayout` table holds one row per transfer. Earnings show transfer rows, not a "paid" mark on each booking. A failed or returned transfer is told to the host: a notification, plus a notice on the Payouts screen saying what to fix.
+
+**Setup:** both webhooks are configured **in the Cashfree dashboard** (Easy Split → webhooks: *Vendor Status Change* and *Vendor Settlement*), not per order. Point them at the same `https://<public>/webhooks/cashfree` as the payment webhook. One route, one signature check (`timestamp + raw body`, client secret), dispatched by `type` in `services/gateway-webhook.service.ts`.
+
+**`VENDOR_STATUS_UPDATE`** (docs: api-reference/…/split/webhooks/vendor-status-change-webhooks): only `data.merchant_vendor_id` is read. The body also carries the vendor's bank account, phone and email, which are never used or logged. Then **Get Vendor** → `record()` (same path as the Payouts screen), so ACTIVATED publishes waiting listings with nobody opening a screen. Unknown vendor → 200 + audit `PAYOUT_WEBHOOK_IGNORED`. Cashfree down → 5xx (retried). The Payouts screen's 30 s check stays as a fallback.
+
+**`VENDOR_SETTLEMENT_INITIATED | SUCCESS | FAILED | REVERSED`** (docs: payments/split/webhooks). One transfer of a vendor's balance to their bank, with **no order list** (`settled_orders_count` only). There is no API to ask back, so the signed body is the record:
+- **Parsed** (`toSettlement`): `settlement_id` (number or string, stored as a string; an unsafe integer is refused), amount = `amount_settled ?? settlement_amount ?? vendor_transaction_amount`, `utr`, `reason`, `payment_from/till` (bare dates read as IST days), `settlement_initiated_on`, `settled_on`. Cashfree's examples write missing values as the string `"null"`, which is read as null. The docs call the first event both `…_INITIATED` and `…_CREATED`, and both map to INITIATED.
+- **`HostPayout`** (migration `0025_create_host_payout`): unique `gatewaySettlementId`. Status only moves up a rank: INITIATED(0) → SUCCESS | FAILED(1) → REVERSED(2). A late or duplicate webhook changes nothing, and moves are conditional on the status read.
+- **Notifications** (`HOST_PAYOUT`, dedupe `payout:<id>:<status>`): SUCCESS "Payout sent ₹X … •• 1234 · UTR". FAILED "couldn't reach your bank", REVERSED "returned by your bank", with the reason in words and "update your bank details" only when the reason is the host's account (IFSC, account number, name mismatch, blocked, NRE, payout inactive…).
+- **Earnings:** `paidOut` = sum of SUCCESS. Rows: SUCCESS "Payout to your bank" (PAID_OUT), INITIATED "Payout on its way" (PENDING). Failed transfers aren't rows.
+- **Payouts screen:** `lastTransferIssue` = the latest finished transfer if it FAILED or REVERSED (cleared by a later SUCCESS). If the host changed bank details since, it doesn't ask again.
+
+**Verified 2026-09-27:** fake suite (21 checks: parsing, `"null"`, CREATED alias, unsafe id, INITIATED → SUCCESS → duplicate → late INITIATED → REVERSED, FAILED fixable vs bank-side, earnings totals and rows, unknown vendor, forged). Real HTTP on the Docker API: vendor status for the real sandbox vendor → real Get Vendor 200; unknown vendor/settlement 200 ignored; forged 401. **Not yet:** Cashfree actually delivering either. That needs the tunnel + dashboard URLs, and a paid split order settling (seed host needs a vendor first). `POST /pg/simulate/settlement` exists in sandbox; whether it triggers vendor settlements is untested.
 
 ## Host's share — `order_splits` on Create Order
 

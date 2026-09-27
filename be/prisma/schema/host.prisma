@@ -51,6 +51,8 @@ model HostProfile {
 
   user               User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   listings           Listing[]         @relation("ListingHost")
+  /// Transfers of their money to their bank, from the gateway's webhook.
+  payouts            HostPayout[]
 }
 
 /// When a host's spot can be booked, as weekly recurring windows: the same

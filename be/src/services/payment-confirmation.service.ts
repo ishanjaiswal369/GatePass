@@ -105,43 +105,27 @@ async function settleFromGateway(bookingId: string, orderId: string, source: "po
   }
 }
 
-export type WebhookOutcome = "HANDLED" | "IGNORED" | "BAD_SIGNATURE";
-
 /**
- * A webhook from the gateway (POST /webhooks/cashfree).
- *
- * The signature is checked against the raw body first; nothing is read from
- * a body that fails it. A genuine one is only a nudge -- "look at order X" --
- * and the same Get Payments call the pay screen uses decides what happened,
- * so a replayed, reordered or duplicated webhook can't do more than an extra
- * look. Unlike a screen's check it is neither throttled nor limited to recent
+ * A signed payment webhook about one of our orders (see
+ * gateway-webhook.service). Only a nudge -- "look at order X" -- and the same
+ * Get Payments call the pay screen uses decides what happened, so a
+ * replayed, reordered or duplicated webhook can't do more than an extra look.
+ * Unlike a screen's check it is neither throttled nor limited to recent
  * orders: a webhook can arrive late, and it arrives once.
  *
- * Throws when the gateway can't be asked: the route answers 5xx and the
- * gateway sends it again later (Cashfree retries at 2, 10 and 30 minutes).
+ * Throws when the gateway can't be asked, so the webhook is answered 5xx and
+ * sent again.
  */
-export async function receiveWebhook(
-  rawBody: string,
-  headers: Record<string, string | string[] | undefined>,
-  now = new Date()
-): Promise<WebhookOutcome> {
-  const gateway = getPaymentGateway();
-  if (!gateway) return "IGNORED";
+export async function onOrderNotice(orderId: string, type: string, now = new Date()): Promise<"HANDLED" | "IGNORED"> {
+  const row = await prisma.payment.findUnique({ where: { gatewayOrderId: orderId }, select: { bookingId: true } });
 
-  const notice = gateway.readWebhook(rawBody, headers);
-  if (!notice) return "BAD_SIGNATURE";
-
-  const row = notice.orderId
-    ? await prisma.payment.findUnique({ where: { gatewayOrderId: notice.orderId }, select: { bookingId: true } })
-    : null;
-
-  audit("PAYMENT_WEBHOOK_RECEIVED", { provider: gateway.name, type: notice.type, orderId: notice.orderId, bookingId: row?.bookingId ?? null });
+  audit("PAYMENT_WEBHOOK_RECEIVED", { type, orderId, bookingId: row?.bookingId ?? null });
 
   // Not an order of ours (another integration on the account, a deleted
   // test booking): acknowledged, so the gateway stops sending it.
-  if (!row || !notice.orderId) return "IGNORED";
+  if (!row) return "IGNORED";
 
-  await settleFromGateway(row.bookingId, notice.orderId, "webhook", now);
+  await settleFromGateway(row.bookingId, orderId, "webhook", now);
   return "HANDLED";
 }
 

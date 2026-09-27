@@ -372,13 +372,54 @@ console.log("\nWebhook signature (gateway)");
 {
   const { raw, headers } = signed(successWebhook("bk_abc"));
   const notice = gateway.readWebhook(raw, headers);
-  check("valid signature -> the order id and event type", notice?.orderId === "bk_abc" && notice.type === "PAYMENT_SUCCESS_WEBHOOK", notice);
+  check("valid signature -> a PAYMENT notice with the order id", notice?.kind === "PAYMENT" && notice.orderId === "bk_abc" && notice.type === "PAYMENT_SUCCESS_WEBHOOK", notice);
   check("body changed after signing -> refused", gateway.readWebhook(raw.replace('"order_amount":60', '"order_amount":1'), headers) === null);
   check("same body re-serialised with other spacing -> refused (raw bytes only)", gateway.readWebhook(JSON.stringify(JSON.parse(raw), null, 2), headers) === null);
   const forged = signed(successWebhook("bk_abc"), "not-the-secret");
   check("signed with another secret -> refused", gateway.readWebhook(forged.raw, forged.headers) === null);
   check("timestamp changed -> refused", gateway.readWebhook(raw, { ...headers, "x-webhook-timestamp": "1" }) === null);
   check("no signature headers -> refused", gateway.readWebhook(raw, {}) === null);
+}
+
+{
+  const status = signed({
+    type: "VENDOR_STATUS_UPDATE",
+    data: { merchant_vendor_id: "host_abc123", updated_status: "ACTIVE", past_status: "IN_BENE_CREATION", account_number: "026291800001191", phone: "9876543210" },
+  });
+  const notice = gateway.readWebhook(status.raw, status.headers);
+  check("VENDOR_STATUS_UPDATE -> the vendor id only", notice?.kind === "VENDOR_STATUS" && notice.vendorId === "host_abc123" && !JSON.stringify(notice).includes("026291800001191"), notice);
+
+  const settle = (type: string, extra: object = {}) =>
+    signed({
+      type,
+      event_time: "2026-09-29T15:10:37+05:30",
+      data: {
+        settlement: {
+          settlement_id: 49703, status: type.replace("VENDOR_SETTLEMENT_", ""), utr: "1686217237243457", payment_amount: null,
+          settlement_initiated_on: "2026-09-29T15:10:35+05:30", settled_on: "null", reason: null, adjustment: 0,
+          settlement_amount: 180.0, service_charge: 0, service_tax: 0, amount_settled: null,
+          payment_from: "2026-09-27", payment_till: "2026-09-27", vendor_id: "host_abc123", vendor_transaction_amount: 180.0,
+          account_mode: "BANK", settled_orders_count: 5, ...extra,
+        },
+      },
+    });
+  const initiated = gateway.readWebhook(settle("VENDOR_SETTLEMENT_INITIATED").raw, settle("VENDOR_SETTLEMENT_INITIATED").headers);
+  check(
+    "VENDOR_SETTLEMENT_INITIATED -> id as string, amount, UTR; \"null\" read as null; a bare date is an Indian day",
+    initiated?.kind === "VENDOR_SETTLEMENT" && initiated.settlement.id === "49703" && initiated.settlement.status === "INITIATED" &&
+      initiated.settlement.amount === "180.00" && initiated.settlement.utr === "1686217237243457" && initiated.settlement.settledAt === null &&
+      initiated.settlement.periodFrom?.toISOString() === "2026-09-26T18:30:00.000Z",
+    initiated
+  );
+  const created = settle("VENDOR_SETTLEMENT_CREATED");
+  check("the docs' other name, VENDOR_SETTLEMENT_CREATED -> INITIATED", (gateway.readWebhook(created.raw, created.headers) as any)?.settlement?.status === "INITIATED");
+  const success = settle("VENDOR_SETTLEMENT_SUCCESS", { amount_settled: 179.5, settled_on: "2026-09-29T15:10:37+05:30" });
+  const ok = gateway.readWebhook(success.raw, success.headers);
+  check("SUCCESS -> amount_settled wins over settlement_amount", ok?.kind === "VENDOR_SETTLEMENT" && ok.settlement.amount === "179.50" && ok.settlement.settledAt !== null);
+  const huge = settle("VENDOR_SETTLEMENT_SUCCESS", { settlement_id: 12345678901234567890 });
+  check("a settlement id too big for a JS number -> not trusted (OTHER)", gateway.readWebhook(huge.raw, huge.headers)?.kind === "OTHER");
+  const refund = signed({ type: "REFUND_STATUS_WEBHOOK", data: { refund: { refund_id: "r1" } } });
+  check("an event we don't handle -> OTHER", gateway.readWebhook(refund.raw, refund.headers)?.kind === "OTHER");
 }
 
 {
@@ -566,7 +607,8 @@ try {
   check("one Cashfree call", seen.length === 1, seen.length);
   check("payment row: full total, CREATED, ids stored", row?.status === "CREATED" && row.amount.equals(total) && row.gatewayOrderId === `bk_${booking.id}` && row.gatewaySessionId === first.booking.checkout?.paymentSessionId && Boolean(row.gatewayOrderRef), row);
   check("order amount = parking + fee + GST, from the booking", sent?.order_amount === Number(total.toFixed(2)), { sent: sent?.order_amount, total: total.toString() });
-  check("order expires with the hold", sent?.order_expiry_time === booking.holdExpiresAt?.toISOString());
+  const expiry = Date.parse(sent?.order_expiry_time ?? "");
+  check("order expires with the hold, but never 15 min or less ahead (Cashfree refuses that)", expiry >= booking.holdExpiresAt!.getTime() && expiry > Date.now() + 15 * 60_000 && expiry <= Date.now() + 17 * 60_000, { sent: sent?.order_expiry_time, hold: booking.holdExpiresAt });
   check("idempotency key is the payment row's id", seen[0]?.headers["x-idempotency-key"] === row?.id);
   check("customer: 10-digit phone, alphanumeric id", sent?.customer_details.customer_phone === phone.slice(3) && sent.customer_details.customer_id === driver.id.replace(/-/g, ""));
   check("tags carry ids only", sent?.order_tags.booking_id === booking.id && sent.order_tags.listing_id === spot.id && Object.keys(sent.order_tags).length === 2);
@@ -581,7 +623,7 @@ try {
   reset();
   const upi = await paymentService.startUpi(booking.id, driver.id, { channel: "INTENT", client: client_ });
   check("startUpi: one Order Pay call with the booking's session, no second order", seen.length === 1 && seen[0]?.url === "/orders/sessions" && seen[0].body.payment_session_id === row?.gatewaySessionId, seen.map((s) => s.url));
-  check("startUpi: app links + the hold's expiry", upi.channel === "INTENT" && Boolean(upi.apps.gpay) && upi.expiresAt.getTime() === booking.holdExpiresAt?.getTime());
+  check("startUpi: app links + the order's expiry (the hold, or just after it)", upi.channel === "INTENT" && Boolean(upi.apps.gpay) && upi.expiresAt.getTime() >= booking.holdExpiresAt!.getTime() && upi.expiresAt.getTime() === row?.gatewayExpiresAt?.getTime());
   reset();
   const qrAttempt = await paymentService.startUpi(booking.id, driver.id, { channel: "QR", client: { device: "desktop", os: "windows", browser: "chrome" } });
   check("a second attempt (QR) on the same order", qrAttempt.channel === "QR" && seen.length === 1);
@@ -652,6 +694,7 @@ try {
   // ---- Get Payments for Order -> confirm, or refund ----
   console.log("\nPaid -> confirmed or refunded (dev database)");
   const confirm = await import("../src/services/payment-confirmation.service.js");
+  const hooks = await import("../src/services/gateway-webhook.service.js");
   const seenPayments = () => seen.filter((r) => /\/payments$/.test(r.url)).length;
   const paid = async (bookingId: string, amount?: number) => {
     const p = await prisma.payment.findUniqueOrThrow({ where: { bookingId } });
@@ -751,30 +794,30 @@ try {
 
   reset();
   const forgedHook = signed(successWebhook(hookedOrder), "not-the-secret");
-  const refusedHook = await confirm.receiveWebhook(forgedHook.raw, forgedHook.headers);
+  const refusedHook = await hooks.receiveGatewayWebhook(forgedHook.raw, forgedHook.headers);
   check("forged webhook -> BAD_SIGNATURE, Cashfree not asked, still PENDING", refusedHook === "BAD_SIGNATURE" && seen.length === 0 && (await state(hooked.booking.id)).status === "PENDING");
 
   reset();
   script.push({ status: 503, body: {} }, { status: 503, body: {} }, { status: 503, body: {} });
   const realHook = signed(successWebhook(hookedOrder));
-  const outage = await rejects(() => confirm.receiveWebhook(realHook.raw, realHook.headers));
+  const outage = await rejects(() => hooks.receiveGatewayWebhook(realHook.raw, realHook.headers));
   check("Cashfree down while handling -> throws (route answers 5xx, Cashfree retries)", outage instanceof IntegrationError);
 
   reset();
   await paid(hooked.booking.id);
-  const handled = await confirm.receiveWebhook(realHook.raw, realHook.headers);
+  const handled = await hooks.receiveGatewayWebhook(realHook.raw, realHook.headers);
   const hookedState = await state(hooked.booking.id);
   check("genuine webhook -> Get Payments asked despite a recent check -> CONFIRMED", handled === "HANDLED" && seenPayments() === 1 && hookedState.status === "CONFIRMED" && hookedState.payment?.status === "CAPTURED", { handled, hookedState });
   check("payment id taken from Get Payments (string), not the webhook's JSON number", hookedState.payment?.gatewayPaymentId === "1457662411918550501", hookedState.payment?.gatewayPaymentId);
 
   reset();
   await paid(hooked.booking.id);
-  const repeated = await confirm.receiveWebhook(realHook.raw, realHook.headers);
+  const repeated = await hooks.receiveGatewayWebhook(realHook.raw, realHook.headers);
   check("the same webhook again -> nothing changes", repeated === "HANDLED" && (await state(hooked.booking.id)).status === "CONFIRMED" && (await prisma.refund.count({ where: { bookingId: hooked.booking.id } })) === 0);
 
   reset();
   const stranger = signed(successWebhook("bk_00000000-0000-4000-8000-000000000000"));
-  check("webhook for an order that isn't ours -> IGNORED (200), Cashfree not asked", (await confirm.receiveWebhook(stranger.raw, stranger.headers)) === "IGNORED" && seen.length === 0);
+  check("webhook for an order that isn't ours -> IGNORED (200), Cashfree not asked", (await hooks.receiveGatewayWebhook(stranger.raw, stranger.headers)) === "IGNORED" && seen.length === 0);
 
   // An order long closed isn't asked about any more.
   const old = await bookingService.createSpotBooking(stay(32), driver.id);
@@ -923,6 +966,84 @@ try {
   const again = await payout.getStatusForUser(newcomer.id);
   check("GET after that reads the same account", again.payoutAccountId === firstPayout.payoutAccountId && again.needsPhone === false);
 
+  // ---- Easy Split webhooks: vendor status, and transfers to the bank ----
+  console.log("\nEasy Split webhooks (dev database)");
+  const ledger = await import("../src/services/host-payout-ledger.service.js");
+  const hostOps = await import("../src/services/host-operations.service.js");
+  const payUser = await prisma.user.create({ data: { email: `cf-test-${RUN}-payhost@gatepass.test`, firstName: "Pay", lastName: "Host" } });
+  userIds.push(payUser.id);
+  const PAY_VENDOR = `host_cfpay${RUN}`;
+  const payHost = await prisma.hostProfile.create({
+    data: { userId: payUser.id, verificationStatus: "ACTIVE", payoutKycStatus: "UNDER_REVIEW", payoutAccountId: PAY_VENDOR, payoutAccountNumber: "026291800001191" },
+  });
+  const settlementHook = (id: number, type: string, extra: object = {}) =>
+    signed({
+      type,
+      data: {
+        settlement: {
+          settlement_id: id, utr: `UTR${id}`, settlement_initiated_on: `2026-09-2${id % 10}T15:10:35+05:30`, settled_on: "null", reason: null,
+          settlement_amount: 180, amount_settled: null, payment_from: "2026-09-27", payment_till: "2026-09-27", vendor_id: PAY_VENDOR, ...extra,
+        },
+      },
+    });
+  const payoutNotices = () => prisma.notification.findMany({ where: { userId: payUser.id, kind: "HOST_PAYOUT" }, select: { title: true, body: true } });
+
+  // Vendor status: only the id is taken; Get Vendor decides.
+  reset();
+  script.push(vendorFor("ACTIVE"));
+  const statusHook = signed({ type: "VENDOR_STATUS_UPDATE", data: { merchant_vendor_id: PAY_VENDOR, updated_status: "BLOCKED" } });
+  const statusOutcome = await hooks.receiveGatewayWebhook(statusHook.raw, statusHook.headers);
+  const afterStatus = await prisma.hostProfile.findUniqueOrThrow({ where: { id: payHost.id } });
+  check("VENDOR_STATUS_UPDATE -> Get Vendor asked, its answer (not the body's) recorded", statusOutcome === "HANDLED" && seen[0]?.method === "GET" && seen[0].url === `/easy-split/vendors/${PAY_VENDOR}` && afterStatus.payoutKycStatus === "ACTIVATED", afterStatus.payoutKycStatus);
+  reset();
+  const strangerStatus = signed({ type: "VENDOR_STATUS_UPDATE", data: { merchant_vendor_id: "host_notours" } });
+  check("vendor status for a vendor not ours -> IGNORED, Cashfree not asked", (await hooks.receiveGatewayWebhook(strangerStatus.raw, strangerStatus.headers)) === "IGNORED" && seen.length === 0);
+  reset();
+  script.push({ status: 503, body: {} }, { status: 503, body: {} }, { status: 503, body: {} });
+  const statusOutage = await rejects(() => hooks.receiveGatewayWebhook(statusHook.raw, statusHook.headers));
+  check("Cashfree down on the vendor check -> throws (5xx, resent later)", statusOutage instanceof IntegrationError);
+
+  // A transfer: on its way, then landed.
+  const one = Number(`9${String(Date.now()).slice(-8)}`);
+  const initiatedHook = settlementHook(one, "VENDOR_SETTLEMENT_INITIATED");
+  await hooks.receiveGatewayWebhook(initiatedHook.raw, initiatedHook.headers);
+  const row1 = await prisma.hostPayout.findUnique({ where: { gatewaySettlementId: String(one) } });
+  check("INITIATED -> a row on its way, no notification yet", row1?.status === "INITIATED" && Number(row1.amount) === 180 && (await payoutNotices()).length === 0, row1);
+  const successHook = settlementHook(one, "VENDOR_SETTLEMENT_SUCCESS", { amount_settled: 180, settled_on: "2026-09-29T15:10:37+05:30" });
+  await hooks.receiveGatewayWebhook(successHook.raw, successHook.headers);
+  await hooks.receiveGatewayWebhook(successHook.raw, successHook.headers);
+  const landed = await payoutNotices();
+  check("SUCCESS (sent twice) -> SUCCESS, one 'Payout sent' with the amount, account and UTR", (await prisma.hostPayout.findUnique({ where: { gatewaySettlementId: String(one) } }))?.status === "SUCCESS" && landed.length === 1 && landed[0]!.title === "Payout sent" && /₹180/.test(landed[0]!.body) && /1191/.test(landed[0]!.body) && landed[0]!.body.includes(`UTR${one}`), landed);
+  await hooks.receiveGatewayWebhook(initiatedHook.raw, initiatedHook.headers);
+  check("a late INITIATED doesn't undo SUCCESS", (await prisma.hostPayout.findUnique({ where: { gatewaySettlementId: String(one) } }))?.status === "SUCCESS");
+
+  let earned = await hostOps.earnings(payHost.id);
+  check("earnings: paidOut is the landed transfer, shown as a 'Payout to your bank' row", earned.paidOut === "180" && earned.transactions.some((t) => t.kind === "PAYOUT" && t.title === "Payout to your bank" && t.state === "PAID_OUT" && t.amount === "-180" && t.sub.includes(`UTR${one}`)), { paidOut: earned.paidOut, tx: earned.transactions });
+  check("payout account: no transfer issue after a success", earned.payoutAccount.lastTransferIssue === null);
+
+  // A later transfer that fails on the host's account.
+  const two = one + 1;
+  const failedHook = settlementHook(two, "VENDOR_SETTLEMENT_FAILED", { reason: "INVALID_IFSC_FAIL", settlement_amount: 60 });
+  await hooks.receiveGatewayWebhook(failedHook.raw, failedHook.headers);
+  const failNotice = (await payoutNotices()).find((n) => n.title === "Payout couldn't reach your bank");
+  const account = await (await import("../src/services/host-payout.service.js")).getStatus(payHost.id);
+  check("FAILED (account reason) -> host told what to fix", Boolean(failNotice) && /IFSC/.test(failNotice!.body) && /Payouts screen/.test(failNotice!.body), failNotice);
+  check("payout account shows the failed transfer as fixable", account.lastTransferIssue?.status === "FAILED" && account.lastTransferIssue.fixable === true && account.lastTransferIssue.amount === "60", account.lastTransferIssue);
+  earned = await hostOps.earnings(payHost.id);
+  check("a failed transfer isn't a row and doesn't count as paid out", earned.paidOut === "180" && !earned.transactions.some((t) => t.sub.includes(`UTR${two}`)));
+
+  // The bank sends the first one back.
+  const reversedHook = settlementHook(one, "VENDOR_SETTLEMENT_REVERSED", { reason: "Failed from bank end" });
+  await hooks.receiveGatewayWebhook(reversedHook.raw, reversedHook.headers);
+  earned = await hostOps.earnings(payHost.id);
+  check("SUCCESS -> REVERSED: out of paidOut, and 'returned by your bank' told", earned.paidOut === "0" && (await payoutNotices()).some((n) => n.title === "Payout returned by your bank"));
+  check("a bank-side reason isn't presented as the host's to fix", ledger.transferIssue("Failed from bank end").fixable === false && ledger.transferIssue("INVALID_ACCOUNT_FAIL").fixable === true);
+
+  const strangerSettle = signed({ type: "VENDOR_SETTLEMENT_SUCCESS", data: { settlement: { settlement_id: 77, vendor_id: "host_notours", settlement_amount: 5 } } });
+  check("settlement for a vendor not ours -> IGNORED, nothing stored", (await hooks.receiveGatewayWebhook(strangerSettle.raw, strangerSettle.headers)) === "IGNORED" && (await prisma.hostPayout.count({ where: { gatewaySettlementId: "77" } })) === 0);
+  const forgedSettle = signed(JSON.parse(successHook.raw), "not-the-secret");
+  check("forged settlement webhook -> BAD_SIGNATURE", (await hooks.receiveGatewayWebhook(forgedSettle.raw, forgedSettle.headers)) === "BAD_SIGNATURE");
+
   // A create whose answer was lost: the id is taken, so it becomes an update.
   const lostHost = await prisma.user.create({ data: { email: `cf-test-${RUN}-losthost@gatepass.test`, firstName: "Lost", lastName: "Answer", phone: `+919${String(Math.floor(Math.random() * 1e9)).padStart(9, "0")}` } });
   userIds.push(lostHost.id);
@@ -938,6 +1059,7 @@ try {
     await prisma.booking.deleteMany({ where: { listingId: id } });
     await prisma.listing.deleteMany({ where: { id } });
   }
+  await prisma.hostPayout.deleteMany({ where: { hostProfile: { userId: { in: userIds } } } });
   await prisma.hostProfile.deleteMany({ where: { userId: { in: userIds } } });
   await prisma.user.deleteMany({ where: { id: { in: userIds } } });
   await prisma.$disconnect();

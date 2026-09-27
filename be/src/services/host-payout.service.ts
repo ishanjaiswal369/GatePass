@@ -14,6 +14,7 @@ import { normalisePhone } from "../lib/phone.js";
 import { prisma } from "../lib/prisma.js";
 import { audit } from "../lib/security-log.js";
 import * as adminSpotService from "./admin-spot.service.js";
+import * as hostPayoutLedger from "./host-payout-ledger.service.js";
 import * as hostService from "./host.service.js";
 
 /**
@@ -150,7 +151,7 @@ export async function getStatusForUser(userId: string) {
   if (profile) return getStatus(profile.id);
 
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { phone: true } });
-  return view({
+  const empty = view({
     payoutAccountId: null,
     payoutKycStatus: "NOT_STARTED",
     panNumber: null,
@@ -164,6 +165,23 @@ export async function getStatusForUser(userId: string) {
     payoutCheckedAt: null,
     user: { phone: user.phone },
   });
+  return { ...empty, lastTransferIssue: null };
+}
+
+/**
+ * The host's payout account (see accountStatus), and the last transfer to
+ * their bank if it didn't reach them.
+ *
+ * Best-effort: a gateway that is down leaves the stored status on screen
+ * rather than an error. The vendor-status webhook (onVendorNotice) now brings
+ * changes in without anyone opening a screen; this check stays as the
+ * fallback for a webhook that is late or not configured.
+ */
+export async function getStatus(hostProfileId: string) {
+  const account = await accountStatus(hostProfileId);
+  // The last transfer to the host's bank, when it didn't reach them: the
+  // Payouts screen tells them, and what to fix.
+  return { ...account, lastTransferIssue: await hostPayoutLedger.lastTransferIssue(hostProfileId) };
 }
 
 /**
@@ -198,11 +216,8 @@ async function activeProfileOf(userId: string) {
  *     every request for this host. The slot is claimed with one conditional
  *     write, so the Host tab and the Payouts tab loading at once make one
  *     call between them, not two.
- *
- * Best-effort: a gateway that is down leaves the stored status on screen
- * rather than an error. The vendor-status webhook will replace the polling.
  */
-export async function getStatus(hostProfileId: string) {
+async function accountStatus(hostProfileId: string) {
   const profile = await loadProfile(hostProfileId);
   const gateway = getPaymentGateway();
 
@@ -217,6 +232,32 @@ export async function getStatus(hostProfileId: string) {
   }
 
   return view(profile);
+}
+
+/**
+ * VENDOR_STATUS_UPDATE from the gateway: a host's payee changed status
+ * (verified, rejected, blocked...). Only the vendor id is taken from the
+ * webhook; the status is asked of Get Vendor, the same call the Payouts
+ * screen makes, and goes through `record` -- so an activation publishes the
+ * listings that were waiting on it, with nobody opening a screen.
+ *
+ * Throws when the gateway can't be asked: the webhook is answered 5xx and
+ * sent again.
+ */
+export async function onVendorNotice(vendorId: string): Promise<"HANDLED" | "IGNORED"> {
+  const gateway = getPaymentGateway();
+  const profile = await prisma.hostProfile.findUnique({
+    where: { payoutAccountId: vendorId },
+    select: { id: true, userId: true },
+  });
+  if (!gateway || !profile) {
+    audit("PAYOUT_WEBHOOK_IGNORED", { vendorId, reason: profile ? "no gateway" : "unknown vendor" });
+    return "IGNORED";
+  }
+
+  const vendor = await gateway.getVendor(vendorId);
+  await record(profile.id, profile.userId, vendor, "getVendor");
+  return "HANDLED";
 }
 
 /**

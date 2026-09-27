@@ -1,0 +1,36 @@
+/// One transfer of a host's money to their bank, as the payment gateway
+/// reports it (Easy Split vendor settlement webhook). The gateway pays the
+/// host's share of each order by itself -- GatePass never sends money -- so
+/// this table is written only from that webhook and read by the host's
+/// earnings and Payouts screens.
+///
+/// One row per gateway settlement. Webhooks can arrive twice or out of order,
+/// so a row only ever moves forward: INITIATED -> SUCCESS | FAILED, and
+/// SUCCESS -> REVERSED when the bank sends the money back.
+model HostPayout {
+  id                  String    @id @default(uuid())
+  hostProfileId       String
+  /// The gateway's settlement id; the webhook is matched on it.
+  gatewaySettlementId String    @unique
+  /// The payee id at the gateway when the transfer happened.
+  vendorId            String
+  /// INITIATED / SUCCESS / FAILED / REVERSED
+  status              String
+  /// Rupees sent (or, before it lands, due to be sent).
+  amount              Decimal
+  /// The bank's reference for the transfer, shown to the host to find it.
+  utr                 String?
+  /// Why a transfer failed or came back, in the gateway's words.
+  reason              String?
+  /// Which days' payments the transfer covers.
+  periodFrom          DateTime?
+  periodTill          DateTime?
+  initiatedAt         DateTime?
+  settledAt           DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  hostProfile         HostProfile @relation(fields: [hostProfileId], references: [id], onDelete: Restrict)
+
+  @@index([hostProfileId, createdAt])
+}

@@ -73,18 +73,51 @@ export const cashfreePaymentSchema = z
 
 export const cashfreePaymentListSchema = z.array(cashfreePaymentSchema);
 
-/**
- * A payment webhook's body (PAYMENT_SUCCESS_WEBHOOK and friends). Only the
- * event name and the order id are read; the rest -- amounts, the payment id,
- * whose 19 digits a JSON number can't hold -- comes from Get Payments.
- */
+/** Every Cashfree webhook: an event name and its data. */
 export const cashfreeWebhookSchema = z
+  .object({ type: z.string().min(1), data: z.record(z.string(), z.unknown()).nullish() })
+  .passthrough();
+
+/**
+ * A payment webhook's data (PAYMENT_SUCCESS_WEBHOOK and friends). Only the
+ * order id is read; the rest -- amounts, the payment id, whose 19 digits a
+ * JSON number can't hold -- comes from Get Payments.
+ */
+export const cashfreePaymentWebhookSchema = z
+  .object({ order: z.object({ order_id: z.string().min(1) }).passthrough() })
+  .passthrough();
+
+/**
+ * VENDOR_STATUS_UPDATE's data. Only the vendor id is read: the body also
+ * carries the vendor's bank account, phone and email, none of which GatePass
+ * needs from here, and the status is asked of Get Vendor.
+ */
+export const cashfreeVendorStatusWebhookSchema = z
+  .object({ merchant_vendor_id: z.string().min(1) })
+  .passthrough();
+
+/**
+ * VENDOR_SETTLEMENT_*'s data. Cashfree's own examples write a missing value
+ * as the string "null", so strings are read through `present` in gateway.ts.
+ */
+export const cashfreeSettlementWebhookSchema = z
   .object({
-    type: z.string().min(1),
-    data: z
-      .object({ order: z.object({ order_id: z.string().min(1) }).passthrough().nullish() })
-      .passthrough()
-      .nullish(),
+    settlement: z
+      .object({
+        settlement_id: z.union([z.number(), z.string().min(1)]),
+        vendor_id: z.string().min(1),
+        status: z.string().nullish(),
+        utr: z.union([z.string(), z.number()]).nullish(),
+        reason: z.string().nullish(),
+        settlement_amount: z.number().nullish(),
+        amount_settled: z.number().nullish(),
+        vendor_transaction_amount: z.number().nullish(),
+        payment_from: z.string().nullish(),
+        payment_till: z.string().nullish(),
+        settlement_initiated_on: z.string().nullish(),
+        settled_on: z.string().nullish(),
+      })
+      .passthrough(),
   })
   .passthrough();
 

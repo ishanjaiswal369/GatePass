@@ -1,7 +1,7 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { PaymentReturnInput, StartUpiInput } from "../requests/payment.request.js";
 import { securityEvent } from "../lib/security-log.js";
-import * as paymentConfirmation from "../services/payment-confirmation.service.js";
+import * as gatewayWebhook from "../services/gateway-webhook.service.js";
 import * as paymentService from "../services/payment.service.js";
 
 export const paymentController = {
@@ -24,7 +24,7 @@ export const paymentController = {
    */
   cashfreeWebhook: async (request: FastifyRequest, reply: FastifyReply) => {
     const rawBody = (request as FastifyRequest & { rawBody?: string }).rawBody ?? "";
-    const outcome = await paymentConfirmation.receiveWebhook(rawBody, request.headers);
+    const outcome = await gatewayWebhook.receiveGatewayWebhook(rawBody, request.headers);
     if (outcome === "BAD_SIGNATURE") {
       securityEvent(request, "WEBHOOK_SIGNATURE_INVALID", { provider: "cashfree" });
       return reply.code(401).send({ error: "Invalid signature" });

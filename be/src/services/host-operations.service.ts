@@ -8,6 +8,7 @@ import { audit } from "../lib/security-log.js";
 import { addDays, startOfVenueDay, startOfVenueMonth, venueDate, weekdayOf } from "../lib/venue-calendar.js";
 import { VENUE_TIME_ZONE } from "../lib/venue-time.js";
 import * as payoutService from "./host-payout.service.js";
+import * as hostPayoutLedger from "./host-payout-ledger.service.js";
 import * as reviewService from "./review.service.js";
 
 /**
@@ -77,8 +78,8 @@ function earningOf(row: HostBookingRow): { gross: Prisma.Decimal; earning: Prism
 function payoutState(row: HostBookingRow, now: Date): PayoutState {
   const { earning } = earningOf(row);
   if (earning.lte(0)) return "NONE";
-  // PAID_OUT comes back when the gateway's settlement webhook tells us a
-  // transfer reached the host's bank: Easy Split pays hosts now, not us.
+  // Never PAID_OUT per booking: a transfer covers a day's payments and is
+  // shown as its own row (owner's decision, 2026-09-27).
   // A cancellation settles what the host keeps at once; a stay, when it ends.
   if (row.status === "CANCELLED") return "AVAILABLE";
   const end = effectiveEnd(row);
@@ -336,7 +337,10 @@ export async function earnings(hostProfileId: string) {
   const monthStart = startOfVenueMonth(now);
   const { rows, available, pending } = await ledgerTotals(hostProfileId, now);
 
-  const account = await payoutService.getStatus(hostProfileId);
+  const [account, transfers] = await Promise.all([
+    payoutService.getStatus(hostProfileId),
+    hostPayoutLedger.transfersFor(hostProfileId),
+  ]);
 
   let gross = new Prisma.Decimal(0);
   let net = new Prisma.Decimal(0);
@@ -348,12 +352,11 @@ export async function earnings(hostProfileId: string) {
   }
 
   const labels = await vehicleLabels(rows.slice(0, 30));
-  // Bookings only. Transfers to the host's bank ("Payout to your bank") are
-  // the gateway's, from each order's split; they return here with its
-  // settlement webhook.
-  const transactions = rows
-    .slice(0, 30)
-    .map((row) => {
+  // Bookings, and the gateway's transfers of the host's money to their bank
+  // (settlement webhook) -- on their way, or landed. A failed transfer isn't
+  // a row: the Payouts screen and a notification say what went wrong.
+  const transactions = [
+    ...rows.slice(0, 30).map((row) => {
       const view = present(row, labels, now);
       return {
         kind: "BOOKING" as const,
@@ -364,14 +367,29 @@ export async function earnings(hostProfileId: string) {
         state: view.payout,
         at: row.startsAt,
       };
-    })
-    .sort((a, b) => (b.at?.getTime() ?? 0) - (a.at?.getTime() ?? 0));
+    }),
+    ...transfers.map((t) => {
+      const at = t.settledAt ?? t.initiatedAt ?? t.createdAt;
+      return {
+        kind: "PAYOUT" as const,
+        id: t.id,
+        title: t.status === "SUCCESS" ? "Payout to your bank" : "Payout on its way",
+        sub: `${day(at)}${t.utr ? ` · UTR ${t.utr}` : ""}`,
+        amount: t.amount.neg().toString(),
+        state: (t.status === "SUCCESS" ? "PAID_OUT" : "PENDING") as PayoutState,
+        at,
+      };
+    }),
+  ].sort((a, b) => (b.at?.getTime() ?? 0) - (a.at?.getTime() ?? 0));
 
   return {
     available: available.toString(),
     pending: pending.toString(),
-    // Not known to GatePass until the settlement webhook is wired.
-    paidOut: "0",
+    // What the gateway reports as landed in the host's bank.
+    paidOut: transfers
+      .filter((t) => t.status === "SUCCESS")
+      .reduce((sum, t) => sum.add(t.amount), new Prisma.Decimal(0))
+      .toString(),
     month: {
       label: now.toLocaleDateString("en-IN", { month: "long", timeZone: VENUE_TIME_ZONE }),
       gross: gross.toString(),

@@ -6,6 +6,8 @@ import {
   type CreateOrderInput,
   type GatewayOrder,
   type GatewayNotice,
+  type GatewaySettlement,
+  type GatewaySettlementStatus,
   type GatewayPayment,
   type GatewayPaymentStatus,
   type GatewayVendor,
@@ -22,6 +24,9 @@ import {
   cashfreeOrderSchema,
   cashfreePaymentListSchema,
   cashfreeUpiPaySchema,
+  cashfreePaymentWebhookSchema,
+  cashfreeSettlementWebhookSchema,
+  cashfreeVendorStatusWebhookSchema,
   cashfreeWebhookSchema,
   cashfreeVendorSchema,
   type CashfreeCreateOrderBody,
@@ -217,9 +222,27 @@ export class CashfreeGateway implements PaymentGateway {
     } catch {
       return null;
     }
-    const parsed = cashfreeWebhookSchema.safeParse(body);
-    if (!parsed.success) return { type: "UNKNOWN", orderId: null };
-    return { type: parsed.data.type, orderId: parsed.data.data?.order?.order_id ?? null };
+    const envelope = cashfreeWebhookSchema.safeParse(body);
+    if (!envelope.success) return { kind: "OTHER", type: "UNKNOWN" };
+    const { type } = envelope.data;
+    const data = envelope.data.data ?? {};
+
+    if (type.startsWith("PAYMENT_")) {
+      const payment = cashfreePaymentWebhookSchema.safeParse(data);
+      return payment.success ? { kind: "PAYMENT", type, orderId: payment.data.order.order_id } : { kind: "OTHER", type };
+    }
+
+    if (type === "VENDOR_STATUS_UPDATE") {
+      const vendor = cashfreeVendorStatusWebhookSchema.safeParse(data);
+      return vendor.success ? { kind: "VENDOR_STATUS", type, vendorId: vendor.data.merchant_vendor_id } : { kind: "OTHER", type };
+    }
+
+    if (type.startsWith("VENDOR_SETTLEMENT_")) {
+      const settlement = toSettlement(type, data);
+      return settlement ? { kind: "VENDOR_SETTLEMENT", type, settlement } : { kind: "OTHER", type };
+    }
+
+    return { kind: "OTHER", type };
   }
 
   async createVendor(input: VendorInput): Promise<GatewayVendor> {
@@ -329,6 +352,58 @@ function vendorBody(input: VendorInput): CashfreeVendorBody {
 }
 
 const toPaise = (rupees: number) => Math.round(rupees * 100);
+
+/** Cashfree's examples write a missing value as the string "null". */
+const present = (value: string | number | null | undefined): string | null => {
+  if (value === null || value === undefined) return null;
+  const text = String(value).trim();
+  return text === "" || text.toLowerCase() === "null" ? null : text;
+};
+
+/** "2023-06-08T15:10:35+05:30", or a bare "2023-06-08" -- an Indian calendar day. */
+const whenOf = (value: string | null | undefined): Date | null => {
+  const text = present(value);
+  if (!text) return null;
+  const date = new Date(/^\d{4}-\d{2}-\d{2}$/.test(text) ? `${text}T00:00:00+05:30` : text);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+/**
+ * The event name says what happened; the body's own status is the fallback.
+ * Cashfree's docs name the first event both INITIATED and CREATED.
+ */
+const SETTLEMENT_STATUS: Record<string, GatewaySettlementStatus> = {
+  INITIATED: "INITIATED",
+  CREATED: "INITIATED",
+  SUCCESS: "SUCCESS",
+  FAILED: "FAILED",
+  REVERSED: "REVERSED",
+};
+
+function toSettlement(type: string, data: unknown): GatewaySettlement | null {
+  const parsed = cashfreeSettlementWebhookSchema.safeParse(data);
+  if (!parsed.success) return null;
+  const s = parsed.data.settlement;
+
+  const status = SETTLEMENT_STATUS[type.replace("VENDOR_SETTLEMENT_", "")] ?? SETTLEMENT_STATUS[(s.status ?? "").toUpperCase()];
+  // An id that doesn't fit a JS number exactly could be some other settlement's.
+  if (!status || (typeof s.settlement_id === "number" && !Number.isSafeInteger(s.settlement_id))) return null;
+  const amount = s.amount_settled ?? s.settlement_amount ?? s.vendor_transaction_amount;
+  if (typeof amount !== "number") return null;
+
+  return {
+    id: String(s.settlement_id),
+    vendorId: s.vendor_id,
+    status,
+    amount: amount.toFixed(2),
+    utr: present(s.utr),
+    reason: present(s.reason),
+    periodFrom: whenOf(s.payment_from),
+    periodTill: whenOf(s.payment_till),
+    initiatedAt: whenOf(s.settlement_initiated_on),
+    settledAt: whenOf(s.settled_on),
+  };
+}
 
 function sameSplits(sent: { vendor_id: string; amount: number }[], got: { vendor_id: string; amount?: number | null }[]): boolean {
   if (sent.length !== got.length) return false;

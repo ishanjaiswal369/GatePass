@@ -244,8 +244,8 @@ export async function syncFromState(userId: string, now = new Date()): Promise<v
     });
   }
 
-  // "Payout sent" (HOST_PAYOUT) returns with the gateway's settlement
-  // webhook: hosts are paid by Easy Split from each order, not by us.
+  // "Payout sent" (HOST_PAYOUT) is written when the gateway's settlement
+  // webhook arrives -- see host-payout-ledger.service.
 
   // Refunds that have landed. Written as REFUND_STARTED at the decision;
   // this is the second half, noticed from the refund's own state.

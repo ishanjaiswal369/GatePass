@@ -641,6 +641,20 @@ export interface PayoutAccount {
    * UNDER_REVIEW with nothing behind it, and only the API knows that.
    */
   needsDetails: boolean;
+  /**
+   * The last transfer of the host's money to their bank, when it didn't reach
+   * them (the gateway's settlement webhook); null once a later one lands.
+   * Absent from the answer to a submit.
+   */
+  lastTransferIssue?: {
+    status: "FAILED" | "REVERSED";
+    amount: string;
+    /** In words the app can show as they are. */
+    message: string;
+    /** Fixable by correcting the bank details. */
+    fixable: boolean;
+    at: string;
+  } | null;
 }
 
 // ---------- Host operations (Phase 5) ----------

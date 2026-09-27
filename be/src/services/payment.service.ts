@@ -174,6 +174,24 @@ async function splitFor(
 }
 
 /**
+ * Cashfree refuses an order that expires 15 minutes or less from when it
+ * arrives -- and a hold is exactly 15 minutes, set a moment before the order
+ * is sent. Seen 2026-09-27: a 3.8 s round trip left 14:56 and the order was
+ * refused ("Expiry time should be more than 15 min").
+ */
+const MIN_ORDER_LIFETIME_MS = 16 * 60_000;
+
+/**
+ * When the order stops taking payment: with the hold, or a little after when
+ * the hold is too close for the gateway to accept. A payment in that last
+ * minute lands after the hold lapsed, which payment-confirmation already
+ * settles: confirmed if the hours are still free, refunded in full if not.
+ */
+function orderExpiry(holdExpiresAt: Date, now = Date.now()): Date {
+  return new Date(Math.max(holdExpiresAt.getTime(), now + MIN_ORDER_LIFETIME_MS));
+}
+
+/**
  * The gateway order for a driver's unpaid booking, opened if it isn't yet.
  *
  * Idempotent, and safe to call on every replay of the booking request: an
@@ -235,7 +253,7 @@ export async function openOrder(bookingId: string, driverId: string): Promise<Ch
       ...(email.length >= 3 && email.length <= 100 ? { email } : {}),
       ...(name.length >= 3 && name.length <= 100 ? { name } : {}),
     },
-    expiresAt: booking.holdExpiresAt,
+    expiresAt: orderExpiry(booking.holdExpiresAt),
     tags: {
       booking_id: booking.id,
       ...(booking.listingId ? { listing_id: booking.listingId } : {}),

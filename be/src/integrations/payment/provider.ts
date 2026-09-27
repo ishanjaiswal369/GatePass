@@ -129,17 +129,39 @@ export interface GatewayPayment {
   completedAt: Date | null;
 }
 
-/**
- * A webhook the gateway sent, once its signature has checked out. Only what
- * GatePass acts on: which order it is about. What happened is then asked of
- * the gateway (getOrderPayments) rather than read from the body.
- */
-export interface GatewayNotice {
-  /** The gateway's event name, for logs: "PAYMENT_SUCCESS_WEBHOOK". */
-  type: string;
-  /** Our order id, when the event is about an order. */
-  orderId: string | null;
+/** Where one transfer of a host's money to their bank stands. */
+export type GatewaySettlementStatus = "INITIATED" | "SUCCESS" | "FAILED" | "REVERSED";
+
+/** One transfer of a payee's balance to their bank (Easy Split vendor settlement). */
+export interface GatewaySettlement {
+  /** The gateway's settlement id. */
+  id: string;
+  vendorId: string;
+  status: GatewaySettlementStatus;
+  /** Rupees, exact to the paisa. */
+  amount: string;
+  utr: string | null;
+  /** Why it failed or came back, in the gateway's words (a code such as INVALID_IFSC_FAIL, or text). */
+  reason: string | null;
+  periodFrom: Date | null;
+  periodTill: Date | null;
+  initiatedAt: Date | null;
+  settledAt: Date | null;
 }
+
+/**
+ * A webhook the gateway sent, once its signature has checked out -- reduced
+ * to what GatePass acts on. For a payment or a vendor it is only which one:
+ * what happened is then asked of the gateway, so nothing in the body is
+ * trusted for money or status. A settlement has no call to ask, so the
+ * signed body is the record.
+ */
+export type GatewayNotice =
+  | { kind: "PAYMENT"; type: string; orderId: string }
+  | { kind: "VENDOR_STATUS"; type: string; vendorId: string }
+  | { kind: "VENDOR_SETTLEMENT"; type: string; settlement: GatewaySettlement }
+  /** Signed, but nothing GatePass handles (or a body it can't read). */
+  | { kind: "OTHER"; type: string };
 
 /**
  * A host as the gateway's payee (Cashfree Easy Split vendor): who they are,

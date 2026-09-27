@@ -19,6 +19,7 @@ import { PAYOUT_BUSINESS_TYPES, type PayoutAccountType, type PayoutBusinessType 
 import { supportMailto } from "@/constants/support";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
+import { formatRupees } from "@/lib/money";
 import { PAYOUT_ISSUE_COPY, PAYOUT_STATE_COPY, payoutAccountState } from "@/lib/payoutAccount";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, radius, space, type } from "@/theme";
@@ -121,6 +122,10 @@ export default function PayoutsScreen() {
 
   const state = payoutAccountState(account);
   const copy = PAYOUT_STATE_COPY[state];
+  const transferIssue = account?.lastTransferIssue ?? null;
+  // Details changed after the failed transfer: don't ask for them again.
+  const fixedSinceIssue =
+    !!transferIssue && !!account?.submittedAt && Date.parse(account.submittedAt) > Date.parse(transferIssue.at);
   const help = supportMailto("Payout details");
   const navigate = (key: NavKey) => {
     if (key === "home") router.push("/home");
@@ -168,6 +173,28 @@ export default function PayoutsScreen() {
                 <Text style={s.statusBody}>{copy.body}</Text>
                 {state === "failed" && account.issue ? <Text style={s.statusBody}>{PAYOUT_ISSUE_COPY[account.issue]}</Text> : null}
               </View>
+
+              {/* A transfer the gateway couldn't complete. The account can be
+                  "ready" and still fail at the bank, so this is its own notice. */}
+              {transferIssue && !editing ? (
+                <View style={[s.status, s.statusBad]} accessibilityLiveRegion="polite">
+                  <Text style={s.statusTitle}>
+                    {transferIssue.status === "REVERSED"
+                      ? "Your bank returned your last payout"
+                      : "Your last payout couldn't reach your bank"}
+                  </Text>
+                  <Text style={s.statusBody}>
+                    {formatRupees(transferIssue.amount)}: {transferIssue.message}
+                  </Text>
+                  <Text style={s.statusBody}>
+                    {!transferIssue.fixable
+                      ? "Nothing to do on your side. It goes out again in a later transfer."
+                      : fixedSinceIssue
+                        ? "You've updated your bank details since. It goes out again in a later transfer."
+                        : "Update your bank details below and it goes out again in a later transfer."}
+                  </Text>
+                </View>
+              ) : null}
 
               {(state === "ready" || state === "pending") && !editing ? (
                 <>

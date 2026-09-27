@@ -44,6 +44,8 @@ export type {
   ClientHints,
   CreateOrderInput,
   GatewayNotice,
+  GatewaySettlement,
+  GatewaySettlementStatus,
   GatewayPayment,
   GatewayPaymentStatus,
   StartUpiInput,
