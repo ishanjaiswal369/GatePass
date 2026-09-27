@@ -30,7 +30,7 @@ import { colors, space, type } from "@/theme";
  *
  * The code is the safeguard -- a phone left unlocked, or a stolen session,
  * is not enough to delete someone's account. Anything that would block the
- * deletion (an upcoming booking, a payout still owed) is shown before a code
+ * deletion (an upcoming booking, drivers booked at your spot) is shown before a code
  * is ever sent, so nobody fetches a code only to be refused.
  */
 export default function DeleteAccountScreen() {

@@ -25,10 +25,11 @@ const EXAMPLE = 250;
  *
  * Every number comes from the API's ledger: a host earns the parking they
  * keep (after any refund) less GatePass's service fee (lib/fees); the driver
- * pays the listed price and nothing on top. The host's share is paid out by
- * the payment gateway from each order (Easy Split), so the screen says what
- * is available rather than promising a payout date; transfers to the bank
- * show up here once the gateway's settlement webhook is wired.
+ * pays the listed price and nothing on top. There is no wallet and nothing to
+ * withdraw: the payment gateway pays the host's share of each order to their
+ * bank by itself (Easy Split, T+2 by default), so the screen says so rather
+ * than offering a payout button. Transfers to the bank show up here once the
+ * gateway's settlement webhook is wired (owner's choice, 2026-09-27).
  */
 export default function HostEarningsScreen() {
   const { token, isRestoring } = useSession();
@@ -68,11 +69,11 @@ export default function HostEarningsScreen() {
           ) : (
             <>
               <View style={s.hero}>
-                <Text style={s.heroLabel}>Available for payout</Text>
+                <Text style={s.heroLabel}>Your earnings</Text>
                 <Text style={s.heroValue}>{formatRupees(data.available)}</Text>
                 <Text style={s.heroSub}>
                   {account?.accountNumberLast4
-                    ? `Sent by GatePass to your account •• ${account.accountNumberLast4}`
+                    ? `Paid to your bank •• ${account.accountNumberLast4} automatically, usually 2 working days after each booking`
                     : "Add a payout account to be paid"}
                 </Text>
               </View>
