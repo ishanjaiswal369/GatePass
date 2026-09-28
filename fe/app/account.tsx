@@ -27,7 +27,8 @@ import {
   UserIcon,
   type NavKey,
 } from "@/components/ui";
-import { LEGAL_BASE_URL, SUPPORT_EMAIL, supportMailto } from "@/constants/support";
+import { SUPPORT_EMAIL, supportMailto } from "@/constants/support";
+import { LegalLinks } from "@/features/legal/LegalLinks";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, space } from "@/theme";
@@ -211,7 +212,7 @@ export default function AccountScreen() {
           <Card heading="Support">
             <SettingsRow
               label="Help & Support"
-              value={SUPPORT_EMAIL ? `Email ${SUPPORT_EMAIL}` : "Not set up in this build"}
+              value={`Email ${SUPPORT_EMAIL}`}
               icon={<ChatIcon />}
               onPress={() => {
                 const mail = supportMailto("Help with GatePass");
@@ -219,12 +220,10 @@ export default function AccountScreen() {
               }}
             />
             <SettingsRow
-              label="Terms & Privacy"
-              value={LEGAL_BASE_URL ? "How we handle bookings, refunds and your data" : "Not set up in this build"}
+              label="Terms & policies"
+              value="Terms, privacy, refunds and more"
               icon={<ShieldIcon />}
-              onPress={() => {
-                if (LEGAL_BASE_URL) void Linking.openURL(`${LEGAL_BASE_URL.replace(/\/$/, "")}/terms.html`);
-              }}
+              onPress={() => router.push("/terms")}
               last
             />
           </Card>
@@ -240,6 +239,8 @@ export default function AccountScreen() {
             leadingIcon={<TrashIcon color={colors.danger} />}
             onPress={() => router.push("/account/delete")}
           />
+
+          <LegalLinks compact />
         </ScrollView>
 
         <BottomNav active="profile" onNavigate={navigate} />

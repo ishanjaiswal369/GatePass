@@ -19,6 +19,8 @@ import {
   GoogleSignInUnconfigured,
   isGoogleConfigured,
 } from "@/features/auth/GoogleSignIn";
+import { LegalLinks } from "@/features/legal/LegalLinks";
+import { LegalText } from "@/features/legal/LegalText";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useSession } from "@/providers/SessionProvider";
 import type { VerifyCodeResult } from "@/types/api.types";
@@ -102,7 +104,7 @@ export default function EmailScreen() {
         headline={isSignup ? "Reserve parking\nbefore you arrive" : "Welcome back"}
         sub={
           isSignup
-            ? "Concerts, matches and fairs across India."
+            ? "Book private parking by the hour or day, across India."
             : usePassword
               ? "Enter your email and password."
               : "Enter your email and we'll send a code."
@@ -231,6 +233,13 @@ export default function EmailScreen() {
             ? "No password to remember — we email you a 6-digit code each time."
             : "First time here? Signing in with a new email creates your account — we'll just ask your name after."}
         </Text>
+
+        <LegalText
+          text="By continuing, you agree to our [Terms & Conditions](/terms) and [Privacy Policy](/privacy)."
+          style={s.note}
+        />
+
+        <LegalLinks compact />
       </ScrollView>
     </PhoneFrame>
   );

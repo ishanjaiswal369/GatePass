@@ -19,6 +19,7 @@ import {
 } from "@/components/ui";
 import type { VehicleType } from "@/constants/enums";
 import { useNow } from "@/features/bookings/useNow";
+import { LegalText } from "@/features/legal/LegalText";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { keyFor, type Attempt } from "@/lib/idempotency";
 import { formatRupees } from "@/lib/money";
@@ -425,14 +426,16 @@ export default function CheckoutScreen() {
 
               <View style={s.policy}>
                 <Text style={s.policyTitle}>Cancellation</Text>
-                <Text style={s.policyText}>
-                  Free until an hour before your parking starts; after that, half the parking back until it starts.
-                </Text>
+                <LegalText
+                  text="Free until an hour before your parking starts; after that, half the parking back until it starts. [Cancellation & Refund Policy](/refund)"
+                  style={s.policyText}
+                />
               </View>
 
-              <Text style={s.fine}>
-                Payments are handled by our payment partner. GatePass never sees your UPI PIN or full card number.
-              </Text>
+              <LegalText
+                text="By paying, you agree to our [Terms & Conditions](/terms). Payments are handled by our payment partner, Cashfree Payments. GatePass never sees your UPI PIN or full card number."
+                style={s.fine}
+              />
 
               {error ? <ErrorNotice message={error} /> : null}
 

@@ -1,182 +1,111 @@
+/* Colours are the app's tokens (fe/src/theme/tokens.ts). */
 :root {
   --canvas: #f3f4f6;
   --surface: #ffffff;
   --ink: #111827;
   --ink-muted: #6b7280;
   --ink-faint: #9ca3af;
+  --on-ink-muted: #98a2b3;
   --border: #e5e7eb;
   --accent: #b45309;
-  --accent-surface: #fdf3e7;
   --radius: 12px;
   --max-width: 760px;
 }
 
-* {
-  box-sizing: border-box;
-}
+* { box-sizing: border-box; }
 
 body {
   margin: 0;
-  background: var(--canvas);
+  background: var(--surface);
   color: var(--ink);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   line-height: 1.6;
 }
 
-header.site {
-  background: var(--ink);
-  color: #fff;
-  padding: 20px 24px;
-}
+header.site { background: var(--ink); padding: 16px 20px; }
 
 header.site .bar {
   max-width: var(--max-width);
   margin: 0 auto;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 8px 16px;
 }
 
 header.site a.brand {
   color: #fff;
   text-decoration: none;
   font-weight: 700;
-  font-size: 18px;
+  font-size: 20px;
   letter-spacing: -0.01em;
 }
 
+header.site nav { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+
 header.site nav a {
-  color: #98a2b3;
+  color: var(--on-ink-muted);
   text-decoration: none;
-  margin-left: 20px;
   font-size: 14px;
+  padding: 10px 0;
 }
 
-header.site nav a:hover {
-  color: #fff;
-}
+header.site nav a:hover,
+header.site nav a[aria-current="page"] { color: #fff; }
 
 main {
   max-width: var(--max-width);
   margin: 0 auto;
-  padding: 40px 24px 64px;
+  padding: 32px 20px 56px;
 }
 
-.hero {
-  padding: 12px 0 32px;
-}
+h1 { font-size: 28px; margin: 0 0 4px; letter-spacing: -0.02em; line-height: 1.25; }
+h2 { font-size: 18px; margin: 32px 0 8px; }
 
-.hero h1 {
-  font-size: 32px;
-  margin: 0 0 12px;
-  letter-spacing: -0.02em;
-}
+.muted { color: var(--ink-muted); font-size: 13px; margin: 0 0 20px; }
+.lede { font-size: 16px; }
+p, li, dd { color: var(--ink-muted); }
+ul { padding-left: 20px; }
+li { margin: 6px 0; }
+li::marker { color: var(--accent); }
 
-.hero p.lede {
-  color: var(--ink-muted);
-  font-size: 17px;
-  max-width: 56ch;
-}
+a { color: var(--accent); font-weight: 600; }
 
-.badge {
-  display: inline-block;
-  background: var(--accent-surface);
-  color: var(--accent);
-  font-size: 13px;
-  font-weight: 600;
-  padding: 4px 10px;
-  border-radius: 999px;
-  margin-bottom: 16px;
-}
-
-.grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
-  margin: 32px 0;
-}
-
-@media (max-width: 640px) {
-  .grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.card {
-  background: var(--surface);
+dl.rows {
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 20px;
+  padding: 0 16px;
+  margin: 12px 0;
 }
 
-.card h3 {
-  margin: 0 0 8px;
-  font-size: 15px;
-}
+dl.rows div { display: flex; gap: 16px; padding: 12px 0; }
+dl.rows div + div { border-top: 1px solid var(--border); }
+dl.rows dt { flex: 0 0 32%; font-weight: 700; color: var(--ink); font-size: 14px; }
+dl.rows dd { margin: 0; flex: 1; }
 
-.card p {
-  margin: 0;
-  color: var(--ink-muted);
-  font-size: 14px;
-}
-
-.step {
-  color: var(--accent);
-  font-weight: 700;
-  font-size: 13px;
-  display: block;
-  margin-bottom: 6px;
-}
-
-h1, h2 {
-  letter-spacing: -0.01em;
-}
-
-h2 {
-  font-size: 20px;
-  margin-top: 36px;
-  border-top: 1px solid var(--border);
-  padding-top: 24px;
-}
-
-h2:first-of-type {
-  border-top: none;
-  padding-top: 0;
-  margin-top: 0;
-}
-
-p, li {
-  color: var(--ink);
-}
-
-.muted {
-  color: var(--ink-muted);
-  font-size: 14px;
-}
-
-a {
-  color: var(--accent);
-}
-
-.placeholder {
-  background: #fffbeb;
-  border: 1px solid #fcd34d;
-  color: #92400e;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 0.92em;
+@media (max-width: 560px) {
+  dl.rows div { flex-direction: column; gap: 4px; }
 }
 
 footer.site {
+  background: var(--canvas);
   border-top: 1px solid var(--border);
-  padding: 24px;
+  padding: 16px 20px 32px;
   text-align: center;
-  color: var(--ink-faint);
-  font-size: 13px;
+  color: var(--ink-muted);
+  font-size: 12px;
 }
 
-footer.site a {
-  color: var(--ink-muted);
-  margin: 0 8px;
+footer.site nav {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0 16px;
+  max-width: var(--max-width);
+  margin: 0 auto;
 }
+
+footer.site nav a { color: var(--ink); font-size: 13px; padding: 12px 0; }
+footer.site p { margin: 4px 0; color: var(--ink-muted); }
+footer.site p a { color: var(--ink-muted); font-weight: 400; }

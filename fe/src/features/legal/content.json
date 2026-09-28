@@ -1,0 +1,493 @@
+{
+  "business": {
+    "brand": "GatePass",
+    "legalName": "Ishan Jaiswal",
+    "entity": "Sole proprietorship",
+    "city": "Lucknow",
+    "state": "Uttar Pradesh",
+    "country": "India",
+    "email": "ishanjaiswal567@gmail.com",
+    "lastUpdated": "29 September 2026",
+    "year": "2026"
+  },
+  "pages": [
+    {
+      "slug": "about",
+      "title": "About Us",
+      "nav": "About Us",
+      "short": "About",
+      "intro": "{brand} is an online marketplace for booking parking in India. People with a spare parking space list it; drivers find a space near where they are going, book it by the hour or by the day, and pay online before they arrive.",
+      "sections": [
+        {
+          "heading": "What we do",
+          "blocks": [
+            "Hosts are individuals and businesses with a parking space they are not using all the time: a driveway, a garage, an open plot, or spaces in a building. They list the space on {brand} with its address, photos, the hours it is available and its price.",
+            "Drivers search by location and time, see the price before they book, and pay online. Once the payment is confirmed they get a digital parking pass in the app, with the directions and access instructions for the space."
+          ]
+        },
+        {
+          "heading": "How it works for drivers",
+          "blocks": [
+            {
+              "list": [
+                "Search for parking near where you are going and choose the time you need, from an hour up to 30 days.",
+                "Book and pay online. The price you see is the price you pay: {brand} adds no booking or convenience fee.",
+                "Show your digital pass and park. You can add extra time from the app, cancel under our [Cancellation & Refund Policy](/refund), or report a problem if the space can't be used."
+              ]
+            }
+          ]
+        },
+        {
+          "heading": "How it works for hosts",
+          "blocks": [
+            {
+              "list": [
+                "List your space with its address, photos, availability and pricing, and upload a document showing you own it or have permission to rent it out.",
+                "We review each listing before it appears in search.",
+                "Add your bank details in the app. Your earnings for each booking are paid to your bank account through our payment partner, Cashfree Payments."
+              ]
+            }
+          ]
+        },
+        {
+          "heading": "What we charge",
+          "blocks": [
+            "Hosts set their own prices, shown in Indian Rupees. Drivers pay the listed price and nothing on top.",
+            "{brand} earns a service fee, currently 10% of the parking amount, which is deducted from the host's share. The host receives the rest."
+          ]
+        },
+        {
+          "heading": "Who runs {brand}",
+          "blocks": [
+            "{brand} is operated by {legalName}, a sole proprietor based in {city}, {state}, {country}.",
+            "Questions, feedback or a problem with a booking: see [Contact Us](/contact)."
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "contact",
+      "title": "Contact Us",
+      "nav": "Contact Us",
+      "short": "Contact",
+      "intro": "For help with a booking, a refund, a listing or anything else about {brand}, email us. We usually reply within 2 working days.",
+      "sections": [
+        {
+          "heading": "Support",
+          "blocks": [
+            {
+              "rows": [
+                [
+                  "Email",
+                  "[{email}](mailto:{email})"
+                ],
+                [
+                  "Operated by",
+                  "{legalName} (sole proprietor)"
+                ],
+                [
+                  "Location",
+                  "{city}, {state}, {country}"
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "heading": "Help with a booking",
+          "blocks": [
+            "Please include your booking reference, which starts with GP- (for example GP-5B693D) and is shown on the booking in the app.",
+            {
+              "list": [
+                "To cancel a booking, open it from the Bookings tab and tap Cancel booking. The refund you will get is shown before you confirm.",
+                "If you can't use a space you booked (it is locked, occupied, not as described, or you can't reach the host), open the booking and tap Report a problem.",
+                "For refunds, see our [Cancellation & Refund Policy](/refund)."
+              ]
+            }
+          ]
+        },
+        {
+          "heading": "Grievances",
+          "blocks": [
+            "Complaints about the service, a payment or how we handle your personal data can be sent to {legalName} at [{email}](mailto:{email}). We will acknowledge your complaint and work to resolve it as quickly as we can."
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "terms",
+      "title": "Terms & Conditions",
+      "nav": "Terms & Conditions",
+      "short": "Terms",
+      "intro": "These terms are an agreement between you and {legalName}, a sole proprietor in {city}, {state}, who operates {brand} (\"{brand}\", \"we\", \"us\"). By creating an account or making a booking, you agree to them.",
+      "sections": [
+        {
+          "heading": "1. The service",
+          "blocks": [
+            "{brand} is a marketplace that connects drivers who need parking with hosts who have parking spaces to rent. We provide the app, take bookings and collect payments. We do not own, operate or control the parking spaces listed: each space is provided by its host.",
+            "When you book a space, you are booking the use of that host's space for the times and vehicle shown on your booking."
+          ]
+        },
+        {
+          "heading": "2. Eligibility and accounts",
+          "blocks": [
+            {
+              "list": [
+                "You must be at least 18 years old to use {brand}.",
+                "You sign in with a code sent to your email, with Google, or with a password you have set. Keep access to your email and your password secure.",
+                "The information you give us, including your name, phone number and vehicle details, must be accurate and your own.",
+                "You are responsible for bookings and activity on your account."
+              ]
+            }
+          ]
+        },
+        {
+          "heading": "3. Bookings",
+          "blocks": [
+            {
+              "list": [
+                "A booking is for one vehicle, at one space, for the times you choose. Hosts may set a shortest and longest stay and how far ahead a space can be booked.",
+                "When you start a booking we hold the space for 15 minutes while you pay. The booking is confirmed only once our payment partner confirms your payment.",
+                "If your payment arrives after the hold has run out and the space has been taken in the meantime, the booking is not confirmed and you get a full refund.",
+                "Your parking pass is valid only for the space, times and vehicle on the booking, and is not transferable.",
+                "You can add extra time to a booking from the app, if the space is still free."
+              ]
+            }
+          ]
+        },
+        {
+          "heading": "4. Prices and payment",
+          "blocks": [
+            {
+              "list": [
+                "Hosts set their prices. All prices are in Indian Rupees (₹) and the total is shown before you pay.",
+                "Drivers pay the listed price. {brand} does not add a booking or convenience fee.",
+                "Payments are processed by our payment partner, Cashfree Payments. We currently accept UPI. Your UPI PIN and card details are handled by the payment partner and never reach our servers."
+              ]
+            }
+          ]
+        },
+        {
+          "heading": "5. Cancellations and refunds",
+          "blocks": [
+            "You can cancel a booking free of charge until 1 hour before it starts, and for a 50% refund of the parking amount after that until it starts. Full details, including what happens if a space can't be used, are in our [Cancellation & Refund Policy](/refund), which is part of these terms."
+          ]
+        },
+        {
+          "heading": "6. Your responsibilities as a driver",
+          "blocks": [
+            {
+              "list": [
+                "Arrive and leave within your booked times, and park only in the space you booked.",
+                "Follow the host's access instructions and any rules of the premises. Don't block other vehicles, entrances or exits.",
+                "If you need more time, add extra time in the app before your booking ends. If you stay beyond your booking, the host may ask you to move your vehicle.",
+                "Your vehicle must be legally allowed on the road. Don't use a space for storing hazardous materials, repairs, commercial activity or anything unlawful.",
+                "You are responsible for any damage you cause to the host's property."
+              ]
+            }
+          ]
+        },
+        {
+          "heading": "7. Your responsibilities as a host",
+          "blocks": [
+            {
+              "list": [
+                "You must own the space or have the right to rent it out, and the document you upload must be genuine.",
+                "Your listing, including its location, photos, price, availability and access instructions, must be accurate and kept up to date.",
+                "Once a booking is confirmed, the space must be available and accessible for the booked times.",
+                "You must give accurate PAN and bank details for payouts. Your payout for a booking is the parking amount less {brand}'s service fee, and is paid by our payment partner to your bank account.",
+                "You are responsible for the taxes on your income from renting your space, and for following any rules that apply to your property.",
+                "We may decline or remove a listing that doesn't meet these terms."
+              ]
+            }
+          ]
+        },
+        {
+          "heading": "8. Problems at a space",
+          "blocks": [
+            "If you can't use a space you booked, report it in the app from 1 hour before the booking starts until 24 hours after it ends. We review each report, may contact the host, and decide whether a refund is due, as set out in our [Cancellation & Refund Policy](/refund)."
+          ]
+        },
+        {
+          "heading": "9. Reviews",
+          "blocks": [
+            "After a completed booking you can review the space. Reviews must be honest and about your own booking. We may remove reviews that are abusive, false or unrelated."
+          ]
+        },
+        {
+          "heading": "10. What you must not do",
+          "blocks": [
+            {
+              "list": [
+                "Give false information, impersonate someone, or use another person's account.",
+                "Use {brand} for fraud, or misuse payments or refunds.",
+                "Take bookings or payments for a listed space outside {brand} to avoid its fees.",
+                "Copy, scrape or interfere with the app or its systems.",
+                "Use {brand} for anything unlawful."
+              ]
+            },
+            "We may suspend or close an account that breaks these terms."
+          ]
+        },
+        {
+          "heading": "11. Liability",
+          "blocks": [
+            "Spaces are provided by hosts, and you park at your own risk. {brand} is not responsible for loss of, theft of or damage to vehicles or belongings at a space, or for the condition of a space, except where the law makes us responsible.",
+            "To the extent the law allows, our total liability to you for any booking is limited to the amount you paid for that booking. Nothing in these terms limits any liability that cannot be limited by law."
+          ]
+        },
+        {
+          "heading": "12. Closing your account",
+          "blocks": [
+            "You can delete your account in the app from Account › Delete account, once you have no upcoming bookings (and, for hosts, no upcoming bookings at your spaces). Our [Privacy Policy](/privacy) explains what happens to your data."
+          ]
+        },
+        {
+          "heading": "13. Changes to these terms",
+          "blocks": [
+            "We may update these terms. The date at the top shows when they last changed. Continuing to use {brand} after a change means you accept the updated terms."
+          ]
+        },
+        {
+          "heading": "14. Governing law",
+          "blocks": [
+            "These terms are governed by the laws of India. The courts at {city}, {state} have jurisdiction over any dispute arising from them."
+          ]
+        },
+        {
+          "heading": "15. Contact",
+          "blocks": [
+            "Questions about these terms: [{email}](mailto:{email}), or see [Contact Us](/contact)."
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "privacy",
+      "title": "Privacy Policy",
+      "nav": "Privacy Policy",
+      "short": "Privacy",
+      "intro": "This policy explains what personal information {brand} collects, why, who it is shared with, and the choices you have. {brand} is operated by {legalName}, {city}, {state}.",
+      "sections": [
+        {
+          "heading": "Information we collect",
+          "blocks": [
+            {
+              "rows": [
+                [
+                  "Account",
+                  "Your name and email address. Your phone number, which is needed to pay. If you sign in with Google, your Google account identifier. If you set a password, we store only a secure hash of it."
+                ],
+                [
+                  "Profile",
+                  "Your vehicles (registration number, type and size) and the address you add to your profile."
+                ],
+                [
+                  "Bookings",
+                  "The space, times, vehicle and amount of each booking, cancellations and their reasons, reviews you write, and problem reports with any photo you attach."
+                ],
+                [
+                  "Payments",
+                  "Payment order and transaction references, amounts and status from our payment partner. We do not receive or store your card number, CVV, UPI PIN or bank login."
+                ],
+                [
+                  "Hosts",
+                  "Your space's address and map location, photos, access instructions and ownership or permission document. For payouts: your PAN, bank account holder name, account number and IFSC."
+                ],
+                [
+                  "Device",
+                  "A device identifier, the device type and name, and when you signed in, so we can keep you signed in and let you sign out other devices."
+                ],
+                [
+                  "Location",
+                  "Only with your permission and only while you use the app: to show parking near you and, if you are a host, to place your space on the map. It is used for that search and is not saved to your account."
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "heading": "Cookies and tracking",
+          "blocks": [
+            "We do not use advertising or analytics cookies. The web version of {brand} stores your sign-in session and a device identifier in your browser's local storage, so you stay signed in."
+          ]
+        },
+        {
+          "heading": "How we use it",
+          "blocks": [
+            {
+              "list": [
+                "To create your account and sign you in, including emailing you sign-in codes.",
+                "To show parking, take bookings, issue your parking pass and send booking updates.",
+                "To take payments, make refunds and pay hosts.",
+                "To review listings and host documents, and to handle problem reports, disputes and support requests.",
+                "To keep {brand} secure and prevent fraud and misuse.",
+                "To meet our legal, tax and accounting obligations."
+              ]
+            }
+          ]
+        },
+        {
+          "heading": "Who we share it with",
+          "blocks": [
+            {
+              "list": [
+                "Hosts: for a booking at their space, the driver's first name, last initial and vehicle details.",
+                "Cashfree Payments: to process payments and refunds and, for hosts, to verify payout details (name, email, phone, PAN and bank account) and send payouts.",
+                "Resend: to deliver our emails, such as sign-in codes.",
+                "Google: if you choose Google sign-in, and for address search and maps. Ola Maps may also be used for address search. Only the address or location being searched is sent.",
+                "Authorities, where the law requires us to."
+              ]
+            },
+            "We do not sell your personal information."
+          ]
+        },
+        {
+          "heading": "How long we keep it",
+          "blocks": [
+            "We keep your information while your account is open. When you delete your account, you are signed out everywhere, your account can no longer be used and any spaces you host are removed from search. We keep booking, payment and related records after that for accounting, tax, dispute and fraud-prevention purposes. To ask us to remove information we no longer need, email [{email}](mailto:{email})."
+          ]
+        },
+        {
+          "heading": "Security",
+          "blocks": [
+            "We take reasonable steps to protect your information. Passwords are stored only as secure hashes, sign-in sessions can be revoked, and card and UPI details go directly to our payment partner rather than through our servers. No system is completely secure, so please keep your email account and devices secure too."
+          ]
+        },
+        {
+          "heading": "Your choices",
+          "blocks": [
+            {
+              "list": [
+                "View and update your name, phone, vehicles and address in the app.",
+                "Choose which notifications you get in Notifications › Settings.",
+                "Turn location access on or off in your device settings.",
+                "Delete your account from Account › Delete account.",
+                "Ask us for a copy of your information or to correct it by emailing [{email}](mailto:{email})."
+              ]
+            }
+          ]
+        },
+        {
+          "heading": "Children",
+          "blocks": [
+            "{brand} is not meant for anyone under 18, and we do not knowingly collect their information."
+          ]
+        },
+        {
+          "heading": "Changes to this policy",
+          "blocks": [
+            "We may update this policy. The date at the top shows when it last changed."
+          ]
+        },
+        {
+          "heading": "Contact",
+          "blocks": [
+            "Privacy questions or complaints: {legalName}, [{email}](mailto:{email}). See also [Contact Us](/contact)."
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "refund",
+      "title": "Cancellation & Refund Policy",
+      "nav": "Cancellation & Refunds",
+      "short": "Refunds",
+      "intro": "This policy explains when you can cancel a parking booking on {brand} and how much comes back. The refund you will get is always shown in the app before you confirm a cancellation.",
+      "sections": [
+        {
+          "heading": "Cancelling a booking",
+          "blocks": [
+            {
+              "rows": [
+                [
+                  "1 hour or more before the start",
+                  "Full refund of the amount you paid."
+                ],
+                [
+                  "Less than 1 hour before the start",
+                  "50% of the parking amount is refunded."
+                ],
+                [
+                  "After the booking has started",
+                  "The booking can't be cancelled. If you can't use the space, report a problem (see below)."
+                ],
+                [
+                  "No-show (not cancelled and not used)",
+                  "No refund."
+                ]
+              ]
+            },
+            "To cancel, open the booking from the Bookings tab and tap Cancel booking.",
+            "{brand} charges drivers no booking or convenience fee, so there is no separate fee to deduct: a full refund is everything you paid.",
+            "Extra time added to a booking can't be cancelled on its own."
+          ]
+        },
+        {
+          "heading": "If you can't use the space",
+          "blocks": [
+            "If the space is locked, occupied, not as described, you can't find it, or you can't reach the host, open the booking and tap Report a problem. You can report from 1 hour before the booking starts until 24 hours after it ends.",
+            "We review each report and may contact the host. If we find that you couldn't use the space, you get a full refund of the amount you paid. We tell you the outcome in the app."
+          ]
+        },
+        {
+          "heading": "If the host can't honour your booking",
+          "blocks": [
+            "If a host cancels a confirmed booking or removes their space, you get a full refund. If this happens, report a problem on the booking or [contact us](/contact) and we will arrange it."
+          ]
+        },
+        {
+          "heading": "Payment issues",
+          "blocks": [
+            {
+              "list": [
+                "We hold a space for 15 minutes while you pay. If your payment arrives after that and the space has been booked by someone else, you get a full refund automatically.",
+                "If you cancel before your payment completes and the payment then goes through, you get a full refund automatically.",
+                "If money was taken but your booking wasn't confirmed, [contact us](/contact) with your booking reference."
+              ]
+            }
+          ]
+        },
+        {
+          "heading": "How refunds are paid",
+          "blocks": [
+            "Refunds go back to the payment method you used, through our payment partner, Cashfree Payments. We start the refund when the booking is cancelled or a decision on your report is made. It usually reaches your account within 5 to 7 working days, depending on your bank."
+          ]
+        },
+        {
+          "heading": "Questions",
+          "blocks": [
+            "Email [{email}](mailto:{email}) with your booking reference (it starts with GP-)."
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "shipping",
+      "title": "Shipping & Delivery Policy",
+      "nav": "Shipping & Delivery",
+      "short": "Shipping",
+      "intro": "{brand} sells parking bookings, which are a service. No physical goods are sold or shipped.",
+      "sections": [
+        {
+          "heading": "How your booking is delivered",
+          "blocks": [
+            {
+              "list": [
+                "Once our payment partner confirms your payment, your booking is confirmed and your digital parking pass appears in the app under Bookings, usually within a few minutes.",
+                "The pass includes the address, directions and the host's access instructions for your space.",
+                "The service itself, the use of the parking space, is provided by the host at the space for the times on your booking."
+              ]
+            }
+          ]
+        },
+        {
+          "heading": "If your booking isn't confirmed",
+          "blocks": [
+            "If you have paid and your booking isn't confirmed within 30 minutes, [contact us](/contact) with your booking reference. If we can't confirm it, you get a full refund under our [Cancellation & Refund Policy](/refund)."
+          ]
+        }
+      ]
+    }
+  ]
+}
