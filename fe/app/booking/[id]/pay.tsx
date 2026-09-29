@@ -1,10 +1,23 @@
 import { Redirect, router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, AppState, BackHandler, Image, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, AppState, BackHandler, Image, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { ApiError, bookingsApi, paymentsApi } from "@/api";
-import { Button, ErrorNotice, PhoneFrame, RestoringScreen, ScreenHeader, WalletIcon } from "@/components/ui";
+import {
+  Button,
+  CalendarIcon,
+  CarIcon,
+  ErrorNotice,
+  LockIcon,
+  PhoneFrame,
+  RestoringScreen,
+  ScreenHeader,
+  UpiAppLogo,
+} from "@/components/ui";
 import { useNow } from "@/features/bookings/useNow";
-import { bookingListing } from "@/lib/booking";
+import { HoldTimer } from "@/features/payments/HoldTimer";
+import { PaymentWaiting } from "@/features/payments/PaymentWaiting";
+import { UpiAppTiles } from "@/features/payments/UpiAppTiles";
+import { bookingListing, bookingWhen } from "@/lib/booking";
 import { formatRupees } from "@/lib/money";
 import {
   clientHints,
@@ -58,6 +71,7 @@ export default function PayScreen() {
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
   const [appNote, setAppNote] = useState<string | null>(null);
+  const [lastOpened, setLastOpened] = useState<UpiApp | null>(null);
   const started = useRef(false);
 
   const done = !!booking && booking.phase !== "PENDING";
@@ -121,6 +135,7 @@ export default function PayScreen() {
         return;
       }
       const opened = await openUpiApp(link);
+      if (opened) setLastOpened(app);
       setAppNote(opened ? null : `Couldn't open ${UPI_APP_LABELS[app]}. Is it installed? Pick another app.`);
     },
     []
@@ -173,17 +188,25 @@ export default function PayScreen() {
           {loadError ? <ErrorNotice message={loadError} /> : null}
 
           {booking && total !== null ? (
-            <View style={s.amountRow}>
-              <View style={s.flex}>
-                <Text style={s.muted}>To pay</Text>
-                <Text style={s.amount}>{formatRupees(total.toFixed(2))}</Text>
+            <View style={s.summary}>
+              <View style={s.summaryTop}>
+                <View style={s.flex}>
+                  <Text style={s.muted}>Amount to pay</Text>
+                  <Text style={s.amount}>{formatRupees(total.toFixed(2))}</Text>
+                </View>
+                {left !== null && booking.phase === "PENDING" ? <HoldTimer msLeft={left} /> : null}
               </View>
-              {left !== null && booking.phase === "PENDING" ? (
-                <View style={s.timer}>
-                  <Text style={s.timerLabel}>Held for</Text>
-                  <Text style={s.timerValue}>{clock(left)}</Text>
+              <View style={s.rule} />
+              {bookingWhen(booking) ? (
+                <View style={s.fact}>
+                  <CalendarIcon size={15} color={colors.inkMuted} />
+                  <Text style={s.factText}>{bookingWhen(booking)}</Text>
                 </View>
               ) : null}
+              <View style={s.fact}>
+                <CarIcon size={15} color={colors.inkMuted} />
+                <Text style={s.factText}>{booking.vehicleNumber}</Text>
+              </View>
             </View>
           ) : !loadError ? (
             <ActivityIndicator color={colors.ink} style={s.loading} />
@@ -217,56 +240,55 @@ export default function PayScreen() {
             </View>
           ) : (
             <>
+              {!isUpi || attempt ? (
+                <PaymentWaiting
+                  title={isUpi ? "Waiting for your payment" : "Confirming your payment"}
+                  body={
+                    attempt?.channel === "QR"
+                      ? "Scan the code and approve the payment. This screen updates by itself; nothing is booked until then."
+                      : isUpi
+                        ? "Approve the payment in your UPI app, then come back. This screen updates by itself; nothing is booked until then."
+                        : "This updates by itself once our payment partner confirms it; nothing is booked until then."
+                  }
+                />
+              ) : null}
+
               {startError ? <ErrorNotice message={startError} /> : null}
 
               {isUpi && starting && !attempt ? <ActivityIndicator color={colors.ink} style={s.loading} /> : null}
 
               {attempt?.channel === "QR" ? (
                 <View style={s.qrCard}>
-                  <Image source={{ uri: attempt.qrImage }} style={s.qr} accessibilityLabel="UPI QR code for this payment" />
-                  <Text style={s.qrTitle}>Scan with any UPI app</Text>
-                  <Text style={s.muted}>Google Pay, PhonePe, Paytm, BHIM or your bank's app.</Text>
+                  <View style={s.qrFrame}>
+                    <Image source={{ uri: attempt.qrImage }} style={s.qr} accessibilityLabel="UPI QR code for this payment" />
+                  </View>
+                  <Text style={s.qrTitle}>Scan to pay {total !== null ? formatRupees(total.toFixed(2)) : ""}</Text>
+                  <Text style={s.qrSub}>Open any UPI app on your phone and scan this code.</Text>
+                  <View style={s.worksWith}>
+                    {(["gpay", "phonepe", "paytm", "bhim"] as const).map((app) => (
+                      <UpiAppLogo key={app} app={app} size={32} />
+                    ))}
+                  </View>
                 </View>
               ) : null}
 
               {attempt?.channel === "INTENT" ? (
-                <View style={s.gap}>
-                  <Text style={s.label}>OPEN YOUR UPI APP</Text>
-                  {offered
-                    .filter((app) => attempt.apps[app])
-                    .map((app) => (
-                      <Pressable
-                        key={app}
-                        onPress={() => void open(app, attempt.apps)}
-                        accessibilityRole="button"
-                        style={[s.appRow, app === wantedApp && s.appRowOn]}
-                      >
-                        <View style={s.appIcon}>
-                          <WalletIcon size={19} />
-                        </View>
-                        <Text style={s.appTitle}>{UPI_APP_LABELS[app]}</Text>
-                        <Text style={s.appOpen}>Open</Text>
-                      </Pressable>
-                    ))}
-                  {appNote ? <Text style={s.warn}>{appNote}</Text> : null}
-                  <Pressable onPress={() => void start("QR", false)} accessibilityRole="button" style={s.link}>
-                    <Text style={s.linkText}>Paying from another phone? Show a QR code</Text>
-                  </Pressable>
+                <View style={s.section}>
+                  <Text style={s.label}>Pay with</Text>
+                  <UpiAppTiles
+                    apps={offered.filter((app) => attempt.apps[app])}
+                    lastOpened={lastOpened}
+                    onOpen={(app) => void open(app, attempt.apps)}
+                    onShowQr={() => void start("QR", false)}
+                  />
+                  {appNote ? <ErrorNotice message={appNote} /> : null}
                 </View>
               ) : null}
 
-              {!isUpi || attempt ? (
-                <View style={s.waiting}>
-                  <ActivityIndicator color={colors.accentInk} />
-                  <View style={s.flex}>
-                    <Text style={s.waitingTitle}>Waiting for the payment to be confirmed</Text>
-                    <Text style={s.waitingBody}>
-                      This updates by itself once our payment partner confirms it. Keep this screen open or come back to
-                      it; nothing is booked until then.
-                    </Text>
-                  </View>
-                </View>
-              ) : null}
+              <View style={s.trust}>
+                <LockIcon size={13} color={colors.inkFaint} />
+                <Text style={s.trustText}>Secured by Cashfree Payments. GatePass never sees your UPI PIN.</Text>
+              </View>
 
               {booking?.phase === "PENDING" ? (
                 <Button label="View booking" variant="ghost" onPress={back} />
@@ -279,48 +301,33 @@ export default function PayScreen() {
   );
 }
 
-function clock(ms: number): string {
-  const total = Math.ceil(ms / 1000);
-  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
-}
-
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.surface },
-  body: { padding: 20, gap: 18, paddingBottom: 32 },
+  body: { padding: 20, gap: space.lg, paddingBottom: 32 },
   loading: { paddingVertical: space.xl },
   flex: { flex: 1, gap: 2 },
-  gap: { gap: 10 },
   muted: { fontSize: 13, color: colors.inkMuted },
-  warn: { fontSize: 13, color: "#b91c1c" },
-  label: { fontSize: 12, fontWeight: "700", letterSpacing: 1.2, color: colors.inkMuted },
-  amountRow: { flexDirection: "row", alignItems: "center", gap: space.md },
-  amount: { fontSize: 24, fontWeight: "700", color: colors.ink },
-  timer: { alignItems: "flex-end", backgroundColor: colors.canvas, borderRadius: radius.md, paddingHorizontal: 12, paddingVertical: 8 },
-  timerLabel: { fontSize: 11, color: colors.inkMuted },
-  timerValue: { fontSize: 18, fontWeight: "700", color: colors.ink, fontVariant: ["tabular-nums"] },
-  qrCard: { alignItems: "center", gap: 6, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: space.lg },
-  qr: { width: 220, height: 220 },
-  qrTitle: { fontSize: 16, fontWeight: "700", color: colors.ink, marginTop: 4 },
-  appRow: {
-    minHeight: 56,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: space.md,
-  },
-  appRowOn: { borderWidth: 2, borderColor: colors.ink },
-  appIcon: { width: 36, height: 36, borderRadius: 8, backgroundColor: colors.canvas, alignItems: "center", justifyContent: "center" },
-  appTitle: { flex: 1, fontSize: 15, fontWeight: "600", color: colors.ink },
-  appOpen: { fontSize: 14, fontWeight: "700", color: colors.ink, textDecorationLine: "underline" },
-  link: { minHeight: 40, justifyContent: "center" },
-  linkText: { fontSize: 14, fontWeight: "600", color: colors.ink, textDecorationLine: "underline" },
-  waiting: { flexDirection: "row", gap: space.md, alignItems: "flex-start", backgroundColor: colors.accentSurface, borderRadius: radius.md, padding: 14 },
-  waitingTitle: { fontSize: 14, fontWeight: "700", color: colors.accentInk },
-  waitingBody: { fontSize: 13, lineHeight: 19, color: colors.accentInk },
+  section: { gap: space.md },
+  label: { fontSize: 13, fontWeight: "600", letterSpacing: 0.6, color: colors.inkMuted, textTransform: "uppercase" },
+
+  summary: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: space.lg, gap: space.sm },
+  summaryTop: { flexDirection: "row", alignItems: "center", gap: space.md },
+  amount: { fontSize: 30, fontWeight: "700", color: colors.ink, letterSpacing: -0.5 },
+  rule: { height: 1, backgroundColor: colors.border, marginVertical: space.xs },
+  fact: { flexDirection: "row", alignItems: "center", gap: space.sm },
+  factText: { fontSize: 13, color: colors.inkMuted },
+
+  qrCard: { alignItems: "center", gap: 6, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: space.xl },
+  qrFrame: { padding: space.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, marginBottom: space.sm },
+  qr: { width: 200, height: 200 },
+  qrTitle: { fontSize: 17, fontWeight: "700", color: colors.ink },
+  qrSub: { fontSize: 13, color: colors.inkMuted, textAlign: "center" },
+  worksWith: { flexDirection: "row", gap: space.sm, marginTop: space.md },
+
+  trust: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 },
+  trustText: { flexShrink: 1, fontSize: 12, lineHeight: 17, color: colors.inkFaint, textAlign: "center" },
+
   ended: { backgroundColor: colors.dangerSurface, borderRadius: radius.md, padding: 14, gap: 8 },
-  endedTitle: { fontSize: 15, fontWeight: "700", color: "#b91c1c" },
-  endedBody: { fontSize: 13, lineHeight: 19, color: "#b91c1c" },
+  endedTitle: { fontSize: 15, fontWeight: "700", color: colors.dangerInk },
+  endedBody: { fontSize: 13, lineHeight: 19, color: colors.dangerInk },
 });

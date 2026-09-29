@@ -17,6 +17,8 @@ export const colors = {
   success: "#22c55e",
   danger: "#ef4444",
   dangerSurface: "#fef2f2",
+  /** Red text on dangerSurface: `danger` itself is too light to read there. */
+  dangerInk: "#b91c1c",
   devSurface: "#fffbeb",
   devBorder: "#fcd34d",
   devInk: "#92400e",

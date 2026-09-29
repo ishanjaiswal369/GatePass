@@ -56,6 +56,7 @@ export { SpotCover } from "./SpotCover";
 export { RatingBadge, Stars } from "./RatingBadge";
 export { StatusChip, type ChipTone } from "./StatusChip";
 export { SpotListItem } from "./SpotListItem";
+export { UpiAppLogo } from "./UpiAppLogo";
 export { PhoneFrame } from "./PhoneFrame";
 export { RestoringScreen } from "./RestoringScreen";
 export { ScreenHeader } from "./ScreenHeader";
