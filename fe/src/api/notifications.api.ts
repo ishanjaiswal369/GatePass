@@ -1,4 +1,4 @@
-import type { InboxEntry, NotificationPreferences, Page } from "@/types/api.types";
+import type { InboxEntry, Page } from "@/types/api.types";
 import { request } from "./client";
 
 /** Newest first. The first page also brings due reminders into being, server side. */
@@ -14,7 +14,9 @@ export const unreadCount = (token: string) => request<{ unread: number }>("/noti
 export const markRead = (token: string, ids?: string[]) =>
   request<{ updated: number }>("/notifications/read", { method: "POST", body: ids ? { ids } : {}, token });
 
-export const preferences = (token: string) => request<NotificationPreferences>("/notifications/preferences", { token });
+/** This phone's FCM token, stored on the current session only. */
+export const savePushToken = (token: string, pushToken: string) =>
+  request<null>("/notifications/push-token", { method: "PUT", body: { token: pushToken }, token });
 
-export const updatePreferences = (token: string, patch: Partial<NotificationPreferences>) =>
-  request<NotificationPreferences>("/notifications/preferences", { method: "PUT", body: patch, token });
+export const clearPushToken = (token: string) =>
+  request<null>("/notifications/push-token", { method: "DELETE", token });

@@ -8,6 +8,7 @@ export * as notificationsApi from "./notifications.api";
 export * as paymentsApi from "./payments.api";
 export * as problemsApi from "./problems.api";
 export * as profileApi from "./profile.api";
+export * as settingsApi from "./settings.api";
 export * as spotsApi from "./spots.api";
 export * as spotListingApi from "./spotListing.api";
 export * as healthApi from "./health.api";

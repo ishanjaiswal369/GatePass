@@ -8,7 +8,6 @@ import type {
   BookingStatus,
   ListingStatus,
   ListingType,
-  NotificationPreferenceKey,
   PaymentStatus,
   PayoutAccountType,
   ProblemCategory,
@@ -369,7 +368,25 @@ export interface InboxEntry {
   createdAt: string;
 }
 
-export type NotificationPreferences = Record<NotificationPreferenceKey, boolean>;
+/**
+ * The signed-in user's settings (GET/PATCH /settings). Mirrors
+ * be/src/constants/user-settings.ts: every key, each a boolean or a string.
+ */
+export interface UserSettings {
+  startingSoon: boolean;
+  endingSoon: boolean;
+  refunds: boolean;
+  reviewReminders: boolean;
+  hostNewBookings: boolean;
+  hostPayouts: boolean;
+  hostListing: boolean;
+  push: boolean;
+  email: boolean;
+  offers: boolean;
+}
+
+/** The settings that are on/off switches. */
+export type SettingSwitch = { [K in keyof UserSettings]: UserSettings[K] extends boolean ? K : never }[keyof UserSettings];
 
 export interface UserAddress {
   id: string;

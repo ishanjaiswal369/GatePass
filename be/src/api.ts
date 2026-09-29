@@ -11,6 +11,7 @@ import { notificationController } from "./controllers/notification.controller.js
 import { paymentController } from "./controllers/payment.controller.js";
 import { problemController } from "./controllers/problem.controller.js";
 import { reviewController } from "./controllers/review.controller.js";
+import { settingsController } from "./controllers/settings.controller.js";
 import { spotController } from "./controllers/spot.controller.js";
 import { spotListingController } from "./controllers/spot-listing.controller.js";
 import { uploadController } from "./controllers/upload.controller.js";
@@ -32,6 +33,7 @@ import { hostPayoutRequests } from "./requests/host-payout.request.js";
 import { notificationRequests } from "./requests/notification.request.js";
 import { problemRequests } from "./requests/problem.request.js";
 import { reviewRequests } from "./requests/review.request.js";
+import { settingsRequests } from "./requests/settings.request.js";
 import { spotRequests } from "./requests/spot.request.js";
 import { spotListingRequests } from "./requests/spot-listing.request.js";
 import { vehicleRequests } from "./requests/vehicle.request.js";
@@ -129,12 +131,18 @@ export function registerApi(app: App): void {
     driver,
     request(notificationRequests.read, notificationController.read)
   );
-  app.get("/notifications/preferences", driver, notificationController.getPreferences);
+  // This device's FCM token, kept on the caller's session. Signing out deletes
+  // the session, and the token with it.
   app.put(
-    "/notifications/preferences",
+    "/notifications/push-token",
     driver,
-    request(notificationRequests.preferences, notificationController.updatePreferences)
+    request(notificationRequests.pushToken, notificationController.savePushToken)
   );
+  app.delete("/notifications/push-token", driver, notificationController.clearPushToken);
+
+  // Settings (UserSettings). The caller's own; PATCH changes only what it names.
+  app.get("/settings", driver, settingsController.get);
+  app.patch("/settings", driver, request(settingsRequests.update, settingsController.update));
 
   // Profile
   app.get("/vehicles", driver, vehicleController.list);

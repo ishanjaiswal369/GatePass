@@ -6,6 +6,11 @@
 ///
 /// `dedupeKey` makes a reminder idempotent: "starts soon" for booking X is
 /// written once however many times the inbox is opened inside the window.
+///
+/// The table is also the push outbox: a row with `pushedAt` null and a recent
+/// `createdAt` is sent by push-dispatch, which claims it by setting
+/// `pushedAt` first. A row written inside a transaction that rolls back never
+/// exists, so it is never pushed.
 model Notification {
   id         String    @id @default(uuid())
   userId     String
@@ -17,6 +22,8 @@ model Notification {
   listingId  String?
   dedupeKey  String?
   readAt     DateTime?
+  /// When push-dispatch claimed it (sent, or skipped: push off, no device).
+  pushedAt   DateTime?
   createdAt  DateTime  @default(now())
 
   user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -24,27 +31,7 @@ model Notification {
   @@unique([userId, dedupeKey])
   @@index([userId, createdAt])
   @@index([userId, readAt])
+  @@index([pushedAt, createdAt])
 }
 
-/// What a user wants to hear about. One row, created on first change;
-/// absent means the defaults (everything on except offers). Booking
-/// confirmations and cancellations are not switchable, so have no column.
-model NotificationPreference {
-  id              String   @id @default(uuid())
-  userId          String   @unique
-  startingSoon    Boolean  @default(true)
-  endingSoon      Boolean  @default(true)
-  refunds         Boolean  @default(true)
-  reviewReminders Boolean  @default(true)
-  hostNewBookings Boolean  @default(true)
-  hostPayouts     Boolean  @default(true)
-  hostListing     Boolean  @default(true)
-  /// Channels. Stored now; only the in-app inbox is delivered today.
-  push            Boolean  @default(true)
-  email           Boolean  @default(true)
-  offers          Boolean  @default(false)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
+// What a user wants to hear about lives in UserSettings (settings.prisma).

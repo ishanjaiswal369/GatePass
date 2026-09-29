@@ -1,10 +1,12 @@
 import { Prisma } from "@prisma/client";
 import { getPaymentGateway, type GatewayPayment } from "../integrations/payment/index.js";
 import { AppError } from "../lib/errors.js";
+import { clock } from "../lib/format.js";
 import { assertNotBlocked, lockListing } from "../lib/listing-lock.js";
 import { prisma } from "../lib/prisma.js";
 import { audit } from "../lib/security-log.js";
 import { isOverlapViolation } from "./booking.service.js";
+import { notify } from "./notification.service.js";
 
 /**
  * Money in, turned into a booking.
@@ -102,7 +104,48 @@ async function settleFromGateway(bookingId: string, orderId: string, source: "po
   } else {
     // A CAPTURED row that isn't resolved yet still gets finished.
     await resolvePaidBooking(bookingId, now);
+    await tellDriverOfFailure(bookingId, payments, now);
   }
+}
+
+/**
+ * "Your payment didn't go through", for the latest declined attempt.
+ *
+ * Only FAILED -- the bank or UPI app said no. USER_DROPPED (the driver backed
+ * out) and PENDING are not news to them. Keyed on the attempt, so the pay
+ * screen's polling and the webhook describing the same attempt write it once;
+ * a second failed try is a second entry.
+ */
+async function tellDriverOfFailure(bookingId: string, payments: GatewayPayment[], now: Date): Promise<void> {
+  const failed = payments
+    .filter((payment) => payment.status === "FAILED")
+    .sort((a, b) => (b.completedAt?.getTime() ?? 0) - (a.completedAt?.getTime() ?? 0))[0];
+  if (!failed) return;
+
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    select: {
+      driverId: true,
+      status: true,
+      holdExpiresAt: true,
+      extendsBookingId: true,
+      listing: { select: { name: true } },
+    },
+  });
+  // Confirmed by a later attempt, or cancelled: the failure is history.
+  if (!booking || booking.status !== "PENDING") return;
+
+  const place = booking.listing?.name ?? "your parking";
+  const stillHeld = booking.holdExpiresAt !== null && booking.holdExpiresAt > now;
+  await notify(booking.driverId, "PAYMENT_FAILED", {
+    title: booking.extendsBookingId ? "Payment for extra time didn't go through" : "Payment didn't go through",
+    body: stillHeld
+      ? `No money was taken. ${place} is held for you until ${clock(booking.holdExpiresAt!)}. Try again.`
+      : `No money was taken. The hold on ${place} has ended; book again to try.`,
+    // An extension's tap opens the stay it extends.
+    bookingId: booking.extendsBookingId ?? bookingId,
+    dedupeKey: `payfail:${failed.paymentRef}`,
+  });
 }
 
 /**

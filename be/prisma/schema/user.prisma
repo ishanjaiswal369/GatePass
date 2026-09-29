@@ -30,7 +30,7 @@ model User {
   resolvedProblems ProblemReport[] @relation("ProblemReportResolver")
   notifications   Notification[]
   listingBlocks   ListingBlock[] @relation("ListingBlockCreatedBy")
-  notificationPreference NotificationPreference?
+  settings        UserSettings?
   address         UserAddress?
   bookings        Booking[]
   sessions        UserSession[]

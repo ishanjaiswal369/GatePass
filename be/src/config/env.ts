@@ -50,6 +50,16 @@ const EnvSchema = z
     EMAIL_FROM: z.string().email().default("no-reply@gatepass.app"),
     EMAIL_FROM_NAME: z.string().default("GatePass"),
 
+    // Push. "console" logs what would be sent; "fcm" sends through Firebase
+    // Cloud Messaging with a service-account key (Firebase console > Project
+    // settings > Service accounts). The key is a secret: it lives in
+    // be/secrets/, which is gitignored, dockerignored and mounted read-only.
+    PUSH_PROVIDER: z.enum(["fcm", "console"]).default("console"),
+    FIREBASE_SERVICE_ACCOUNT_FILE: z.string().default("secrets/firebase-service-account.json"),
+    // The every-minute job: due reminders into inboxes, then the push outbox.
+    // Off for a one-off script or a second API process that shouldn't run it.
+    NOTIFICATION_JOBS_ENABLED: booleanFromString(true),
+
     // Every OAuth client that may mint tokens for us (web, iOS, Android),
     // comma-separated. These are the only accepted `aud` values -- without the
     // check, a Google token minted for any other app would be accepted here.

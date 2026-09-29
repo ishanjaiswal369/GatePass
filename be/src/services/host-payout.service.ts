@@ -16,6 +16,7 @@ import { audit } from "../lib/security-log.js";
 import * as adminSpotService from "./admin-spot.service.js";
 import * as hostPayoutLedger from "./host-payout-ledger.service.js";
 import * as hostService from "./host.service.js";
+import { notify } from "./notification.service.js";
 
 /**
  * The host's payout account: the thing that has to exist before money can
@@ -498,7 +499,7 @@ export async function setStatus(
 ) {
   const profile = await prisma.hostProfile.findUnique({
     where: { id: hostProfileId },
-    select: { id: true },
+    select: { id: true, userId: true },
   });
 
   if (!profile) {
@@ -519,6 +520,18 @@ export async function setStatus(
       );
     }
   }
+
+  // The move into ACTIVATED, claimed in one conditional write: of a webhook
+  // and a screen's check landing together, only one sees the change, so the
+  // host is told once.
+  const becameActive =
+    status === "ACTIVATED" &&
+    (
+      await prisma.hostProfile.updateMany({
+        where: { id: hostProfileId, NOT: { payoutKycStatus: "ACTIVATED" } },
+        data: { payoutKycStatus: "ACTIVATED" },
+      })
+    ).count > 0;
 
   const updated = await prisma.hostProfile.update({
     where: { id: hostProfileId },
@@ -550,6 +563,19 @@ export async function setStatus(
       if (result.published) {
         published.push(listing.id);
       }
+    }
+
+    // Only on the move into ACTIVATED: a re-check that finds it still active
+    // says nothing new. After a bank-details update it went back to review,
+    // so its re-activation is news again.
+    if (becameActive) {
+      await notify(profile.userId, "HOST_PAYOUT_ACTIVE", {
+        title: "Your payout account is active",
+        body:
+          published.length > 0
+            ? `Your approved ${published.length === 1 ? "listing is" : "listings are"} now live. Earnings go to your bank automatically.`
+            : "Earnings from your bookings now go to your bank automatically.",
+      });
     }
   }
 

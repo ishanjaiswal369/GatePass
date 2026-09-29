@@ -6,6 +6,7 @@ import { windowsCover } from "../lib/venue-time.js";
 import { getLocalStorage, getStorageProvider } from "../integrations/storage/index.js";
 import { env } from "../config/env.js";
 import * as hostService from "./host.service.js";
+import { notify } from "./notification.service.js";
 
 /**
  * The host's side of a spot listing: everything between "I have a driveway"
@@ -813,6 +814,19 @@ export async function submit(
   });
 
   audit("LISTING_SUBMITTED", { userId, listingId });
+
+  // Receipt for the host. What happens next depends on the other gate: a
+  // listing goes live only once its payout account is active too.
+  const host = await prisma.hostProfile.findUnique({ where: { id: hostProfileId }, select: { payoutKycStatus: true } });
+  const payoutReady = host?.payoutKycStatus === "ACTIVATED";
+  await notify(userId, "HOST_LISTING_SUBMITTED", {
+    title: `${submitted.name} is submitted for review`,
+    body: payoutReady
+      ? "We're checking your document. It goes live as soon as it's approved."
+      : "We're checking your document. It goes live once that's approved and your payout account is active.",
+    listingId,
+  });
+
   return submitted;
 }
 

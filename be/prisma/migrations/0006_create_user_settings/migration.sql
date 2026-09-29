@@ -1,6 +1,7 @@
--- Migration: Create the NotificationPreference table -- per-user notification switches
+-- Migration: Create the UserSettings table -- one row of settings per user
+-- (replaced NotificationPreference; the notification switches moved here)
 
-CREATE TABLE "NotificationPreference" (
+CREATE TABLE "UserSettings" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "startingSoon" BOOLEAN NOT NULL DEFAULT true,
@@ -16,9 +17,9 @@ CREATE TABLE "NotificationPreference" (
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
-    CONSTRAINT "NotificationPreference_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "UserSettings_pkey" PRIMARY KEY ("id")
 );
 
-CREATE UNIQUE INDEX "NotificationPreference_userId_key" ON "NotificationPreference"("userId");
+CREATE UNIQUE INDEX "UserSettings_userId_key" ON "UserSettings"("userId");
 
-ALTER TABLE "NotificationPreference" ADD CONSTRAINT "NotificationPreference_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "UserSettings" ADD CONSTRAINT "UserSettings_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;

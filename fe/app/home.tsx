@@ -1,7 +1,7 @@
 import { Redirect, router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { bookingsApi } from "@/api";
+import { bookingsApi, notificationsApi } from "@/api";
 import {
   BottomNav,
   CarIcon,
@@ -29,6 +29,7 @@ import { colors, space } from "@/theme";
 export default function HomeScreen() {
   const { token, user, isRestoring } = useSession();
   const [parkedNow, setParkedNow] = useState(false);
+  const [unread, setUnread] = useState(0);
 
   /**
    * On focus rather than on mount: this screen stays mounted under the
@@ -47,6 +48,15 @@ export default function HomeScreen() {
         })
         // Not being parked is the normal state of this screen, so a failure
         // stays quiet rather than pushing a banner over the search form.
+        .catch(() => undefined);
+
+      // The bell's badge: re-read on every focus, so it clears after the
+      // inbox has been opened (opening it marks everything read).
+      notificationsApi
+        .unreadCount(token)
+        .then(({ unread: count }) => {
+          if (!cancelled) setUnread(count);
+        })
         .catch(() => undefined);
 
       return () => {
@@ -77,6 +87,8 @@ export default function HomeScreen() {
           initial={initial}
           headline="Where are you headed?"
           onPressProfile={() => router.push("/account")}
+          onPressNotifications={() => router.push("/notifications")}
+          unread={unread}
         />
 
         <View style={s.tabs}>

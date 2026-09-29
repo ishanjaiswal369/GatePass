@@ -2,3 +2,5 @@ node_modules
 dist
 .env
 logs
+# Credentials (Firebase service-account key). Mounted into the container read-only.
+secrets/

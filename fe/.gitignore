@@ -6,3 +6,6 @@ dist
 # from it on demand, so never edited or committed by hand.
 /android
 /ios
+# Firebase app config (Firebase console > Project settings > Your apps).
+# Not a secret, but tied to our Firebase project; each checkout adds its own.
+google-services.json

@@ -1,21 +1,24 @@
 import { Redirect, router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
-import { ApiError, notificationsApi } from "@/api";
+import { ApiError, notificationsApi, settingsApi } from "@/api";
 import { BellIcon, Button, EmptyState, ErrorNotice, PhoneFrame, RestoringScreen, ScreenHeader, SegmentedControl } from "@/components/ui";
-import type { NotificationPreferenceKey } from "@/constants/enums";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, radius, space } from "@/theme";
-import type { InboxEntry, NotificationPreferences } from "@/types/api.types";
+import type { InboxEntry, SettingSwitch, UserSettings } from "@/types/api.types";
 
 type Tab = "inbox" | "settings";
 
-/** The Settings tab, grouped and worded as the prototype has it. */
-const GROUPS: { title: string; rows: { key: NotificationPreferenceKey | null; label: string; sub: string }[] }[] = [
+/** The Settings tab, grouped and worded as the prototype has it. Each switch is a UserSettings key. */
+const GROUPS: { title: string; rows: { key: SettingSwitch | null; label: string; sub: string }[] }[] = [
   {
     title: "AS A DRIVER",
     rows: [
-      { key: null, label: "Booking confirmed & cancelled", sub: "Receipts and changes to your bookings" },
+      {
+        key: null,
+        label: "Bookings and payments",
+        sub: "Confirmed, extended, cancelled; a payment that failed or a hold that ran out",
+      },
       { key: "startingSoon", label: "Parking starting soon", sub: "30 minutes before" },
       { key: "endingSoon", label: "Parking ending soon", sub: "30 minutes before, with an option to extend" },
       { key: "refunds", label: "Refunds", sub: "When a refund is sent and when it arrives" },
@@ -26,14 +29,14 @@ const GROUPS: { title: string; rows: { key: NotificationPreferenceKey | null; la
     title: "AS A HOST",
     rows: [
       { key: "hostNewBookings", label: "New bookings", sub: "Each time a driver books your space" },
-      { key: "hostPayouts", label: "Payouts", sub: "When money is sent to your bank" },
-      { key: "hostListing", label: "Listing status", sub: "Approval and anything that needs your attention" },
+      { key: "hostPayouts", label: "Payouts", sub: "When money is sent to your bank, and when your payout account is active" },
+      { key: "hostListing", label: "Listing status", sub: "Submitted, approved, and anything that needs your attention" },
     ],
   },
   {
     title: "HOW WE REACH YOU",
     rows: [
-      { key: "push", label: "Push notifications", sub: "On this phone · coming soon" },
+      { key: "push", label: "Push notifications", sub: "On your phones, as well as here" },
       { key: "email", label: "Email", sub: "Coming soon" },
       { key: "offers", label: "Offers and news", sub: "Occasional, never more than once a week" },
     ],
@@ -68,14 +71,14 @@ export default function NotificationsScreen() {
   const [tab, setTab] = useState<Tab>("inbox");
   const [items, setItems] = useState<InboxEntry[] | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
-  const [prefs, setPrefs] = useState<NotificationPreferences | null>(null);
+  const [prefs, setPrefs] = useState<UserSettings | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [more, setMore] = useState(false);
 
   const load = useCallback(async () => {
     if (!token) return;
     try {
-      const [page, p] = await Promise.all([notificationsApi.list(token), notificationsApi.preferences(token)]);
+      const [page, p] = await Promise.all([notificationsApi.list(token), settingsApi.get(token)]);
       setItems(page.items);
       setCursor(page.nextCursor);
       setPrefs(p);
@@ -109,12 +112,12 @@ export default function NotificationsScreen() {
     }
   };
 
-  const toggle = async (key: NotificationPreferenceKey, value: boolean) => {
+  const toggle = async (key: SettingSwitch, value: boolean) => {
     if (!prefs) return;
     const before = prefs;
     setPrefs({ ...prefs, [key]: value });
     try {
-      setPrefs(await notificationsApi.updatePreferences(token, { [key]: value }));
+      setPrefs(await settingsApi.update(token, { [key]: value }));
     } catch {
       setPrefs(before);
       setError("Couldn't save that setting. Try again.");

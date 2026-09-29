@@ -2,17 +2,17 @@ import type { Prisma } from "@prisma/client";
 import {
   NOTIFICATION_KINDS,
   type NotificationKind,
-  type NotificationPreferenceKey,
 } from "../constants/enums/index.js";
+import { DEFAULT_SETTINGS } from "../constants/user-settings.js";
 import { bookingRef, clock, day, rupees } from "../lib/format.js";
 import { DEFAULT_PAGE_SIZE, type Page, decodeCursor, encodeCursor } from "../lib/pagination.js";
 import { prisma } from "../lib/prisma.js";
-import { audit } from "../lib/security-log.js";
+import { schedulePushFlush } from "./push-dispatch.service.js";
 
 /**
  * The inbox (Phase 4).
  *
- * `notify` is the only writer. It applies the recipient's preferences, and
+ * `notify` is the only writer. It applies the recipient's settings, and
  * composes nothing itself -- callers pass a title and body built from stored
  * facts, never from text another user typed.
  *
@@ -24,32 +24,29 @@ import { audit } from "../lib/security-log.js";
  *   integration, which this API does not own, so the inbox notices the state
  *   rather than waiting for a call that may never be wired to it. Each such
  *   entry carries a dedupe key, so reading the inbox twice writes it once.
- *   Same lazy pattern as expired holds and finished stays: no scheduler.
+ *   The same function also runs every minute for users with something due
+ *   (notification-jobs), so a reminder lands on time with the app closed.
  *
- * Only the inbox is delivered. Push and email preferences are stored for when
- * those channels exist (spec, Phase 4, "not built").
+ * Every new entry is also pushed to the recipient's devices (push-dispatch),
+ * unless they switched push off. The email setting is stored only.
  */
 
-type Preferences = Record<NotificationPreferenceKey, boolean>;
-
-export const DEFAULT_PREFERENCES: Preferences = {
-  startingSoon: true,
-  endingSoon: true,
-  refunds: true,
-  reviewReminders: true,
-  hostNewBookings: true,
-  hostPayouts: true,
-  hostListing: true,
-  push: true,
-  email: true,
-  offers: false,
-};
-
-const REMINDER_LEAD_MS = 30 * 60_000;
+export const REMINDER_LEAD_MS = 30 * 60_000;
 /** How far back state-derived entries reach, so a first inbox open isn't a flood of history. */
 const LOOKBACK_MS = 7 * 24 * 60 * 60_000;
 /** "The day after a completed booking." */
-const REVIEW_AFTER_MS = 12 * 60 * 60_000;
+export const REVIEW_AFTER_MS = 12 * 60 * 60_000;
+/**
+ * Lapsed holds are reported only this recently: an abandoned checkout from
+ * last week isn't worth an inbox line, and one from minutes ago is.
+ */
+export const HOLD_EXPIRY_LOOKBACK_MS = 60 * 60_000;
+/**
+ * A payment started just before the hold ran out can still land (see
+ * payment-confirmation, LATE_WINDOW_MS). Wait this long past both the hold
+ * and the gateway order before calling it expired.
+ */
+const HOLD_EXPIRY_GRACE_MS = 2 * 60_000;
 
 export interface NotificationInput {
   title: string;
@@ -62,26 +59,9 @@ export interface NotificationInput {
   at?: Date;
 }
 
-export async function getPreferences(userId: string): Promise<Preferences> {
-  const row = await prisma.notificationPreference.findUnique({ where: { userId } });
-  if (!row) return { ...DEFAULT_PREFERENCES };
-  const { id: _id, userId: _u, createdAt: _c, updatedAt: _up, ...prefs } = row;
-  return prefs;
-}
-
-export async function updatePreferences(userId: string, patch: Partial<Preferences>): Promise<Preferences> {
-  await prisma.notificationPreference.upsert({
-    where: { userId },
-    update: patch,
-    create: { userId, ...patch },
-  });
-  audit("NOTIFICATION_PREFS_CHANGED", { userId, changed: Object.keys(patch) });
-  return getPreferences(userId);
-}
-
 /**
  * Adds entries to inboxes, skipping recipients who switched that kind off
- * and any dedupe key already written. Pass `tx` to write inside the caller's
+ * (their UserSettings, or its default) and any dedupe key already written. Pass `tx` to write inside the caller's
  * transaction, so an entry can't describe a change that rolled back.
  */
 export async function notify(
@@ -92,12 +72,12 @@ export async function notify(
 ): Promise<void> {
   const switchKey = NOTIFICATION_KINDS[kind];
   if (switchKey) {
-    const prefs = await tx.notificationPreference.findUnique({ where: { userId }, select: { [switchKey]: true } });
-    const on = prefs ? (prefs as Record<string, boolean>)[switchKey] : DEFAULT_PREFERENCES[switchKey];
+    const settings = await tx.userSettings.findUnique({ where: { userId } });
+    const on: boolean = settings ? settings[switchKey] : DEFAULT_SETTINGS[switchKey];
     if (!on) return;
   }
 
-  await tx.notification.createMany({
+  const { count } = await tx.notification.createMany({
     data: [
       {
         userId,
@@ -112,6 +92,9 @@ export async function notify(
     ],
     skipDuplicates: true,
   });
+
+  // Delivered from the table, not from here: see push-dispatch.
+  if (count > 0) schedulePushFlush();
 }
 
 /** When a paid stay actually ends: its own end, or its last confirmed extension's. */
@@ -260,6 +243,76 @@ export async function syncFromState(userId: string, now = new Date()): Promise<v
       bookingId: r.bookingId,
       dedupeKey: `refunded:${r.bookingId}`,
       at: r.processedAt ?? undefined,
+    });
+  }
+
+  // Extra time bought and paid for. An extension is its own booking row, so
+  // the driving query above (originals only) doesn't see it.
+  const extensions = await prisma.booking.findMany({
+    where: {
+      driverId: userId,
+      extendsBookingId: { not: null },
+      status: "CONFIRMED",
+      updatedAt: { gte: since },
+      payment: { status: "CAPTURED" },
+    },
+    select: {
+      id: true,
+      endsAt: true,
+      extendsBookingId: true,
+      payment: { select: { amount: true, updatedAt: true } },
+      extendsBooking: { select: { listing: { select: { id: true, name: true } } } },
+    },
+  });
+  for (const ext of extensions) {
+    if (!ext.endsAt || !ext.extendsBookingId || !ext.payment) continue;
+    await notify(userId, "BOOKING_EXTENDED", {
+      title: `Extra time confirmed · ${bookingRef(ext.extendsBookingId)}`,
+      body: `${ext.extendsBooking?.listing?.name ?? "Your parking"} now until ${clock(ext.endsAt)}, ${day(ext.endsAt)}. Paid ${rupees(ext.payment.amount)}.`,
+      // The stay it extends: that's the screen a tap should open.
+      bookingId: ext.extendsBookingId,
+      listingId: ext.extendsBooking?.listing?.id,
+      dedupeKey: `extended:${ext.id}`,
+      at: ext.payment.updatedAt,
+    });
+  }
+
+  // Holds that ran out unpaid. Status alone can't say so -- a lapsed hold
+  // stays PENDING until something releases it, then reads CANCELLED like a
+  // driver's own cancellation -- so: hold time past, no cancellation of the
+  // driver's, and no captured payment.
+  const graceEdge = new Date(now.getTime() - HOLD_EXPIRY_GRACE_MS);
+  const lapsed = await prisma.booking.findMany({
+    where: {
+      driverId: userId,
+      extendsBookingId: null,
+      status: { in: ["PENDING", "CANCELLED"] },
+      cancelledAt: null,
+      holdExpiresAt: { gte: new Date(now.getTime() - HOLD_EXPIRY_LOOKBACK_MS), lte: graceEdge },
+      OR: [{ payment: null }, { payment: { status: { not: "CAPTURED" } } }],
+    },
+    select: {
+      id: true,
+      holdExpiresAt: true,
+      listing: { select: { id: true, name: true } },
+      payment: { select: { gatewayExpiresAt: true } },
+    },
+  });
+  for (const b of lapsed) {
+    // The gateway order may outlive the hold by a little; a payment can
+    // still land until it closes.
+    const orderClosesAt = b.payment?.gatewayExpiresAt;
+    if (orderClosesAt && orderClosesAt > graceEdge) continue;
+    await notify(userId, "HOLD_EXPIRED", {
+      title: `Your hold on ${b.listing?.name ?? "the parking"} expired`,
+      body: "It wasn't paid for in time, so the spot was released. Book again if it's still free.",
+      bookingId: b.id,
+      listingId: b.listing?.id,
+      dedupeKey: `holdexp:${b.id}`,
+      // When it really ended: the later of the hold and the order. Stamped
+      // with the hold alone, one whose order ran on longer would already be
+      // too old to push by the time it was written.
+      at: orderClosesAt && b.holdExpiresAt && orderClosesAt > b.holdExpiresAt ? orderClosesAt : b.holdExpiresAt ?? undefined,
     });
   }
 }

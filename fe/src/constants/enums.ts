@@ -90,21 +90,6 @@ export const PROBLEM_CATEGORIES = [
 ] as const;
 export type ProblemCategory = (typeof PROBLEM_CATEGORIES)[number];
 
-/** Mirrors be/src/constants/enums/notification-kind.ts. */
-export const NOTIFICATION_PREFERENCES = [
-  "startingSoon",
-  "endingSoon",
-  "refunds",
-  "reviewReminders",
-  "hostNewBookings",
-  "hostPayouts",
-  "hostListing",
-  "push",
-  "email",
-  "offers",
-] as const;
-export type NotificationPreferenceKey = (typeof NOTIFICATION_PREFERENCES)[number];
-
 /** Mirrors be/src/constants/enums/payout-account.ts. */
 export const PAYOUT_ACCOUNT_TYPES = ["INDIVIDUAL", "BUSINESS"] as const;
 export type PayoutAccountType = (typeof PAYOUT_ACCOUNT_TYPES)[number];

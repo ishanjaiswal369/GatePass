@@ -92,9 +92,8 @@ export {
 
 export {
   NOTIFICATION_KINDS,
-  NOTIFICATION_PREFERENCES,
   type NotificationKind,
-  type NotificationPreferenceKey,
+  type NotificationSwitch,
 } from "./notification-kind.js";
 
 export {

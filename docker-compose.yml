@@ -33,6 +33,9 @@ services:
       # mount they lived in the container's own layer, and every
       # `up --build` replaced the container and 404'd every upload.
       - ./be/uploads:/app/uploads
+      # Credentials such as the Firebase service-account key. Mounted, never
+      # copied: be/.dockerignore keeps them out of the image.
+      - ./be/secrets:/app/secrets:ro
     depends_on:
       db:
         condition: service_healthy

@@ -20,6 +20,7 @@
     },
     "android": {
       "package": "com.gatepass.app",
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "monochromeImage": "./assets/adaptive-icon-monochrome.png",
@@ -31,6 +32,13 @@
     },
     "plugins": [
       "expo-router",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#111827"
+        }
+      ],
       [
         "expo-location",
         {

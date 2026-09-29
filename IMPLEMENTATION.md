@@ -627,7 +627,8 @@ it needs `expo-secure-store` on native and is a separate decision.
 | `EmailVerification` | 6-digit `code`, 5-minute expiry, `verified`, `attempts`, `purpose`, pending `firstName`/`lastName`; indexed on `(email, purpose, createdAt)` for rate limiting |
 | `Vehicle` | saved number plate + type per user, one `isDefault`; unique on `(userId, vehicleNumber)` |
 | `UserAddress` | the driver's own address, 1:1 with `User`; `country` fixed to India |
-| `UserSession` | per-device session, `deviceId`, `fcmToken` (reserved), `lastActiveAt`, `expiresAt` |
+| `UserSession` | per-device session, `deviceId`, `fcmToken` (this device's push token; cleared on logout, expiry, or when another account signs in on the device), `lastActiveAt`, `expiresAt` |
+| `UserSettings` | one row of settings per user (boolean/string columns), created on first change; absent = defaults. Holds the notification switches and the `push`/`email`/`offers` channels. `GET`/`PATCH /settings` |
 | `Listing` | an organizer's event **or** a host's spot; exactly one of `organizerId`/`hostProfileId` is set (DB `CHECK`) |
 | `HostProfile` | 1:1 optional on `User`. Its existence *is* the answer to "is this user a host" -- never `role`. Holds no address (0024); holds the payout details until a gateway does |
 | `HostAvailability` | weekly windows for one spot: `dayOfWeek`, minute range, `isActive` toggle. Scoped to the `Listing`, not the host, with a DB `EXCLUDE` against overlaps. Price is **not** here -- see `SpotPricing` |
@@ -696,7 +697,7 @@ constraint-for-constraint against a database built the old way.
 | `0003_create_user_session` | `UserSession` |
 | `0004_create_vehicle` | `Vehicle` |
 | `0005_create_user_address` | `UserAddress` |
-| `0006_create_notification_preference` | `NotificationPreference` |
+| `0006_create_user_settings` | `UserSettings` (replaced `NotificationPreference`) |
 | `0007_create_notification` | `Notification` |
 | `0008_create_organizer` | `Organizer` |
 | `0009_create_organizer_member` | `OrganizerMember` |
@@ -936,8 +937,9 @@ Also missing:
 - **`profileComplete` is thin.** It means `firstName !== null` and nothing
   more. "Can this user actually book" (name + phone + a vehicle) is a
   different question and is not modelled.
-- Organizer dashboard, push notifications (the `fcmToken` column is reserved
-  but unused), recurring/commercial listing types.
+- Organizer dashboard, recurring/commercial listing types. (Push
+  notifications are built: FCM, `integrations/push`, `push-dispatch` and the
+  every-minute `notification-jobs`.)
 
 `JWT_SECRET` no longer accepts the `.env.example` placeholder -- the server
 refuses to start on a known stand-in value, because a published secret signs

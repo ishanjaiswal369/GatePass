@@ -2,7 +2,7 @@ import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { colors, HIT_SLOP_MIN, radius, space } from "@/theme";
-import { SearchIcon } from "./Icon";
+import { BellIcon, SearchIcon } from "./Icon";
 
 function BarrierMark({ size = 22 }: { size?: number }) {
   return (
@@ -28,6 +28,8 @@ export function HomeHeader({
   onChangeQuery,
   onSubmitQuery,
   onPressProfile,
+  onPressNotifications,
+  unread = 0,
 }: {
   initial: string;
   headline?: string;
@@ -42,6 +44,10 @@ export function HomeHeader({
   onChangeQuery?: (next: string) => void;
   onSubmitQuery?: () => void;
   onPressProfile: () => void;
+  /** Shows the bell when set: the inbox, one tap from the first screen. */
+  onPressNotifications?: () => void;
+  /** Unread notifications, as a badge on the bell. */
+  unread?: number;
 }) {
   const insets = useScreenInsets();
 
@@ -53,16 +59,33 @@ export function HomeHeader({
           <BarrierMark />
           <Text style={s.wordmark}>GatePass</Text>
         </View>
-        <Pressable
-          onPress={onPressProfile}
-          accessibilityRole="button"
-          accessibilityLabel="Your profile"
-          style={s.avatarHit}
-        >
-          <View style={s.avatar}>
-            <Text style={s.avatarText}>{initial}</Text>
-          </View>
-        </Pressable>
+        <View style={s.actions}>
+          {onPressNotifications ? (
+            <Pressable
+              onPress={onPressNotifications}
+              accessibilityRole="button"
+              accessibilityLabel={unread > 0 ? `Notifications, ${unread} unread` : "Notifications"}
+              style={s.bellHit}
+            >
+              <BellIcon size={22} color={colors.onInk} />
+              {unread > 0 ? (
+                <View style={s.badge}>
+                  <Text style={s.badgeText}>{unread > 9 ? "9+" : unread}</Text>
+                </View>
+              ) : null}
+            </Pressable>
+          ) : null}
+          <Pressable
+            onPress={onPressProfile}
+            accessibilityRole="button"
+            accessibilityLabel="Your profile"
+            style={s.avatarHit}
+          >
+            <View style={s.avatar}>
+              <Text style={s.avatarText}>{initial}</Text>
+            </View>
+          </Pressable>
+        </View>
       </View>
 
       <Text style={s.headline}>{headline}</Text>
@@ -103,6 +126,28 @@ const s = StyleSheet.create({
     color: colors.onInk,
     letterSpacing: -0.2,
   },
+  actions: { flexDirection: "row", alignItems: "center", gap: 2 },
+  bellHit: {
+    width: HIT_SLOP_MIN,
+    height: HIT_SLOP_MIN,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  badge: {
+    position: "absolute",
+    top: 6,
+    right: 5,
+    minWidth: 17,
+    height: 17,
+    paddingHorizontal: 4,
+    borderRadius: 9,
+    backgroundColor: colors.danger,
+    borderWidth: 2,
+    borderColor: colors.ink,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  badgeText: { fontSize: 9, fontWeight: "700", color: "#ffffff" },
   avatarHit: {
     width: HIT_SLOP_MIN,
     height: HIT_SLOP_MIN,
