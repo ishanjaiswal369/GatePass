@@ -14,6 +14,9 @@ export interface MapPin {
 
 /** The Static Maps API returns at most 640 logical pixels a side. */
 const MAX_IMAGE = 640;
+const PIN_HEIGHT = 30;
+/** Wider than any price label, so every pin fits centred inside it. */
+const PIN_SLOT = 160;
 
 /**
  * Where the results are, drawn over one static map image.
@@ -76,21 +79,22 @@ export function ResultsMap({
             const { dx, dy } = pixelOffset(centre, pin, zoom);
             const on = pin.id === selectedId;
             return (
-              <Pressable
+              <View
                 key={pin.id}
-                onPress={() => onSelect(pin.id)}
-                accessibilityRole="button"
-                accessibilityState={{ selected: on }}
-                accessibilityLabel={`${pin.label}, show this space`}
-                hitSlop={6}
-                style={[
-                  s.pin,
-                  on ? s.pinOn : s.pinOff,
-                  { left: width / 2 + dx, top: height / 2 + dy, zIndex: on ? 2 : 1 },
-                ]}
+                pointerEvents="box-none"
+                style={[s.pinSlot, { left: width / 2 + dx - PIN_SLOT / 2, top: height / 2 + dy - PIN_HEIGHT, zIndex: on ? 2 : 1 }]}
               >
-                <Text style={[s.pinText, on && s.pinTextOn]}>{pin.label}</Text>
-              </Pressable>
+                <Pressable
+                  onPress={() => onSelect(pin.id)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: on }}
+                  accessibilityLabel={`${pin.label}, show this space`}
+                  hitSlop={6}
+                  style={[s.pin, on ? s.pinOn : s.pinOff]}
+                >
+                  <Text style={[s.pinText, on && s.pinTextOn]}>{pin.label}</Text>
+                </Pressable>
+              </View>
             );
           })}
           <View style={s.zoomer}>
@@ -131,14 +135,15 @@ const s = StyleSheet.create({
     borderWidth: 3,
     borderColor: colors.surface,
   },
+  // The point is the pin's bottom centre. Pins are as wide as their label, so
+  // each sits centred in a fixed-width slot; a percentage translateX would do
+  // it in one line, but React Native 0.74 rejects percentages there on native.
+  pinSlot: { position: "absolute", width: PIN_SLOT, alignItems: "center" },
   pin: {
-    position: "absolute",
-    height: 30,
+    height: PIN_HEIGHT,
     paddingHorizontal: 10,
-    borderRadius: 15,
+    borderRadius: PIN_HEIGHT / 2,
     justifyContent: "center",
-    // The point is the pin's bottom centre.
-    transform: [{ translateX: "-50%" }, { translateY: -30 }],
     borderWidth: 2,
   },
   pinOff: { backgroundColor: colors.ink, borderColor: colors.surface },

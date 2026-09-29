@@ -19,8 +19,11 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.gatepass.app",
       "adaptiveIcon": {
-        "backgroundColor": "#ffffff"
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "monochromeImage": "./assets/adaptive-icon-monochrome.png",
+        "backgroundColor": "#111827"
       },
       "blockedPermissions": [
         "android.permission.WRITE_EXTERNAL_STORAGE"
