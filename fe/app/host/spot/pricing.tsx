@@ -2,7 +2,7 @@ import { Redirect, router } from "expo-router";
 import { useEffect, useState } from "react";
 import { StyleSheet, Switch, Text, View } from "react-native";
 import { hostApi, spotListingApi } from "@/api";
-import { Button, Field, RestoringScreen, WizardShell } from "@/components/ui";
+import { Button, Field, RequiredLabel, RestoringScreen, WizardShell } from "@/components/ui";
 import { TOTAL_STEPS, firstStepPath, stepHref, stepNumber } from "@/constants/wizard";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useSpotDraft } from "@/hooks/useSpotDraft";
@@ -144,9 +144,9 @@ export default function PricingScreen() {
         const issue = problemFor(t);
         return (
           <View key={t} style={s.block}>
-            <Text style={s.blockTitle} accessibilityRole="header">
+            <RequiredLabel style={s.blockTitle} header>
               {TITLES[t]}
-            </Text>
+            </RequiredLabel>
             {t === "CAR" && spot.maxVehicleSize ? (
               <Text style={s.blockSub}>One price for every car that fits: {FITS[spot.maxVehicleSize]}.</Text>
             ) : null}
@@ -166,6 +166,7 @@ export default function PricingScreen() {
                 {rate.on[mode.key] ? (
                   <Field
                     label={`₹ ${mode.unit}`}
+                    required
                     value={rate.value[mode.key]}
                     onChangeText={(text) =>
                       update(t, { ...rate, value: { ...rate.value, [mode.key]: text.replace(/[^0-9]/g, "").slice(0, 8) } })

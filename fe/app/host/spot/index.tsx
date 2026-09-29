@@ -80,7 +80,14 @@ export default function SpotStatusScreen() {
   return (
     <PhoneFrame>
       <View style={s.screen}>
-        <SectionHeader title="Your listing" sub={spot?.name} onBack={() => router.replace("/host")} />
+        {/* Back, not replace: submitting clears the wizard out of history
+            (leaveWizard), so what's behind this is where the host came from.
+            Replacing with /host stacked a second Host tab on the first. */}
+        <SectionHeader
+          title="Your listing"
+          sub={spot?.name}
+          onBack={() => (router.canGoBack() ? router.back() : router.replace("/host"))}
+        />
 
         <ScrollView contentContainerStyle={s.body}>
           {error ? <ErrorNotice message={error} /> : null}

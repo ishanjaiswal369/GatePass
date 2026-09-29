@@ -2,7 +2,7 @@ import { Redirect, router } from "expo-router";
 import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { spotListingApi } from "@/api";
-import { Field, RestoringScreen, WizardShell } from "@/components/ui";
+import { Field, RequiredLabel, RestoringScreen, WizardShell } from "@/components/ui";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useSpotDraft } from "@/hooks/useSpotDraft";
 import { useWizardBack } from "@/hooks/useWizardBack";
@@ -90,7 +90,9 @@ export default function AccessScreen() {
       footerNote={missing ?? undefined}
     >
       <View style={s.group}>
-        <Text style={s.groupTitle}>ENTRY METHOD</Text>
+        <RequiredLabel style={s.groupTitle} header>
+          ENTRY METHOD
+        </RequiredLabel>
         <View style={s.chips} accessibilityRole="radiogroup">
           {METHODS.map((m) => {
             const on = method === m;
@@ -112,6 +114,7 @@ export default function AccessScreen() {
 
       <Field
         label="Access instructions"
+        required
         value={text}
         onChangeText={setText}
         placeholder="Ring Flat 402 on the intercom. Security will open the main gate. Park in bay B-2."

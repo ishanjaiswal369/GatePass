@@ -15,6 +15,11 @@ await registerRateLimit(app);
 // the box, so without these a PUT of image bytes is refused before the route
 // runs. Registered globally because a parser is per content type, not per
 // route, and nothing else in this API accepts these types.
+//
+// The body limit is Fastify's 1 MB unless raised here, while presign promises
+// MAX_UPLOAD_BYTES: every phone photo over 1 MB was refused with a 413 before
+// the upload route could run. A little headroom so the route's own size check
+// is the one that answers, with its readable message.
 for (const contentType of [
   "image/jpeg",
   "image/png",
@@ -24,7 +29,7 @@ for (const contentType of [
 ]) {
   app.addContentTypeParser(
     contentType,
-    { parseAs: "buffer" },
+    { parseAs: "buffer", bodyLimit: env.MAX_UPLOAD_BYTES + 64 * 1024 },
     (_request, body, done) => done(null, body)
   );
 }

@@ -2,7 +2,7 @@ import { Redirect, router } from "expo-router";
 import { useEffect, useState } from "react";
 import { Text, StyleSheet } from "react-native";
 import { spotListingApi } from "@/api";
-import { Field, OptionCard, RestoringScreen, WizardShell } from "@/components/ui";
+import { Field, OptionCard, RequiredLabel, RestoringScreen, WizardShell } from "@/components/ui";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useSpotDraft } from "@/hooks/useSpotDraft";
 import { useWizardBack } from "@/hooks/useWizardBack";
@@ -138,6 +138,9 @@ export default function SpaceTypeScreen() {
       error={error}
       footerNote={missing ?? (spot ? undefined : "Nothing is saved until you continue from here. After that, your listing is kept as a draft.")}
     >
+      <RequiredLabel style={s.groupTitle} header>
+        Type of space
+      </RequiredLabel>
       {SPACE_TYPES.map((option) => (
         <OptionCard
           key={option.value}
@@ -154,6 +157,7 @@ export default function SpaceTypeScreen() {
 
       <Field
         label="Name your listing"
+        required
         placeholder={NAME_EXAMPLE}
         hint="Choose a clear name that helps drivers identify your parking space."
         error={nameIssue}
@@ -179,6 +183,7 @@ export default function SpaceTypeScreen() {
 }
 
 const s = StyleSheet.create({
+  groupTitle: { ...type.label, color: colors.inkMuted, textTransform: "uppercase", letterSpacing: 0.6 },
   note: { ...type.caption, color: colors.inkFaint, lineHeight: 18 },
   description: { minHeight: 72 },
 });

@@ -1,8 +1,11 @@
 import { Redirect } from "expo-router";
 import { useEffect, useState } from "react";
-import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { spotListingApi } from "@/api";
 import {
+  CameraIcon,
+  PlusIcon,
+  RequiredLabel,
   RestoringScreen,
   TrashIcon,
   WizardShell,
@@ -44,6 +47,8 @@ export default function PhotosScreen() {
   const back = useWizardBack("photos", spot?.id);
   const proceed = useWizardContinue("photos");
   const [urls, setUrls] = useState<string[]>([]);
+  /** Which of the picked photos is going up, for "Uploading 2 of 3…". */
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
 
   useEffect(() => {
     if (!spot) return;
@@ -57,20 +62,29 @@ export default function PhotosScreen() {
       const picked = await pickImages({ multiple: true, limit: MAX_PHOTOS - urls.length, quality: 0.8 });
       if (!picked) return;
 
+      const batch = picked.slice(0, MAX_PHOTOS - urls.length);
       const uploaded: string[] = [];
 
-      for (const image of picked.slice(0, MAX_PHOTOS - urls.length)) {
-        const presigned = await spotListingApi.presignPhoto(token, spot.id, {
-          contentType: image.contentType,
-          contentLength: image.size,
-        });
+      try {
+        for (const image of batch) {
+          setProgress({ done: uploaded.length, total: batch.length });
+          const presigned = await spotListingApi.presignPhoto(token, spot.id, {
+            contentType: image.contentType,
+            contentLength: image.size,
+          });
 
-        uploaded.push(await spotListingApi.uploadFile(presigned, image.blob));
+          uploaded.push(await spotListingApi.uploadFile(presigned, image.blob));
+        }
+      } finally {
+        // Photos that made it up before a failure are kept, not thrown away
+        // with the one that failed.
+        if (uploaded.length > 0) {
+          const next = [...urls, ...uploaded].slice(0, MAX_PHOTOS);
+          await spotListingApi.savePhotos(token, spot.id, next);
+          setUrls(next);
+        }
+        setProgress(null);
       }
-
-      const next = [...urls, ...uploaded].slice(0, MAX_PHOTOS);
-      await spotListingApi.savePhotos(token, spot.id, next);
-      setUrls(next);
     }
   );
 
@@ -110,19 +124,40 @@ export default function PhotosScreen() {
             : undefined
       }
     >
-      <Text style={s.hint}>
-        The first photo is the cover — the one drivers see in search. Show the actual parking space clearly; avoid
-        blurry or unrelated images.
-      </Text>
-
-      <View style={s.suggest}>
-        <Text style={s.suggestTitle}>Photos that help drivers</Text>
-        {SUGGESTED.map((item) => (
-          <Text key={item} style={s.suggestItem}>
-            • {item}
+      <View style={s.head}>
+        <View style={s.headRow}>
+          <RequiredLabel style={s.headTitle} header>
+            Your photos
+          </RequiredLabel>
+          <Text style={[s.count, urls.length >= MIN_PHOTOS && s.countDone]}>
+            {urls.length}/{MAX_PHOTOS}
           </Text>
-        ))}
+        </View>
+        <Text style={s.hint}>
+          At least {MIN_PHOTOS}. The first one is the cover drivers see in search. Large photos are resized for you.
+        </Text>
       </View>
+
+      {urls.length === 0 ? (
+        // Nothing yet: one big, obvious target instead of a small box in a grid.
+        <Pressable
+          onPress={add}
+          disabled={uploading}
+          accessibilityRole="button"
+          accessibilityLabel="Add photos"
+          style={({ pressed }) => [s.dropZone, pressed && s.addPressed]}
+        >
+          {uploading ? (
+            <ActivityIndicator color={colors.ink} />
+          ) : (
+            <View style={s.dropIcon}>
+              <CameraIcon color={colors.ink} size={26} />
+            </View>
+          )}
+          <Text style={s.dropTitle}>{uploading ? uploadLabel(progress) : "Add photos"}</Text>
+          {uploading ? null : <Text style={s.dropSub}>Choose up to {MAX_PHOTOS} from your gallery</Text>}
+        </Pressable>
+      ) : null}
 
       <View style={s.grid}>
         {urls.map((url, index) => (
@@ -162,27 +197,44 @@ export default function PhotosScreen() {
           </View>
         ))}
 
-        {urls.length < MAX_PHOTOS ? (
+        {urls.length > 0 && urls.length < MAX_PHOTOS ? (
           <Pressable
             onPress={add}
             disabled={uploading}
             accessibilityRole="button"
-            accessibilityLabel="Add a photo"
+            accessibilityLabel="Add more photos"
             style={({ pressed }) => [s.tile, s.addTile, pressed && s.addPressed]}
           >
-            <Text style={s.addPlus}>+</Text>
-            <Text style={s.addLabel}>
-              {uploading ? "Uploading…" : "Add photo"}
-            </Text>
+            {uploading ? (
+              <ActivityIndicator color={colors.ink} />
+            ) : (
+              <View style={s.addIcon}>
+                <PlusIcon color={colors.onInk} size={18} />
+              </View>
+            )}
+            <Text style={s.addLabel}>{uploading ? uploadLabel(progress) : "Add more"}</Text>
+            {uploading ? null : <Text style={s.addSub}>{MAX_PHOTOS - urls.length} left</Text>}
           </Pressable>
         ) : null}
       </View>
 
-      <Text style={s.counter}>
-        {urls.length} of {MAX_PHOTOS} · at least {MIN_PHOTOS}
-      </Text>
+      <View style={s.suggest}>
+        <Text style={s.suggestTitle}>Photos that help drivers</Text>
+        {SUGGESTED.map((item) => (
+          <Text key={item} style={s.suggestItem}>
+            • {item}
+          </Text>
+        ))}
+        <Text style={s.suggestNote}>Show the actual space clearly; avoid blurry or unrelated images.</Text>
+      </View>
     </WizardShell>
   );
+}
+
+/** Picking and resizing come before the first upload, so there's no count yet. */
+function uploadLabel(progress: { done: number; total: number } | null): string {
+  if (!progress) return "Preparing…";
+  return progress.total > 1 ? `Uploading ${progress.done + 1} of ${progress.total}…` : "Uploading…";
 }
 
 /** A small control on a photo: move it, or make it the cover. */
@@ -227,6 +279,45 @@ const s = StyleSheet.create({
   },
   suggestTitle: { ...type.label, color: colors.ink, marginBottom: 2 },
   suggestItem: { fontSize: 13, lineHeight: 19, color: colors.inkMuted },
+  suggestNote: { ...type.caption, color: colors.inkFaint, marginTop: space.xs },
+  head: { gap: space.xs },
+  headRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  headTitle: { fontSize: 16, fontWeight: "700", color: colors.ink },
+  count: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: colors.inkMuted,
+    backgroundColor: colors.canvas,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    overflow: "hidden",
+  },
+  countDone: { color: "#166534", backgroundColor: "#dcfce7" },
+  // Grey dashes on a tinted ground: an empty slot, not a black-outlined box.
+  dropZone: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: space.sm,
+    paddingVertical: space.xl + space.md,
+    paddingHorizontal: space.lg,
+    borderRadius: radius.md,
+    borderWidth: 1.5,
+    borderStyle: "dashed",
+    borderColor: colors.inkFaint,
+    backgroundColor: colors.canvas,
+  },
+  dropIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: space.xs,
+  },
+  dropTitle: { fontSize: 16, fontWeight: "700", color: colors.ink },
+  dropSub: { ...type.caption, color: colors.inkMuted },
   tools: {
     position: "absolute",
     left: 6,
@@ -283,14 +374,22 @@ const s = StyleSheet.create({
   addTile: {
     alignItems: "center",
     justifyContent: "center",
-    gap: 4,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
+    gap: 6,
+    padding: space.sm,
+    backgroundColor: colors.canvas,
+    borderWidth: 1.5,
     borderStyle: "dashed",
-    borderColor: colors.borderStrong,
+    borderColor: colors.inkFaint,
   },
-  addPressed: { backgroundColor: colors.canvas },
-  addPlus: { fontSize: 26, color: colors.inkMuted, lineHeight: 30 },
-  addLabel: { ...type.caption, color: colors.inkMuted },
-  counter: { ...type.caption, color: colors.inkFaint },
+  addPressed: { backgroundColor: colors.border },
+  addIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.ink,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  addLabel: { fontSize: 14, fontWeight: "600", color: colors.ink, textAlign: "center" },
+  addSub: { ...type.caption, color: colors.inkMuted },
 });

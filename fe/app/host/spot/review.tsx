@@ -1,4 +1,4 @@
-import { Redirect, router, useFocusEffect } from "expo-router";
+import { Redirect, router, useFocusEffect, useNavigation } from "expo-router";
 import { useCallback, useState } from "react";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { spotListingApi } from "@/api";
@@ -18,6 +18,7 @@ import { useWizardBack } from "@/hooks/useWizardBack";
 import { groupByHours } from "@/lib/hours";
 import { listingStatus, vehicleTypesOf } from "@/lib/listingRules";
 import { rateLine } from "@/lib/money";
+import { leaveWizard } from "@/lib/wizardFlow";
 import { PAYOUTS_PATH, payoutAccountState, type PayoutAccountState } from "@/lib/payoutAccount";
 import { AMENITY_LABELS, ENTRY_METHOD_LABELS, VEHICLE_SIZE_LABELS, spaceLabel } from "@/lib/spotLabels";
 import { colors, radius, space, type } from "@/theme";
@@ -46,6 +47,7 @@ const SECTION_TITLES: Record<string, string> = {
 export default function ReviewScreen() {
   const { spot, setSpot, loading, isRestoring, token, reload } = useSpotDraft();
   const back = useWizardBack("review", spot?.id);
+  const navigation = useNavigation();
   const id = spot?.id;
 
   const [readiness, setReadiness] = useState<SpotReadiness | null>(null);
@@ -69,7 +71,7 @@ export default function ReviewScreen() {
     if (!token || !spot) return;
     await spotListingApi.submit(token, spot.id);
     await reload();
-    router.replace({ pathname: "/host/spot", params: { id: spot.id, submitted: "1" } });
+    leaveWizard(navigation.getState().routes, { pathname: "/host/spot", params: { id: spot.id, submitted: "1" } });
   });
 
   if (isRestoring || loading) return <RestoringScreen />;

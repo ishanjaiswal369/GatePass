@@ -6,6 +6,7 @@ import {
   ChevronDownIcon,
   Field,
   OptionCard,
+  RequiredLabel,
   RestoringScreen,
   TimeRangeField,
   WizardShell,
@@ -247,6 +248,9 @@ export default function AvailabilityScreen() {
             : rulesProblem ?? undefined
       }
     >
+      <RequiredLabel style={s.hoursTitle} header>
+        Days open
+      </RequiredLabel>
       <OptionCard
         label="Every day"
         description="All seven days of the week."
@@ -286,7 +290,9 @@ export default function AvailabilityScreen() {
       </View>
 
       <View style={s.hours}>
-        <Text style={s.hoursTitle}>Hours</Text>
+        <RequiredLabel style={s.hoursTitle} header>
+          Hours
+        </RequiredLabel>
 
         <View style={s.switchRow}>
           <Text style={s.switchLabel}>Open 24 hours</Text>

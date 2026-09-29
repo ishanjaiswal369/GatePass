@@ -9,6 +9,7 @@ import {
   type TextStyle,
 } from "react-native";
 import { colors, radius, space, type } from "@/theme";
+import { RequiredDot } from "./RequiredLabel";
 
 /**
  * Drops the browser's default focus ring; the field's border carries focus
@@ -24,6 +25,7 @@ export function Field({
   hint,
   error,
   optional,
+  required,
   icon,
   focused,
   style,
@@ -36,6 +38,8 @@ export function Field({
   error?: string | null;
   /** Marks the label so a blank value never reads as a mistake. */
   optional?: boolean;
+  /** A red dot after the label: the form can't go on without this one. */
+  required?: boolean;
   icon?: ReactNode;
   focused?: boolean;
 }) {
@@ -45,6 +49,7 @@ export function Field({
     <View style={s.field}>
       <View style={s.labelRow}>
         <Text style={s.label}>{label}</Text>
+        {required ? <RequiredDot /> : null}
         {optional ? <Text style={s.optional}>optional</Text> : null}
       </View>
 
@@ -69,7 +74,7 @@ export function Field({
           placeholderTextColor={colors.inkFaint}
           // The visible label, as the input's name: without it a screen
           // reader announces only "text field".
-          accessibilityLabel={label}
+          accessibilityLabel={required ? `${label}, required` : label}
           accessibilityHint={error ?? undefined}
           {...props}
         />
@@ -88,7 +93,9 @@ export function Field({
 
 const s = StyleSheet.create({
   field: { gap: 7 },
-  labelRow: { flexDirection: "row", alignItems: "baseline", gap: 6 },
+  // Centred rather than baseline-aligned: the required dot is a View, and has
+  // no baseline to line up with the label's.
+  labelRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   label: { ...type.label, color: colors.ink },
   optional: { fontSize: 11, color: colors.inkFaint },
   box: {

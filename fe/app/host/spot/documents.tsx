@@ -9,6 +9,7 @@ import {
   InfoIcon,
   LockIcon,
   OptionCard,
+  RequiredLabel,
   RestoringScreen,
   ShieldIcon,
   WizardShell,
@@ -74,7 +75,8 @@ export default function DocumentsScreen() {
   const { run: upload, busy: uploading, error: uploadError } = useAsyncAction(async () => {
     if (!token || !spot) return;
 
-    const picked = await pickImages({ quality: 0.9 });
+    // Larger than a listing photo: a reviewer has to read the small print.
+    const picked = await pickImages({ quality: 0.9, maxSide: 2400 });
     if (!picked) return;
 
     const [image] = picked;
@@ -138,7 +140,9 @@ export default function DocumentsScreen() {
       <View style={s.card}>
         <View style={s.cardHead}>
           <ShieldIcon color={colors.accent} size={18} />
-          <Text style={s.cardTitle}>Ownership proof</Text>
+          <RequiredLabel style={s.cardTitle} header>
+            Ownership proof
+          </RequiredLabel>
         </View>
         <Text style={s.cardBody}>
           We use this to verify that the parking space is connected to the address you provided.
@@ -187,7 +191,9 @@ export default function DocumentsScreen() {
       </View>
 
       <View style={s.card}>
-        <Text style={s.cardTitle}>Your permission to rent it</Text>
+        <RequiredLabel style={s.cardTitle} header>
+          Your permission to rent it
+        </RequiredLabel>
         <View accessibilityRole="radiogroup" style={s.types}>
           <OptionCard
             label="I confirm I own this space."
@@ -203,7 +209,9 @@ export default function DocumentsScreen() {
           />
         </View>
 
-        <Text style={s.question}>Is the space in a housing society, apartment complex or RWA-managed property?</Text>
+        <RequiredLabel style={s.question}>
+          Is the space in a housing society, apartment complex or RWA-managed property?
+        </RequiredLabel>
         <View style={s.pair} accessibilityRole="radiogroup">
           <View style={s.flex}>
             <OptionCard label="Yes" selected={inSociety === true} onPress={() => editable && setInSociety(true)} disabled={!editable} />

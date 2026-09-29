@@ -11,6 +11,7 @@ import {
   InfoIcon,
   LockIcon,
   PinIcon,
+  RequiredLabel,
   RestoringScreen,
   WizardShell,
 } from "@/components/ui";
@@ -306,7 +307,7 @@ export default function AddressScreen() {
       ) : null}
 
       <View style={s.pinCard}>
-        <Text style={s.pinTitle}>Exact parking location</Text>
+        <RequiredLabel style={s.pinTitle}>Exact parking location</RequiredLabel>
         <Text style={s.pinHint}>Place the pin exactly where drivers should park — the gate or the bay, not the middle of the area.</Text>
 
         {hasPin ? (
@@ -354,12 +355,21 @@ export default function AddressScreen() {
             placeholder="B-402"
             maxLength={60}
           />
-          <Field label="Street / Road" value={street} onChangeText={setStreet} placeholder="Karve Road" maxLength={200} />
-          <Field label="Area" value={area} onChangeText={setArea} placeholder="Kothrud" maxLength={120} />
-          <Field label="City" value={city} onChangeText={setCity} placeholder="Pune" maxLength={100} />
-          <Field label="State" value={stateName} onChangeText={setStateName} placeholder="Maharashtra" maxLength={100} />
+          {/* No dot: the society or building name above can stand in for it. */}
+          <Field
+            label="Street / Road"
+            value={street}
+            onChangeText={setStreet}
+            placeholder="Karve Road"
+            maxLength={200}
+            hint="Needed unless you've added the society or building name."
+          />
+          <Field label="Area" required value={area} onChangeText={setArea} placeholder="Kothrud" maxLength={120} />
+          <Field label="City" required value={city} onChangeText={setCity} placeholder="Pune" maxLength={100} />
+          <Field label="State" required value={stateName} onChangeText={setStateName} placeholder="Maharashtra" maxLength={100} />
           <Field
             label="PIN code"
+            required
             value={pincode}
             onChangeText={(t) => setPincode(t.replace(/[^0-9]/g, "").slice(0, 6))}
             keyboardType="number-pad"

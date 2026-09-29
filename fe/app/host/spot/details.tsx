@@ -2,7 +2,7 @@ import { Redirect, router } from "expo-router";
 import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { spotListingApi } from "@/api";
-import { Checkbox, ChevronDownIcon, Field, OptionCard, RestoringScreen, WizardShell } from "@/components/ui";
+import { Checkbox, ChevronDownIcon, Field, OptionCard, RequiredLabel, RestoringScreen, WizardShell } from "@/components/ui";
 import type { Amenity, VehicleSize } from "@/constants/enums";
 import { TOTAL_STEPS, firstStepPath, isLiveStatus, stepHref, stepNumber } from "@/constants/wizard";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
@@ -146,7 +146,7 @@ export default function DetailsScreen() {
       error={error}
       footerNote={missing ?? undefined}
     >
-      <Group title="PARKING TYPE">
+      <Group title="PARKING TYPE" required>
         <View style={s.pair} accessibilityRole="radiogroup">
           <View style={s.flex}>
             <OptionCard label="Covered" description="Roof overhead" selected={covered === true} onPress={() => setCovered(true)} />
@@ -157,14 +157,14 @@ export default function DetailsScreen() {
         </View>
       </Group>
 
-      <Group title="VEHICLES" sub="Which vehicles can use this space?">
+      <Group title="VEHICLES" sub="Which vehicles can use this space?" required>
         <Checkbox label="Bikes / Scooters" checked={bikes} onChange={setBikes} />
         <Checkbox label="Cars" checked={cars} onChange={setCars} />
         <Checkbox label="SUVs" checked={suvs} onChange={setSuvs} />
         <Checkbox label="Vans / Large vehicles" checked={vans} onChange={setVans} />
         {cars ? (
           <View style={s.sizes}>
-            <Text style={s.label}>Largest car that fits</Text>
+            <RequiredLabel style={s.label}>Largest car that fits</RequiredLabel>
             <View style={s.chips} accessibilityRole="radiogroup">
               {SIZES.map((size) => {
                 const on = carSize === size.value;
@@ -199,7 +199,7 @@ export default function DetailsScreen() {
         ))}
         <Checkbox label="Other" checked={otherOn} onChange={setOtherOn} />
         {otherOn ? (
-          <Field label="Other amenity" value={other} onChangeText={setOther} placeholder="Car wash on request" maxLength={100} />
+          <Field label="Other amenity" required value={other} onChangeText={setOther} placeholder="Car wash on request" maxLength={100} />
         ) : null}
         <Text style={s.note}>Covered is set above. 24/7 access is shown automatically when your hours cover every day, all day.</Text>
       </Group>
@@ -259,12 +259,28 @@ export default function DetailsScreen() {
   );
 }
 
-function Group({ title, sub, children }: { title: string; sub?: string; children: React.ReactNode }) {
+function Group({
+  title,
+  sub,
+  required,
+  children,
+}: {
+  title: string;
+  sub?: string;
+  required?: boolean;
+  children: React.ReactNode;
+}) {
   return (
     <View style={s.group}>
-      <Text style={s.groupTitle} accessibilityRole="header">
-        {title}
-      </Text>
+      {required ? (
+        <RequiredLabel style={s.groupTitle} header>
+          {title}
+        </RequiredLabel>
+      ) : (
+        <Text style={s.groupTitle} accessibilityRole="header">
+          {title}
+        </Text>
+      )}
       {sub ? <Text style={s.groupSub}>{sub}</Text> : null}
       {children}
     </View>
