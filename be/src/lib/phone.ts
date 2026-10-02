@@ -8,8 +8,8 @@ import { badRequest } from "./errors.js";
  * for one phone and both could be registered.
  *
  * Mobile numbers start 6-9; landlines and service numbers do not, and nothing
- * in this product can use them -- OTP, Razorpay contact and gate calls all
- * assume a mobile.
+ * in this product can use them -- the payment gateway's customer phone and a
+ * call at the gate both assume a mobile.
  */
 const INDIAN_MOBILE = /^[6-9]\d{9}$/;
 

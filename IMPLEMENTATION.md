@@ -1,11 +1,14 @@
 # GatePass — Implementation Notes
 
-Last updated: 2026-09-22
+Last updated: 2026-10-03
 
-A paid marketplace for parking at public ticketed events in India. Organizers
-list parking capacity at a venue; drivers reserve and pay in advance. There
-is no QR pass in v1 (removed 2026-10-01): a paid booking is confirmed and
-releases the address and access instructions, and the host checks the plate.
+A paid marketplace for private parking in India. A host lists a space they
+control -- a driveway, a garage, a bay in a society -- and drivers book it by
+the hour or the day and pay in advance through Cashfree. Event parking and
+organizers were removed on 2026-09-27: a `Listing` is always a host's spot.
+There is no QR pass in v1 (removed 2026-10-01): a paid booking is confirmed
+and releases the address and access instructions, and the host checks the
+plate.
 
 This document describes **what is actually built**, verified against the code
 and a running database. Where something is scaffolding rather than working
@@ -18,21 +21,22 @@ and became misleading, which is the mistake this file exists to avoid.
 
 | Layer | Choice | Notes |
 |---|---|---|
-| Driver app | Expo (React Native), expo-router | Auth screens built; runs on web for development |
-| Organizer dashboard | — | Not started |
+| App (driver and host) | Expo (React Native), expo-router | One app for both sides; runs on web for development and as an Android development build (`com.gatepass.app`) |
 | API | Fastify + TypeScript | ESM, `node --import tsx/esm` in dev |
 | ORM | Prisma | Multi-file schema via `prismaSchemaFolder` |
 | Database | PostgreSQL 16 | Docker, named volume `pgdata` |
 | Validation | zod | At the request boundary, via `lib/request.ts` |
 | Email | Resend, with a `console` provider for dev | `integrations/email/` |
 | Auth | Email code (OTP) or Google, both issuing JWT sessions | See section 3 |
-| Payments | Cashfree PG | **Create Order only** — opened with each spot booking when `PAYMENT_PROVIDER=cashfree`; checkout, verification, webhook and refunds not yet (`specs/cashfree-payments_design.md`) |
+| Payments | Cashfree PG + Easy Split | Order with each booking, UPI through Order Pay, payment / refund / vendor webhooks, refunds, and the host's share split on the order itself. Sandbox only so far. See section 8 and `specs/cashfree-payments_design.md`, `specs/cashfree-refunds_design.md` |
+| Push | FCM, with a `console` provider for dev | `integrations/push/` |
+| Uploads | Local disk behind signed, expiring URLs | `integrations/storage/` (`STORAGE_PROVIDER=local` is the only provider) |
 
-No logger. Fastify is constructed with logging disabled; a real setup comes
-before production. Anything that must still be seen uses `console` directly:
-the dev login code, startup failure in `index.ts`, integration retries, and
-unhandled errors in `registerErrorHandler` (which previously called
-`request.log.error` — a silent no-op once the logger was removed).
+Logging is pino through Fastify (`lib/app.ts`), level from `LOG_LEVEL`.
+Per-request access lines are off; what is logged is logged on purpose:
+security and audit events (`lib/security-log`), one line per gateway call,
+and failures (`lib/errors`). The `authorization` and `cookie` headers are
+redacted and no request body is logged.
 
 There is **no SMS/MSG91 integration** any more. Login codes go out by email.
 
@@ -44,10 +48,11 @@ There is **no SMS/MSG91 integration** any more. Login codes go out by email.
 be/
   prisma/
     schema/             one .prisma file per domain
-    migrations/         hand-written SQL, one per concern
+    migrations/         hand-written SQL, one CREATE per table (section 7)
   src/
     api.ts              all route registration
-    config/env.ts       zod-validated environment
+    config/             env.ts (zod-validated environment), pricing.ts (service
+                        fee, cancellation policy, extra-time steps)
     constants/enums/    fixed-value domains, one file per enum (section 6)
     controllers/        HTTP shape only
     requests/           zod schemas per endpoint
@@ -56,9 +61,13 @@ be/
       email/            Resend + console providers
       geocode/          Ola + Google providers, off by default
       google/verify.ts  Google ID token verification
+      payment/          gateway-neutral provider.ts + cashfree/
+      push/             FCM + console providers
+      storage/          local disk, signed URLs
       http.ts           axios + retry
-    middleware/         authenticate, requireHost, requireOrganizerStaff, requireAdmin
-    lib/                app, errors, prisma, request wrapper, pagination
+    middleware/         authenticate, requireHost, requireAdmin
+    lib/                app, errors, prisma, request wrapper, pagination,
+                        listing-lock, stay-price, venue-time, security-log
 fe/                     Expo app — see section 4 and fe/README.md
 design/                 canvas source (.dc.html + canvas.json), splash render + philosophy
 ```
@@ -277,9 +286,9 @@ Also driven through the app in the browser.
 
 - **Phone is normalised to `+91XXXXXXXXXX` at the request boundary**, so the
   unique column cannot hold `9876543210` and `+91 98765 43210` as two rows for
-  one number. Only mobile prefixes (6-9) are accepted — OTP, Razorpay contact
-  and gate calls all assume a mobile. **The number is stored unverified**;
-  there is no phone OTP yet.
+  one number. Only mobile prefixes (6-9) are accepted — Cashfree's
+  `customer_phone` and a call at the gate both assume a mobile. **The number
+  is stored unverified**; there is no phone OTP yet.
 - **Vehicle numbers are normalised too** (uppercase, separators stripped), so
   the unique index really does stop the same plate being saved twice. The
   format check is deliberately loose: Indian plates span state series, the BH
@@ -331,9 +340,8 @@ What deletion does change:
 session cannot delete an account. The address is taken from the session,
 never the request. **Blockers are checked before a code is sent and again
 before deleting** (`GET /auth/account/deletion` lists them): an upcoming
-(`PENDING`/`CONFIRMED`) booking as a driver, upcoming bookings at the user's
-spot, an unfinished payout (`PENDING`/`PROCESSING`/`DISPUTED`), or an
-organizer membership. Each is a person who would be left stranded.
+(`PENDING`/`CONFIRMED`) booking as a driver, or upcoming bookings at the
+user's spot. Each is a person who would be left stranded.
 
 Soft deletion keeps personal data. If a user asks for erasure under India's
 DPDP Act, that is a separate step — a purge job that scrubs the PII of rows
@@ -360,9 +368,13 @@ backend's: **the routing layer is thin, and the work lives behind it.**
 fe/
   index.js              entry point; must live here, not in node_modules
   metro.config.js       workspace resolution (see below)
-  app/                  routes only: index, verify, profile, home, bookings,
-                        host, password, account (+ details, vehicles,
-                        address), event/[id]
+  app/                  routes only: index, verify, profile, home, parking,
+                        spots/* (results, filters, a spot, checkout),
+                        bookings, booking/[id]/* (pay, confirmed, extend,
+                        cancel, problem, review), host, host/spot/* (the
+                        wizard), host/listing/[id], host/bookings,
+                        host/earnings, payouts, notifications, password,
+                        account/*, and the public policy pages
   src/
     api/
       client.ts         the only caller of fetch; ApiError carries HTTP status
@@ -444,21 +456,22 @@ instead of one tap inside each of them. Editing happens in
 
 ### Driver home
 
-`app/home.tsx` is the screen the canvas designs, built against the live API and
-driven end to end in a browser (sign in → Events → Nearby → pass).
+`app/home.tsx` answers the two questions a driver arrives with, and nothing
+else: "am I parked?" and "where do I park?". The product leads with a search,
+not a feed.
 
-- **Two tabs, Events first.** Events has real organizer listings; Nearby has
-  almost no hosts yet, so it cannot be the landing tab.
-- **Location is asked on the Nearby tab, on a button press** -- never on app
-  open. `useDriverLocation` runs nothing on mount. A cold permission prompt
-  with no visible reason gets denied, and a denial is far harder to undo than
-  a delay. A refusal falls back to typing an area, which resolves through
-  `GET /geocode`.
+- **Already parked / Book parking** is the segment under the header. Already
+  parked opens the running stay (`/parking`); Book parking is the search form
+  (`features/search/BookParkingForm`), which opens `spots/results` with the
+  chosen hours and vehicle.
+- **Two calls, on focus rather than on mount**: `GET /bookings/active` and
+  `GET /notifications/unread-count` for the bell's badge. The screen stays
+  mounted under the booking flow, so a mount-only fetch would miss a stay
+  that started meanwhile. Both fail quietly: not being parked is the normal
+  state of this screen.
 - `GET /bookings/active` answers 200 with `booking: null`, so "nothing
-  booked" is a layout state rather than an error.
-- **Three parallel calls, no aggregate endpoint.** The feed is shared and
-  cacheable, the pass is per-user and must be fresh. A failing pass call stays
-  silent instead of blanking the feed.
+  running" is a layout state rather than an error.
+- **The bottom nav is Home, Bookings, Host, Payouts, Profile.**
 - **Host is one nav item, not a mode switch.** It opens onboarding or the
   dashboard depending on `user.hasHostProfile`, which the session holds.
   - Every sign-in response carries it (code, Google, password login, password
@@ -469,23 +482,15 @@ driven end to end in a browser (sign in → Events → Nearby → pass).
   - A known non-host now gets onboarding with **no request at all**; a known
     host sees the "Your spot" frame immediately while its details load.
   - It is derived from whether a `HostProfile` row exists, not a role: a
-    user can be a driver and a host at once. It becomes true when the Host
-    onboarding form is submitted, which creates the profile and the
-    published spot in one transaction, and never goes back to false.
-  - A stale flag (the user became a host on another device) makes onboarding
-    return 409; the app treats that as "already a host", flips the flag and
-    loads the dashboard rather than showing an error.
-
-Screens reached from the home screen but **not** in the canvas --
-`bookings`, `host`, `event/[id]` -- are built plainly from the same tokens so
-the nav has no dead ends. `event/[id]` is read-only: checkout is its own
-designed flow and needs Razorpay.
+    user can be a driver and a host at once. It becomes true when the first
+    listing is named (`POST /host/spots`, see the wizard below) and never
+    goes back to false.
 
 ### The host listing wizard
 
 Nine steps under `app/host/spot/`, in the order `constants/wizard.ts` lists
-them: **type, address, photos, availability, pricing, access, documents,
-payout, review**. Each step is its own URL and its own request against the
+them: **type, address, photos, details, availability, pricing, access,
+documents, review**. Each step is its own URL and its own request against the
 same listing, so a host who closes the app mid-way picks up where they were —
 nothing is held between screens. `useSpotDraft` reads the listing from the
 server on every step, keyed by the `?id=` the steps carry forward.
@@ -514,16 +519,13 @@ server on every step, keyed by the `?id=` the steps carry forward.
 - **Overlapping windows are refused twice.** The request schema names the day
   it went wrong; the database's `EXCLUDE` constraint is what actually holds,
   because two concurrent requests can each pass a check the other invalidates.
-- **Payout details are kept.** `submit` used to validate a PAN, an account
-  holder, an account number and an IFSC, store only the PAN and park the host
-  at `UNDER_REVIEW` — a review with nothing to review, and a status that could
-  never honestly move. They are stored now and read back masked (`ABCDE****F`,
-  `•••• 9012`). When a gateway lands, `host-payout.service` is the only file
-  that changes.
-  - Hosts who submitted under the old code have a status but no details, so
-    `needsDetails` answers "must this host still enter them?" separately from
-    the status. Without it they would be locked out of the one screen that
-    fixes it, permanently.
+- **Payout is not a wizard step.** The payout account is the host's, not a
+  listing's, so it is set up once on the Payouts tab (`app/payouts`): PAN and
+  bank details go to Cashfree as an Easy Split vendor and are read back
+  masked. A listing is submitted without it and goes live once the account is
+  `ACTIVATED` and the ownership document is approved, in whichever order
+  those arrive. Design: `specs/cashfree-payments_design.md` ("Host payout
+  account").
 - **Back always moves.** Every step is a real URL, so a host can land on one
   cold — a reload, a link, a `replace` that ended the previous flow — where
   `router.back()` does nothing at all and reads as a broken button.
@@ -588,9 +590,9 @@ Three decisions worth knowing:
 - **An auth gate is a `<Redirect>`, never `router.replace` in an effect.** A
   child screen's `useEffect` runs before the root layout has mounted its
   navigator, so a cold load of `/account` while signed out crashed with
-  *"Attempted to navigate before mounting the Root Layout component"*. Because
-  the session token is held in memory only, every page reload on a protected
-  route hits exactly that path. A redirect element is rendered rather than
+  *"Attempted to navigate before mounting the Root Layout component"*. A
+  reload restores the session asynchronously, so every page reload on a
+  protected route hits exactly that path. A redirect element is rendered rather than
   run, so it cannot fire early. Navigating from a press handler is fine --
   those happen long after the navigator is ready.
 
@@ -611,9 +613,6 @@ The one image is used twice:
   place the splash appears. It lives in root state, so navigation never brings
   it back.
 
-The session token is held in memory only — a reload signs you out. Persisting
-it needs `expo-secure-store` on native and is a separate decision.
-
 ---
 
 ## 5. Data model
@@ -626,18 +625,22 @@ it needs `expo-secure-store` on native and is a separate decision.
 | `UserAddress` | the driver's own address, 1:1 with `User`; `country` fixed to India |
 | `UserSession` | per-device session, `deviceId`, `fcmToken` (this device's push token; cleared on logout, expiry, or when another account signs in on the device), `lastActiveAt`, `expiresAt` |
 | `UserSettings` | one row of settings per user (boolean/string columns), created on first change; absent = defaults. Holds the notification switches and the `push`/`email`/`offers` channels. `GET`/`PATCH /settings` |
-| `Listing` | an organizer's event **or** a host's spot; exactly one of `organizerId`/`hostProfileId` is set (DB `CHECK`) |
-| `HostProfile` | 1:1 optional on `User`. Its existence *is* the answer to "is this user a host" -- never `role`. Holds no address (0024); holds the payout details until a gateway does |
+| `Notification` | the in-app inbox, which is also the push outbox (`pushedAt`) |
+| `Listing` | a host's parking space; `hostProfileId` is required (`Listing_has_host` CHECK) and `listingType` is always `INDEPENDENT_SPOT`. The address is split into what is public (society, area) and what is released only with a paid booking (building, street, access instructions, bay). Carries the review trail: `submittedAt`, `docApprovedAt`, `rejectionReason` / `rejectionSection` |
+| `HostProfile` | 1:1 optional on `User`. Its existence *is* the answer to "is this user a host" -- never `role`. Holds no address. Holds the payout account: bank details (read back masked), the Cashfree vendor id (`payoutAccountId`) and `payoutKycStatus` mirrored from the gateway |
 | `HostAvailability` | weekly windows for one spot: `dayOfWeek`, minute range, `isActive` toggle. Scoped to the `Listing`, not the host, with a DB `EXCLUDE` against overlaps. Price is **not** here -- see `SpotPricing` |
-| `SpotPhoto` / `SpotPricing` | a spot's photos in display order, and one rate per vehicle type for the whole spot |
-| `Organizer` / `OrganizerMember` | the business entity and its staff logins; listings and settlements hang off the entity |
-| `ParkingCapacity` | per `(listing, vehicleType)`: `totalCapacity`, `bookedCount`, `price` |
-| `Booking` | `quantity`, `amount` snapshot, `status`, `idempotencyKey` unique |
-| `Payment` | separate from `Booking` because payment state and booking state are different machines; gateway-neutral `gateway*` ids, written with the booking |
-| `Settlement` / `SettlementItem` | per-period payout with a per-booking breakdown; paid to an organizer **or** a host (DB `CHECK`) |
+| `SpotPhoto` / `SpotPricing` | a spot's photos in display order, and one rate per vehicle type: `pricePerHour` and/or `pricePerDay` (a stay is charged the cheaper of the two) |
+| `Favorite` | a spot a driver saved; one row per `(user, listing)` |
+| `ListingBlock` | hours a host took off sale. Not a booking, so bookings, extensions and blocks check each other inside a per-listing advisory lock (`lib/listing-lock`) |
+| `Booking` | a stretch of time on one spot: `startsAt`/`endsAt`, `holdExpiresAt` for an unpaid hold, `extendsBookingId` for extra time, `amount` snapshot, `status`, `idempotencyKey` unique. `Booking_no_overlap` EXCLUDE stops two drivers holding overlapping hours |
+| `Payment` | one per booking, written in the booking's transaction. Separate from `Booking` because payment state and booking state are different machines; gateway-neutral `gateway*` ids, plus the host's split (`splitVendorId`, `splitAmount`) fixed when the order is first opened |
+| `Refund` | one per booking, opened inside the transaction that decides it. `REFUND_PENDING → REFUNDED / FAILED`, with the gateway ids, the host's part (`splitAmount`), `attempt` (1-3) and `failureReason` |
+| `HostPayout` | one row per Cashfree settlement to a host's bank, written only from the Easy Split settlement webhook: `INITIATED → SUCCESS / FAILED`, `SUCCESS → REVERSED` |
+| `ProblemReport` | a driver's "I can't use this parking" report on a booking, resolved by an admin; upheld means a full refund |
+| `Review` | a driver's review of a stay (drivers review spots; hosts do not review drivers) |
 
-`createdBy`/`updatedBy` columns exist on `Listing`, `Booking`, `Payment` and
-`Settlement`. Listing, booking, payment and settlement creation populate them.
+`createdBy`/`updatedBy` columns exist on `Listing`, `Booking` and `Payment`,
+and their creation populates them.
 
 **Driver and host are not roles.** A person can be both at once, which one
 `role` column cannot express. `User.role` still exists and is used for `ADMIN`
@@ -668,9 +671,9 @@ The tuple feeds both the TS type and `z.enum(...)` at the request boundary, so
 they cannot drift.
 
 **The trade-off, stated plainly:** the database no longer rejects an
-unrecognised value. `Booking.status`, `Payment.status` and
-`Settlement.status` feed the settlement maths, so a bad value there is a money
-bug, not a display bug. Writes to those columns must keep going through the
+unrecognised value. `Booking.status`, `Payment.status` and `Refund.status`
+decide where money goes, so a bad value there is a money bug, not a display
+bug. Writes to those columns must keep going through the
 validated request layer — a manual SQL fix or a future service writing
 directly can store a status the app will not understand. If that guarantee is
 wanted back later, a `CHECK` constraint is easier to change than a Postgres
@@ -696,12 +699,9 @@ constraint-for-constraint against a database built the old way.
 | `0005_create_user_address` | `UserAddress` |
 | `0006_create_user_settings` | `UserSettings` (replaced `NotificationPreference`) |
 | `0007_create_notification` | `Notification` |
-| `0008_create_organizer` | `Organizer` |
-| `0009_create_organizer_member` | `OrganizerMember` |
 | `0010_create_host_profile` | `HostProfile` |
-| `0011_create_listing` | `Listing` + `Listing_one_owner` CHECK |
+| `0011_create_listing` | `Listing` + `Listing_has_host` CHECK |
 | `0012_create_host_availability` | `HostAvailability` + day/minute range CHECKs, `btree_gist`, `HostAvailability_no_overlap` EXCLUDE |
-| `0013_create_parking_capacity` | `ParkingCapacity` |
 | `0014_create_spot_pricing` | `SpotPricing` |
 | `0015_create_spot_photo` | `SpotPhoto` |
 | `0016_create_favorite` | `Favorite` |
@@ -711,8 +711,12 @@ constraint-for-constraint against a database built the old way.
 | `0020_create_refund` | `Refund` |
 | `0021_create_problem_report` | `ProblemReport` |
 | `0022_create_review` | `Review` |
-| `0023_create_settlement` | `Settlement` + `Settlement_one_payee` CHECK |
-| `0024_create_settlement_item` | `SettlementItem` |
+| `0025_create_host_payout` | `HostPayout` |
+
+The gaps in the numbering are tables that no longer exist: `Organizer`,
+`OrganizerMember` and `ParkingCapacity` went with event parking, and
+`Settlement` / `SettlementItem` (the manual payout ledger) went when Easy
+Split took over paying hosts, both on 2026-09-27.
 
 `npx prisma migrate deploy --schema prisma/schema` builds a fresh database;
 `migrate diff --from-migrations … --to-schema-datamodel …` must report no
@@ -725,8 +729,11 @@ additive migrations.
 
 ## 8. API surface
 
-Everything except `/health` and `/auth/*` sign-in requires a JWT. There is no
-open group left.
+Everything requires a JWT except: `/health`, the `/auth/*` sign-in calls,
+`POST /webhooks/cashfree` (authenticated by Cashfree's signature over the raw
+body), `GET /payments/return` (only redirects to the booking's pay screen)
+and `/uploads/*` (local storage; the signed, expiring URL is the credential).
+"Host" means a JWT plus a `HostProfile` row; "Admin" means `role = ADMIN`.
 
 | Method | Path | Auth | State |
 |---|---|---|---|
@@ -747,73 +754,93 @@ open group left.
 | GET / PUT | `/address` | JWT | Working |
 | POST | `/auth/logout` | JWT | Working |
 | GET / DELETE | `/auth/sessions` | JWT | Working |
-| GET | `/events` | JWT | Working; the Events tab feed |
-| GET | `/events/:id` | JWT | Working |
-| GET | `/spots/nearby` | JWT | Working; the Nearby tab |
-| GET | `/geocode` | JWT | Working when a provider is configured, else 503 |
-| GET | `/bookings` | JWT | Working; driver-scoped, cursor paginated |
-| GET | `/bookings/active` | JWT | Working; the home screen's pass card |
-| GET | `/bookings/:id` | JWT | Working |
-| POST | `/bookings` | JWT | Working; atomic and idempotent |
-| GET | `/payments` | JWT | The driver's own payments, no gateway ids. No POST: the row is opened with its booking |
-| GET | `/host/profile` | JWT | Working; `profile: null` for a non-host |
-| GET | `/host/spots` | Host | Working; every spot with its hours, plus the payout gate — the whole dashboard in one call |
-| POST | `/host/spots` | JWT | Working; opens a **named** listing, and makes the caller a host if they were not one |
-| GET / DELETE | `/host/spots/:id` | Host | Working; delete is a soft cancel |
-| PATCH | `/host/spots/:id/{type,address,photos,ownership-document,terms,pricing}` | Host | Working; one wizard step each |
-| PUT | `/host/spots/:id/availability` | Host | Working; replaces the week |
-| POST | `/host/spots/:id/{photo,document}-upload-url` | Host | Working; presigned, bytes never touch the API |
-| GET | `/host/spots/:id/readiness` | Host | Working; what is still missing |
-| POST | `/host/spots/:id/submit` | Host | Working; → `PENDING_REVIEW`, never straight to live |
-| GET / POST | `/host/payout-account` | Host | Working; PAN + bank details, read back masked |
-| GET/POST/PATCH/DELETE | `/host/availability` | Host | Working; one window at a time |
-| GET | `/host/settlements` | Host | Working (engine not built) |
-| GET / POST | `/listings` | Organizer | Working; scoped to the caller's organizers |
-| GET / POST | `/capacities` | Organizer | Working; scoped |
-| GET | `/settlements` | Organizer | Working (engine not built) |
-| POST | `/settlements`, `/settlement-items` | Admin | Stub; the payout engine will own these |
+| GET / POST | `/notifications`, `/notifications/unread-count`, `/notifications/read` | JWT | The inbox, the bell's badge, mark as read |
+| PUT / DELETE | `/notifications/push-token` | JWT | This device's FCM token, stored on the caller's own session |
+| GET / PATCH | `/settings` | JWT | `UserSettings`: notification switches and channels |
+| GET | `/spots/nearby` | JWT | Search: open for the whole stay, not already booked or held, not blocked by the host |
+| GET | `/spots/:id`, `/spots/:id/quote`, `/spots/:id/reviews` | JWT | A spot, the checkout's price (the same function the booking charges with), its reviews |
+| GET / PUT / DELETE | `/favorites`, `/favorites/:id` | JWT | Saved spots |
+| GET | `/geocode`, `/geocode/autocomplete`, `/geocode/place/:placeId`, `/geocode/reverse`, `/geocode/static-map` | JWT | Working when a provider is configured, else 503. The static map is proxied because the upstream URL carries the API key |
+| GET | `/bookings` | JWT | Driver-scoped, cursor paginated |
+| GET | `/bookings/active` | JWT | The stay running now; 200 with `booking: null` when there is none |
+| GET | `/bookings/:id` | JWT | Also checks an open payment and a pending refund with Cashfree, throttled |
+| POST | `/spot-bookings` | JWT | A 15-minute hold, its `Payment` row and the Cashfree order, in one request; idempotent |
+| POST | `/bookings/:id/pay/upi` | JWT | Order Pay: UPI intent links or a QR for the booking's (or extension's) order |
+| GET | `/payments`, `/payments/options` | JWT | The driver's own payments, no gateway ids, and what the pay screen offers. No POST: the row is opened with its booking |
+| GET | `/payments/return` | — | Where Cashfree's page sends the driver back; redirects to the pay screen |
+| POST | `/webhooks/cashfree` | Signature | Payment, refund, vendor-status and vendor-settlement webhooks, routed by `type`. The body only names the thing; its state is then asked of Cashfree |
+| GET / POST | `/bookings/:id/cancellation`, `/bookings/:id/cancel` | JWT | The quote first, then the cancel; opens a `Refund` by the policy in `config/pricing.ts` |
+| GET / POST | `/bookings/:id/extensions` | JWT | Extra time (30 / 60 / 120 min), held and paid like a booking |
+| GET / POST | `/bookings/:id/problem`, `/bookings/:id/problem/photo-upload-url` | JWT | "I can't use this parking", with photos |
+| POST | `/bookings/:id/review` | JWT | The driver's review of the stay |
+| GET | `/host/profile` | JWT | `profile: null` for a non-host |
+| GET | `/host/spots` | Host | Every spot with its hours, plus the payout gate — the whole dashboard in one call |
+| POST | `/host/spots` | JWT | Opens a **named** listing, and makes the caller a host if they were not one |
+| GET / DELETE | `/host/spots/:id` | Host | Delete is a soft cancel |
+| PATCH | `/host/spots/:id/{type,address,photos,details,features,limits,booking-rules,permission,ownership-document,terms,pricing}` | Host | One wizard step (or part of one) each |
+| PUT | `/host/spots/:id/availability` | Host | Replaces the week |
+| POST | `/host/spots/:id/{photo,document}-upload-url` | Host | A signed, expiring upload URL (with local storage, a `PUT /uploads/*` on this API) |
+| GET | `/host/spots/:id/readiness`, `/host/spots/:id/ownership-document` | Host | What is still missing; the host's own document |
+| POST | `/host/spots/:id/submit` | Host | → `PENDING_REVIEW`, never straight to live |
+| GET | `/host/summary`, `/host/earnings`, `/host/bookings` | Host | Running a space day to day; every one scoped to the caller's host profile |
+| GET / PATCH / POST / DELETE | `/host/spots/:id/overview`, `/pause`, `/calendar`, `/blocks`, `/blocks/:blockId` | Host | One listing's dashboard, pausing new bookings, and hours taken off sale |
+| GET / POST | `/host/payout-account` | JWT | PAN + bank details → Cashfree Easy Split vendor; read back masked |
+| GET/POST/PATCH/DELETE | `/host/availability` | Host | One window at a time |
+| GET / POST | `/admin/spots`, `/admin/spots/:id`, `…/approve`, `…/reject`, `…/suspend`, `…/ownership-document` | Admin | Listing review |
+| GET / POST | `/admin/problems`, `/admin/problems/:id/resolve` | Admin | Problem reports; upholding one refunds the driver |
+| GET / POST | `/admin/refunds`, `/admin/refunds/:id/retry` | Admin | Refunds with their gateway ids; retry a `FAILED` one (3 attempts in all) |
+| POST | `/admin/host-payout-status` | Admin | Set a host's payout status by hand |
 
-`GET /users`, `POST /users` and `GET /users/:id` **were removed.** They had no
-auth and returned whole `User` rows, so anyone who could reach the API could
-dump every user's email and phone number. `/auth/me` covers what the app
-needed from them.
-
-### The driver home screen
-
-Three parallel calls, deliberately not one aggregate endpoint: the feed is
-shared and cacheable, the pass is per-user and must be fresh, and one endpoint
-would force the strictest policy of the three onto all of them.
-
-| Call | Fills |
-|---|---|
-| `GET /auth/me` | avatar initial, and `hasHostProfile` (also on every sign-in response); also vehicles and address for the profile hub |
-| `GET /bookings/active` | the ACTIVE PASS card (200 with `booking: null` when there is none) |
-| `GET /events?limit=…` | the UPCOMING NEAR YOU list |
-
-`GET /events` takes `q`, `latitude`+`longitude`, `radiusKm`, `from`, `to`,
-`cursor` and `limit`. `minPrice`, `spotsLeft` and `vehicleTypes` are computed
-in one SQL statement with a join and `GROUP BY`, not by loading capacity rows
-into Node. Only `PUBLISHED`/`ONGOING` listings with an `eventDate` appear --
-the card renders a day and a month, so an undated listing has nothing to show,
-and `DRAFT` must never leak.
+There is no admin screen in the app: the admin routes are called directly.
 
 ### Booking correctness
 
-The three bugs that section 9 used to describe are fixed and verified against
-a live Postgres:
-
-- **Oversell.** The capacity claim is a single conditional `UPDATE` --
-  `SET bookedCount = bookedCount + n WHERE id = ? AND bookedCount + n <=
-  totalCapacity` -- so the check and the increment cannot be split by a
-  concurrent request. Verified: 8 simultaneous bookings against a capacity of
-  2 produced exactly 2 bookings and `bookedCount = 2`.
+- **Double booking.** What is competed for is a range of time, not a count,
+  so the guard is the `Booking_no_overlap` EXCLUDE constraint over the listing
+  and the stay, covering `PENDING` and `CONFIRMED`. A host's `ListingBlock` is
+  not a booking and the constraint cannot see it, so bookings, extensions and
+  blocks also check each other inside a per-listing advisory lock
+  (`lib/listing-lock`).
+- **Unpaid holds expire.** A `PENDING` booking holds its hours for 15 minutes
+  (`holdExpiresAt`). Lapsed holds are swept on the next attempt against that
+  listing rather than on a schedule: the only moment an expired hold matters
+  is when somebody else wants those hours. Search already ignores them.
 - **Idempotency.** A repeated `idempotencyKey` returns the original booking
-  with `200` instead of `201`, and does not increment capacity twice. The
-  racing case is covered by catching the unique violation: the loser's whole
-  transaction rolls back, its capacity increment included. A key belonging to
-  *another* user answers `409` rather than handing over their booking.
+  instead of making a second; the racing case is covered by catching the
+  unique violation. A key belonging to *another* user answers `409` rather
+  than handing over their booking.
 - **Server-derived fields.** `driverId` comes from the JWT and `amount` from
-  the spot's price. Neither is accepted from the request body.
+  the spot's own rates. Neither is accepted from the request body.
+
+### Money
+
+One source of revenue: a service fee taken from the host's side
+(`COMMISSION_RATE`, in `config/pricing.ts`). The driver pays the listed price
+with nothing on top.
+
+- **In.** `POST /spot-bookings` writes the `Payment` row inside the hold's
+  transaction and opens the Cashfree order after it, with the host's share as
+  an Easy Split `order_splits` entry. A listing is only bookable while its
+  host's vendor is `ACTIVATED`, and a driver without a phone number is
+  refused before any hold (`409 PHONE_REQUIRED`).
+- **Confirmed by Cashfree only.** A booking becomes `CONFIRMED` when Get
+  Payments says the order is paid, asked after a payment webhook or on the
+  driver's booking read. The app never states that it paid, or a price.
+- **Late money.** A payment that lands after the hold lapsed confirms the
+  booking if the hours are still free; otherwise, and for a payment after a
+  cancel or after the stay, it is refunded in full.
+- **Back.** Driver cancellation: everything back until 60 minutes before the
+  start, then 50% of the parking until the start, nothing after. Every
+  `Refund` row is sent to Cashfree after its transaction commits, with the
+  host's part as `refund_splits`; status comes from the refund webhook and
+  Get Refund, with a job as the fallback.
+- **To the host.** Cashfree settles the host's share to their bank itself;
+  GatePass never moves host money. `HostPayout` rows come from the settlement
+  webhook and feed the earnings and Payouts screens.
+
+Verified in the Cashfree sandbox on 2026-10-03, from the phone: hold → UPI
+payment → payment webhook → `CONFIRMED` → cancel (`LATE`, ₹9.38 of ₹18.75) →
+Create Refund → `REFUNDED`.
 
 ### No gate pass in v1
 
@@ -832,73 +859,52 @@ five-minute pass is in git history before this change.
 
 ## 9. What is not built yet
 
-Auth, discovery and booking correctness are done. What remains:
+Auth, search, booking, payment, refunds, extra time, the host wizard, host
+payouts and push notifications are built. What remains:
 
-**The gap that matters most: unpaid holds on an *event* are never released.**
-A booking is created `PENDING` and has already claimed its capacity. If the
-driver never pays, that slot stays claimed forever -- an event can show "sold
-out" with nobody actually coming. **Do not run a real event sale before this
-exists.**
-
-Host spots no longer have this problem: 0025 gave `Booking` a `holdExpiresAt`,
-and `releaseExpiredHolds` cancels lapsed `PENDING` rows on the next attempt
-against that listing -- swept on demand rather than on a schedule, because the
-only moment an expired hold matters is when somebody else wants those hours.
-The event path needs the same treatment, and it has to land with payments,
-because the two are one problem seen from two sides.
-
-Also missing:
-
-- **Cashfree beyond Create Order.** `POST /spot-bookings` opens the Payment
-  row and the Cashfree order and returns `checkout`; nothing yet takes the
-  money (app SDK), verifies it (Get Payments / webhook) or refunds it -- so
-  nothing reaches `CONFIRMED` on its own. See `specs/cashfree-payments_design.md`.
-- **Settlement calculation.** Commission and payout maths are not written.
-  Hosts are paid through the same periodic engine as organizers in v1; instant
-  payout (Razorpay Route) is a deliberate omission -- it needs a linked
-  account and KYC that self-serve onboarding does not collect.
-- **Host verification is manual, and half of it has no operator.** A spot goes
-  live only when both gates clear — an admin accepting the ownership document
-  (`docApprovedAt`) and the payout account reaching `ACTIVATED` — and
-  `publishIfReady` handles them arriving in either order. But `HostProfile`
-  starts at `verificationStatus: ACTIVE` with nothing checking it, the PAN and
-  bank details are format-checked only, and there is no gateway and no admin
-  UI, so `UNDER_REVIEW` currently moves only by hand in SQL. Storing the
-  details (0024) is what makes that possible at all; automating it is the
-  gateway integration.
-- **Booking a host spot.** `/spots/nearby` finds them, but the booking flow is
-  per-slot against `ParkingCapacity`, and a host spot is priced per hour
-  against a `HostAvailability` window. `POST /bookings` refuses an
-  `INDEPENDENT_SPOT` with a 400 rather than charging the wrong amount.
-- **Search quality.** `GET /events?q=` is `ILIKE '%…%'`, which cannot use an
-  index. Fine at this catalogue size; a `pg_trgm` GIN index is the next step
-  and was left out because `CREATE EXTENSION` needs rights a managed Postgres
-  may not grant.
+- **Cashfree is sandbox only.** `CASHFREE_ENV=sandbox`; card payment exists
+  only for sandbox testing and UPI is the one production method planned so
+  far. Production keys and go-live are not done.
+- **Webhooks need a fixed public URL.** In development `WEBHOOK_PUBLIC_URL` is
+  a Cloudflare quick tunnel (`npm run tunnel -w be`) whose address changes on
+  every start. Payment webhooks follow each order's `notify_url`, so they
+  move with `.env`; the refund and Easy Split webhooks are endpoints set in
+  the Cashfree dashboard and have to be edited there each time. Production
+  needs one HTTPS address.
+- **The refund failure path has only met a fake Cashfree.** A `FAILED` refund
+  and the admin retry are covered by `npm run test:refunds`, not yet by the
+  sandbox.
+- **Host cancellation.** Only the driver can cancel a booking. A host can
+  pause a listing or block hours, but has no way to give a booked stay back;
+  the design was deferred (owner's decision).
+- **No admin screen.** Listing review, problem reports, refund retries and the
+  payout-status override are API routes only (section 8).
+- **Host verification is part manual.** A spot goes live only when both gates
+  clear — an admin accepting the ownership document (`docApprovedAt`) and the
+  payout account reaching `ACTIVATED` at Cashfree — in whichever order they
+  arrive. The payout side is Cashfree's own check, kept current by the
+  vendor-status webhook and Get Vendor. `HostProfile.verificationStatus`
+  still starts at `ACTIVE` with nothing checking it.
+- **GST is not charged.** `GST_ENABLED` / `GST_RATE` exist in `.env` and
+  `config/pricing.ts`, and nothing computes tax yet. It would fall on
+  GatePass's service fee, not on the parking.
 - **Geo at scale.** Radius search is a bounding-box prefilter on a plain
   B-tree plus haversine in SQL. Honest to a few thousand listings; PostGIS or
   `earthdistance` is the answer if it becomes the hot path.
-- **Timezone.** Host availability windows are interpreted as `Asia/Kolkata`,
-  hard-coded in `spot.service.ts`. Correct for a single-market product and
-  wrong the day it crosses a timezone.
-- **Native readiness.** The app is React Native, so the same code builds for
-  iOS and Android, and `PhoneFrame`, the safe areas and every stored value
-  already branch per platform. Four things still assume a browser or are
-  unconfigured, and all four bite only on a real device:
+- **Timezone.** Host availability windows and stay times are interpreted as
+  `Asia/Kolkata`, hard-coded in `lib/venue-time.ts`. Correct for a
+  single-market product and wrong the day it crosses a timezone.
+- **Native readiness.** The app runs on Android as a development build over
+  USB (`expo run:android`, package `com.gatepass.app`, a real adaptive icon,
+  the `expo-location` plugin declared). Still open:
   - `EXPO_PUBLIC_API_URL` defaults to `http://localhost:3000`, which on a phone
-    is the phone. A LAN address is needed in development and HTTPS in
-    production -- iOS ATS and Android (API 28+) block cleartext anyway.
-  - `app.json` does not declare the `expo-location` plugin, so iOS has no
-    `NSLocationWhenInUseUsageDescription`. Requesting location without it
-    crashes on device and fails App Store review.
-  - Only the web Google client id is wired; iOS and Android need their own,
-    plus a dev build (Expo Go will not do native Google sign-in here).
-  - The Android adaptive icon sets `backgroundColor` but no `foregroundImage`.
-- **Event checkout.** `event/[id]` lists prices and availability but cannot
-  book: that is the `design/Booking` flow and it needs Razorpay. A host spot
-  *can* be booked -- `spots/[id]` carries the search hours into
-  `spots/checkout`, which picks a saved vehicle, prices the stay and calls
-  `POST /spot-bookings` -- but it stops at a `PENDING` hold, and the screen
-  says so rather than implying a pass.
+    is the phone. Development uses `adb reverse tcp:3000 tcp:3000` with
+    `http://127.0.0.1:3000`; production needs HTTPS -- iOS ATS and Android
+    (API 28+) block cleartext anyway.
+  - Only the web Google client id is set; Android and iOS need their own
+    (`EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID` / `_IOS_`).
+  - No release build, and nothing has been run on iOS (no bundle id in
+    `app.json`).
 - **Booking lifecycle (built).** Bookings list as Upcoming / Active / Past,
   each carrying a derived `phase`. ACTIVE is never stored — the overlap
   EXCLUDE covers PENDING and CONFIRMED only, so a stored ACTIVE would let a
@@ -912,12 +918,7 @@ Also missing:
   refunded by the same code; confirming it reopens a stay the sweep had
   already closed. Options stay 30 min / 1 hr / 2 hr. Design:
   `specs/extension-payments_design.md`.
-- **`/spots/nearby` does not subtract existing bookings.** It matches a search
-  against the host's *availability* only, so a spot whose hours are already
-  taken still comes back as a result. The driver finds out at checkout, from
-  the 409 the `EXCLUDE` constraint produces. Honest, but late:
-  `booking.service.bookedRanges` exists to fix this and has no route yet.
-- **Payments and refunds go through Cashfree** (`PAYMENT_PROVIDER=cashfree`,
+- **Payments and refunds (built)** go through Cashfree (`PAYMENT_PROVIDER=cashfree`,
   `specs/cashfree-payments_design.md`). Every `Refund` row -- driver cancel
   (FULL / LATE), late payments (HOLD_LAPSED, CANCELLED_BEFORE_PAYMENT,
   PAID_AFTER_STAY), an upheld problem report -- is sent after its transaction
@@ -929,22 +930,17 @@ Also missing:
   the schema changes. Before the first production deploy they become the
   baseline, and every later change is a new additive migration.
 - **Dead columns.** `User.gstNumber` and `User.bankAccountId` are no longer
-  read or written anywhere: `Organizer` and `HostProfile` carry those now.
+  read or written anywhere: `HostProfile` carries the payout account now.
   They are still in the schema and should be dropped.
-- **Event bookings do not use saved vehicles yet.** `spots/checkout` picks one
-  and sends its type, so the spot path reads the rate off it. `POST /bookings`
-  still takes `vehicleNumber` as free text; wiring event checkout the same way
-  — and preselecting the `ParkingCapacity` matching the vehicle's type — is
-  the next step.
 - **Phone is unverified.** `PATCH /auth/me` stores a normalised `+91` number,
-  but nothing proves the user holds it. Razorpay and gate contact both assume
-  it is real, so an SMS OTP is needed before either depends on it.
+  but nothing proves the user holds it. Paying already requires one
+  (`409 PHONE_REQUIRED`) and it is sent to Cashfree as the customer's phone,
+  so a mistyped number goes through unnoticed. There is no SMS provider.
 - **`profileComplete` is thin.** It means `firstName !== null` and nothing
   more. "Can this user actually book" (name + phone + a vehicle) is a
   different question and is not modelled.
-- Organizer dashboard, recurring/commercial listing types. (Push
-  notifications are built: FCM, `integrations/push`, `push-dispatch` and the
-  every-minute `notification-jobs`.)
+- **Personal-data erasure.** Account deletion is soft (section 3); the purge
+  job a DPDP erasure request would need does not exist.
 
 `JWT_SECRET` no longer accepts the `.env.example` placeholder -- the server
 refuses to start on a known stand-in value, because a published secret signs
@@ -978,6 +974,38 @@ App, in a browser:
 cd fe && npm run web
 ```
 
+App, on an Android phone over USB (the development build must already be
+installed; `expo run:android` builds and installs it, and is only needed
+again after a native dependency changes):
+
+```bash
+adb reverse tcp:3000 tcp:3000
+```
+
+```bash
+adb reverse tcp:8081 tcp:8081
+```
+
+```bash
+cd fe && npx expo start --dev-client --localhost
+```
+
+The two `adb reverse` forwards are lost on every replug. `fe/.env` points the
+app at `http://127.0.0.1:3000`, which through the forward is this machine's
+API.
+
+Cashfree webhooks, in development:
+
+```bash
+npm run tunnel -w be
+```
+
+Put the address it prints in `WEBHOOK_PUBLIC_URL` (`be/.env`), restart the
+API, and set `<address>/webhooks/cashfree` as the webhook endpoint in the
+Cashfree dashboard (sandbox). The address changes every time the tunnel
+starts. Without it payments and refunds are still confirmed, by asking
+Cashfree when the driver's booking is read and from the refund job.
+
 If `prisma generate` fails with `EPERM ... query_engine-windows.dll.node`, a
 running API server is holding the engine file — stop it first.
 
@@ -996,7 +1024,7 @@ migrations than exist and then claim none are pending. For development, run
 the API from source with `npm run dev` instead.
 
 This has caused real failures three times: `POST /auth/google`, then
-`GET /events` and `GET /bookings/active`, then `GET /vehicles` and
+`GET /bookings/active`, then `GET /vehicles` and
 `GET /address` — each one a new route answering `404 Route not found` while
 every older route worked, which looks exactly like a frontend bug. Whenever
 `be/` changes and the container is in use, rebuild it:
@@ -1031,6 +1059,14 @@ Backend: `DATABASE_URL` and `JWT_SECRET` (16+ chars) are required;
 `JWT_EXPIRES_IN` must look like `30d`/`12h`/`15m`/`60s` and is checked at
 startup. `EMAIL_PROVIDER=resend` additionally requires `RESEND_API_KEY`.
 
+Payments: `PAYMENT_PROVIDER=cashfree` with `CASHFREE_ENV` (`sandbox`),
+`CASHFREE_CLIENT_ID`, `CASHFREE_CLIENT_SECRET` and `CASHFREE_API_VERSION`;
+`WEBHOOK_PUBLIC_URL` is where Cashfree can reach this API;
+`COMMISSION_RATE` is GatePass's service fee; `GST_ENABLED` / `GST_RATE` are
+read and not yet applied. Push: `PUSH_PROVIDER` (`console` or `fcm`), with
+`FIREBASE_SERVICE_ACCOUNT_FILE` pointing at the key in `be/secrets/` for
+`fcm`. Secrets live only in `be/.env` and `be/secrets/`, both gitignored.
+
 Google sign-in needs an OAuth client from Google Cloud Console, with the same
 id in both places — the app mints tokens with it, the API checks them against
 it:
@@ -1061,8 +1097,9 @@ them.
    used** by this flow and must never go in `fe/.env` — every `EXPO_PUBLIC_*`
    value ships inside the app bundle. The client id is public by design.
 
-iOS and Android clients come later with a dev build (iOS needs a bundle id,
-not yet set in `app.json`; Android needs the package name and signing SHA-1).
+iOS and Android clients are still to be created (iOS needs a bundle id, not
+yet set in `app.json`; Android needs the package name, `com.gatepass.app`,
+and the build's signing SHA-1).
 All ids then go comma-separated into `GOOGLE_CLIENT_IDS`, because on native the
 token's `aud` is that platform's id.
 
