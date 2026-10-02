@@ -21,6 +21,7 @@ import {
 } from "../lib/errors.js";
 import { hashPassword, verifyPassword } from "../lib/password.js";
 import { prisma } from "../lib/prisma.js";
+import { sameSecret, sixDigitCode } from "../lib/secure.js";
 import { createSession, revokeAllUserSessions } from "./session.service.js";
 import * as hostService from "./host.service.js";
 import { toAuthUser } from "./user.service.js";
@@ -61,7 +62,7 @@ const RATE_WINDOW_MINUTES = 15;
 const MAX_VERIFY_ATTEMPTS = 5;
 
 export function generateCode(): string {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+  return sixDigitCode();
 }
 
 export interface RequestCodeInput {
@@ -189,7 +190,7 @@ export async function verifyCode(input: VerifyCodeInput) {
     throw badRequest("Invalid or expired code");
   }
 
-  if (verification.code !== code) {
+  if (!sameSecret(code, verification.code)) {
     const { attempts } = await prisma.emailVerification.update({
       where: { id: verification.id },
       data: { attempts: { increment: 1 } },
@@ -409,7 +410,7 @@ export async function setPassword(input: SetPasswordInput) {
     throw badRequest("Invalid or expired code");
   }
 
-  if (verification.code !== code) {
+  if (!sameSecret(code, verification.code)) {
     const { attempts } = await prisma.emailVerification.update({
       where: { id: verification.id },
       data: { attempts: { increment: 1 } },
@@ -642,7 +643,7 @@ export async function consumeCode(input: {
     throw badRequest("Invalid or expired code");
   }
 
-  if (verification.code !== code) {
+  if (!sameSecret(code, verification.code)) {
     const { attempts } = await prisma.emailVerification.update({
       where: { id: verification.id },
       data: { attempts: { increment: 1 } },

@@ -1,5 +1,5 @@
 import { Redirect, router, useFocusEffect, useNavigation } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { spotListingApi } from "@/api";
 import {
@@ -56,11 +56,17 @@ export default function ReviewScreen() {
   // On focus, not mount: back from fixing something (Edit → a step → Back),
   // the preview and the list have to reflect it. Refreshed in place, so the
   // screen doesn't flash a loader every time.
+  //
+  // The first focus comes a moment after useSpotDraft read the spot (there is
+  // no id until it has), so that one doesn't read it a second time.
+  const spotIsFresh = useRef(true);
   useFocusEffect(
     useCallback(() => {
       if (!token || !id) return;
+      const skipSpot = spotIsFresh.current;
+      spotIsFresh.current = false;
       void Promise.all([
-        spotListingApi.getById(token, id).then(setSpot),
+        skipSpot ? null : spotListingApi.getById(token, id).then(setSpot),
         spotListingApi.readiness(token, id).then(setReadiness),
         spotListingApi.getPayoutAccount(token).then(setPayout, () => setPayout(null)),
       ]).catch(() => undefined);
@@ -288,7 +294,7 @@ function Line({ text, muted }: { text: string; muted?: boolean }) {
 function Status({ ok, text }: { ok: boolean; text: string }) {
   return (
     <View style={s.status}>
-      {ok ? <CheckIcon color="#166534" size={14} /> : <InfoIcon color={colors.accentInk} size={14} />}
+      {ok ? <CheckIcon color={colors.successInk} size={14} /> : <InfoIcon color={colors.accentInk} size={14} />}
       <Text style={[s.line, !ok && s.warn]}>{text}</Text>
     </View>
   );
@@ -335,8 +341,8 @@ const s = StyleSheet.create({
   muted: { fontSize: 13, color: colors.inkMuted },
   price: { fontSize: 14, fontWeight: "700", color: colors.ink },
   rejected: { backgroundColor: colors.dangerSurface, borderRadius: radius.md, padding: space.lg, gap: space.sm },
-  rejectedTitle: { fontSize: 15, fontWeight: "700", color: "#b91c1c" },
-  rejectedBody: { fontSize: 13, lineHeight: 19, color: "#b91c1c" },
+  rejectedTitle: { fontSize: 15, fontWeight: "700", color: colors.dangerInk },
+  rejectedBody: { fontSize: 13, lineHeight: 19, color: colors.dangerInk },
   section: { borderBottomWidth: 1, borderBottomColor: colors.border, paddingBottom: space.md, gap: 6 },
   sectionHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 36 },
   sectionTitle: { ...type.label, color: colors.inkMuted, textTransform: "uppercase", letterSpacing: 0.6 },

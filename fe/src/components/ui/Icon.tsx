@@ -284,7 +284,7 @@ export function PlusIcon({ size = 18, color = colors.ink }: IconProps) {
 
 /** Saved or not: filled red when saved, an outline otherwise. */
 export function HeartIcon({ size = 20, color, filled }: IconProps & { filled?: boolean }) {
-  const stroke = color ?? (filled ? "#b91c1c" : colors.ink);
+  const stroke = color ?? (filled ? colors.dangerInk : colors.ink);
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <Path

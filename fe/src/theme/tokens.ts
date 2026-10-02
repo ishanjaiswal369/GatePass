@@ -6,19 +6,47 @@
 export const colors = {
   canvas: "#f3f4f6",
   surface: "#ffffff",
+  /** A step off the surface: a quiet panel inside a white card. */
+  surfaceMuted: "#f7f8f9",
   ink: "#111827",
+  /** Body text that isn't the headline: explanations, secondary lines. */
+  inkSoft: "#374151",
+  inkMedium: "#4b5563",
   inkMuted: "#6b7280",
   inkFaint: "#9ca3af",
   onInk: "#ffffff",
   border: "#e5e7eb",
+  /** A dashed or drop-zone edge: a shade firmer than `border`. */
+  borderMuted: "#cbd0d8",
   borderStrong: "#111827",
   primary: "#111827",
   onPrimary: "#ffffff",
+
+  // Success, by where it sits: `successInk` is the green that reads as text
+  // (`success` itself is too light for that), on `successSurface` or the
+  // paler `successTint`, edged with `successBorder`.
   success: "#22c55e",
+  successStrong: "#16a34a",
+  successInk: "#166534",
+  successSurface: "#dcfce7",
+  successTint: "#f0fdf4",
+  successBorder: "#86efac",
+  successBorderSoft: "#bbf7d0",
+
   danger: "#ef4444",
   dangerSurface: "#fef2f2",
+  dangerBorder: "#fecaca",
   /** Red text on dangerSurface: `danger` itself is too light to read there. */
   dangerInk: "#b91c1c",
+
+  /** A switch's track when it is off. */
+  trackOff: "#d1d5db",
+  /** Loading placeholders, and hairlines on a muted panel. */
+  skeleton: "#eceef1",
+  /** Behind a map before its picture arrives, and the dot for "you are here". */
+  mapSurface: "#eceee8",
+  mapSelf: "#2563eb",
+  shadow: "#000000",
   devSurface: "#fffbeb",
   devBorder: "#fcd34d",
   devInk: "#92400e",
@@ -31,7 +59,7 @@ export const colors = {
   inkRaisedBorder: "#333f54",
   onInkMuted: "#98a2b3",
 
-  /** The one warm accent: scarcity badges and the active pass marker. */
+  /** The one warm accent: scarcity badges and the running-stay marker. */
   accent: "#b45309",
   accentSurface: "#fdf3e7",
   accentInk: "#92400e",

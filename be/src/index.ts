@@ -11,8 +11,21 @@ import { getPushProvider } from "./integrations/push/index.js";
 import { startNotificationJobs, stopNotificationJobs } from "./services/notification-jobs.service.js";
 import { startRefundJobs, stopRefundJobs } from "./services/refund.service.js";
 
-await app.register(cors, { origin: true });
+// Browsers only: the phone app isn't subject to CORS. In production the one
+// web origin allowed is the app's own; in development any origin is, because
+// the app runs on whichever port Expo picked.
+await app.register(cors, {
+  origin: env.NODE_ENV === "production" ? [new URL(env.APP_WEB_URL).origin] : true,
+});
 await registerRateLimit(app);
+
+// On every answer. `nosniff`: photos and documents people upload are served
+// from this origin, and a browser must take the declared type rather than
+// guess one from the bytes. `DENY`: nothing here is meant to be framed.
+app.addHook("onSend", async (_request, reply) => {
+  reply.header("X-Content-Type-Options", "nosniff");
+  reply.header("X-Frame-Options", "DENY");
+});
 
 // Binary bodies for the local upload endpoint. Fastify only parses JSON out of
 // the box, so without these a PUT of image bytes is refused before the route
@@ -65,12 +78,30 @@ async function start() {
   }
 }
 
-process.on("SIGINT", async () => {
+/**
+ * One way down, for Ctrl-C (SIGINT) and for `docker stop` (SIGTERM). Without
+ * the second, a container ignores the request, waits out Docker's timeout and
+ * is killed mid-request. Stops the jobs, lets requests in flight finish, then
+ * closes the database.
+ */
+let stopping = false;
+async function shutdown(signal: NodeJS.Signals): Promise<void> {
+  if (stopping) return;
+  stopping = true;
+  app.log.info({ signal }, "shutting down");
   stopNotificationJobs();
   stopRefundJobs();
-  await app.close();
-  await prisma.$disconnect();
-  process.exit(0);
-});
+  try {
+    await app.close();
+    await prisma.$disconnect();
+    process.exit(0);
+  } catch (err) {
+    app.log.error({ err }, "shutdown failed");
+    process.exit(1);
+  }
+}
+
+process.on("SIGINT", (signal) => void shutdown(signal));
+process.on("SIGTERM", (signal) => void shutdown(signal));
 
 start();

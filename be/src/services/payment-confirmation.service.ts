@@ -3,6 +3,7 @@ import { getPaymentGateway, type GatewayPayment } from "../integrations/payment/
 import { AppError } from "../lib/errors.js";
 import { clock } from "../lib/format.js";
 import { assertNotBlocked, lockListing } from "../lib/listing-lock.js";
+import { app } from "../lib/app.js";
 import { prisma } from "../lib/prisma.js";
 import { audit } from "../lib/security-log.js";
 import { isOverlapViolation } from "./booking.service.js";
@@ -86,7 +87,7 @@ export async function refreshPayment(bookingId: string, driverId: string, now = 
   } catch (error) {
     // Logged by the gateway client with its request id; the booking waits
     // for the next read, or the webhook.
-    console.warn(`payment check for booking ${bookingId} failed: ${error instanceof Error ? error.message : error}`);
+    app.log.warn({ err: error, bookingId }, "payment check failed");
   }
 }
 

@@ -4,6 +4,7 @@ import { IntegrationError } from "../integrations/errors.js";
 import { getPaymentGateway, RefundExistsError, type GatewayRefund } from "../integrations/payment/index.js";
 import { conflict, notFound, serviceUnavailable } from "../lib/errors.js";
 import { bookingRef, rupees } from "../lib/format.js";
+import { app } from "../lib/app.js";
 import { prisma } from "../lib/prisma.js";
 import { audit } from "../lib/security-log.js";
 import { notify } from "./notification.service.js";
@@ -307,7 +308,7 @@ export async function refreshForBooking(bookingId: string, now = new Date()): Pr
   try {
     await refreshRefund(row.id, now, READ_CHECK_EVERY_MS);
   } catch (error) {
-    console.warn(`refund check for booking ${bookingId} failed: ${error instanceof Error ? error.message : error}`);
+    app.log.warn({ err: error, bookingId }, "refund check failed");
   }
 }
 
@@ -321,7 +322,7 @@ export async function sendAfterCommit(refundId: string | null | undefined): Prom
   try {
     await sendRefund(refundId);
   } catch (error) {
-    console.warn(`refund ${refundId} send failed: ${error instanceof Error ? error.message : error}`);
+    app.log.warn({ err: error, refundId }, "refund send failed");
   }
 }
 
@@ -372,7 +373,7 @@ export async function runRefundJobs(now = new Date()): Promise<void> {
     try {
       await sendRefund(row.id, now);
     } catch (error) {
-      console.warn(`refund job: send ${row.id} failed: ${error instanceof Error ? error.message : error}`);
+      app.log.warn({ err: error, refundId: row.id }, "refund job: send failed");
     }
   }
 
@@ -390,7 +391,7 @@ export async function runRefundJobs(now = new Date()): Promise<void> {
     try {
       await refreshRefund(row.id, now, POLL_EVERY_MS);
     } catch (error) {
-      console.warn(`refund job: check ${row.id} failed: ${error instanceof Error ? error.message : error}`);
+      app.log.warn({ err: error, refundId: row.id }, "refund job: check failed");
     }
   }
 }
@@ -407,7 +408,7 @@ export function startRefundJobs(): void {
     try {
       await runRefundJobs();
     } catch (error) {
-      console.error("[refund-jobs] tick failed", error);
+      app.log.error({ err: error }, "refund jobs: tick failed");
     } finally {
       running = false;
     }

@@ -174,7 +174,7 @@ export default function DocumentsScreen() {
             >
               {docUrl ? (
                 <>
-                  <CheckIcon color="#166534" size={16} />
+                  <CheckIcon color={colors.successInk} size={16} />
                   <Text style={s.uploadDone}>Document attached — tap to replace</Text>
                 </>
               ) : (
@@ -249,7 +249,7 @@ function DocStatus({ state, reason }: { state: DocState; reason: string | null }
   return (
     <View style={[s.status, copy.tone]} accessibilityLiveRegion="polite">
       <View style={s.statusHead}>
-        {state === "approved" ? <CheckIcon color="#166534" size={15} /> : <InfoIcon color={colors.ink} size={15} />}
+        {state === "approved" ? <CheckIcon color={colors.successInk} size={15} /> : <InfoIcon color={colors.ink} size={15} />}
         <Text style={s.statusTitle}>{copy.title}</Text>
       </View>
       <Text style={s.statusBody}>{copy.body}</Text>
@@ -295,7 +295,7 @@ const s = StyleSheet.create({
   statusTitle: { fontSize: 14, fontWeight: "700", color: colors.ink },
   statusBody: { fontSize: 13, lineHeight: 18, color: colors.inkMuted },
   statusPending: { backgroundColor: colors.accentSurface },
-  statusGood: { backgroundColor: "#dcfce7" },
+  statusGood: { backgroundColor: colors.successSurface },
   statusBad: { backgroundColor: colors.dangerSurface },
   consentNote: { ...type.caption, color: colors.inkFaint, lineHeight: 17 },
 });

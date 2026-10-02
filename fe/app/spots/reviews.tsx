@@ -142,7 +142,7 @@ const s = StyleSheet.create({
   chips: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
   chip: { minHeight: 36, paddingHorizontal: 14, borderRadius: 18, justifyContent: "center", backgroundColor: colors.canvas },
   chipOn: { backgroundColor: colors.ink },
-  chipText: { fontSize: 13, fontWeight: "600", color: "#374151" },
+  chipText: { fontSize: 13, fontWeight: "600", color: colors.inkSoft },
   chipTextOn: { color: colors.onInk },
   none: { fontSize: 14, color: colors.inkMuted, textAlign: "center", paddingVertical: space.lg },
   rule: { fontSize: 12, lineHeight: 18, color: colors.inkMuted, textAlign: "center" },

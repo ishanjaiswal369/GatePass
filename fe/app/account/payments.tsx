@@ -13,9 +13,9 @@ import type { PaymentOptions } from "@/types/api.types";
  *
  * Payment details never touch GatePass's database: saved UPI IDs and cards
  * are the gateway's, read through lib/payments like every other payment
- * call. Until a gateway is wired there is nothing saved, and the screen says
- * what will be on offer at checkout instead of showing Add buttons that
- * can't work.
+ * call. Nothing asks the gateway to keep a method yet, so there is nothing
+ * saved, and the screen says what is on offer at checkout instead of showing
+ * Add buttons that can't work.
  */
 export default function PaymentMethodsScreen() {
   const { token, isRestoring } = useSession();
@@ -72,7 +72,7 @@ export default function PaymentMethodsScreen() {
           ) : null}
 
           <View style={s.safe}>
-            <ShieldIcon size={18} color="#166534" />
+            <ShieldIcon size={18} color={colors.successInk} />
             <View style={s.flex}>
               <Text style={s.safeTitle}>Your payment details are safe</Text>
               <Text style={s.safeBody}>
@@ -118,7 +118,7 @@ function Method({
       </View>
       {isDefault ? <StatusChip label="Default" tone="ink" /> : tag ? (
         <View style={s.tag}>
-          <CheckIcon size={12} color="#166534" />
+          <CheckIcon size={12} color={colors.successInk} />
           <Text style={s.tagText}>{tag}</Text>
         </View>
       ) : null}
@@ -141,8 +141,8 @@ const s = StyleSheet.create({
   title: { fontSize: 15, fontWeight: "600", color: colors.ink },
   sub: { fontSize: 12, color: colors.inkMuted },
   tag: { flexDirection: "row", alignItems: "center", gap: 3 },
-  tagText: { fontSize: 12, fontWeight: "600", color: "#166534" },
+  tagText: { fontSize: 12, fontWeight: "600", color: colors.successInk },
   safe: { flexDirection: "row", gap: space.md, backgroundColor: colors.canvas, borderRadius: radius.md, padding: space.lg },
   safeTitle: { fontSize: 14, fontWeight: "700", color: colors.ink },
-  safeBody: { fontSize: 13, lineHeight: 19, color: "#374151" },
+  safeBody: { fontSize: 13, lineHeight: 19, color: colors.inkSoft },
 });

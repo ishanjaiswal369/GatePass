@@ -314,7 +314,7 @@ export default function AddressScreen() {
           <>
             <PinPreview token={token} latitude={latitude!} longitude={longitude!} placed={pinPlaced} />
             <View style={s.pinStatus}>
-              {pinPlaced ? <CheckIcon color="#166534" size={15} /> : <InfoIcon color={colors.accentInk} size={15} />}
+              {pinPlaced ? <CheckIcon color={colors.successInk} size={15} /> : <InfoIcon color={colors.accentInk} size={15} />}
               <Text style={[s.pinStatusText, !pinPlaced && s.pinStatusWarn]}>
                 {pinPlaced ? "Pin placed" : "Not placed yet — this is only a starting point for the map."}
               </Text>
@@ -423,7 +423,7 @@ const s = StyleSheet.create({
   pinTitle: { ...type.label, color: colors.ink },
   pinHint: { ...type.caption, color: colors.inkMuted, marginBottom: space.md },
   pinStatus: { flexDirection: "row", alignItems: "center", gap: space.sm, marginVertical: space.sm },
-  pinStatusText: { flex: 1, fontSize: 13, fontWeight: "600", color: "#166534" },
+  pinStatusText: { flex: 1, fontSize: 13, fontWeight: "600", color: colors.successInk },
   pinStatusWarn: { color: colors.accentInk },
   preview: {
     height: 150,

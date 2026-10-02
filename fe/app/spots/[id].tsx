@@ -1,7 +1,7 @@
 import { Redirect, Unmatched, router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { ApiError, profileApi, spotsApi } from "@/api";
+import { ApiError, spotsApi } from "@/api";
 import {
   Button,
   CalendarIcon,
@@ -32,7 +32,9 @@ import { groupByHours } from "@/lib/hours";
 import { durationText } from "@/lib/listingRules";
 import { formatRupees, rateLine } from "@/lib/money";
 import { describeCriteria, fromParams, hasStarted, toParams } from "@/lib/searchCriteria";
+import { rememberSaved } from "@/lib/savedSpots";
 import { searchVehicle } from "@/lib/searchVehicle";
+import { loadVehicles } from "@/lib/vehicleCache";
 import {
   AMENITY_LABELS,
   ENTRY_METHOD_LABELS,
@@ -81,7 +83,7 @@ export default function SpotDetailScreen() {
   const load = useCallback(async () => {
     if (!token || !id) return;
     try {
-      const [found, { vehicles }] = await Promise.all([spotsApi.getById(token, id), profileApi.listVehicles(token)]);
+      const [found, vehicles] = await Promise.all([spotsApi.getById(token, id), loadVehicles(token)]);
       setSpot(found);
       // Price for the vehicle the driver searched with (lib/searchVehicle) if
       // this spot takes it, else the first vehicle the spot prices.
@@ -113,6 +115,8 @@ export default function SpotDetailScreen() {
     setSpot({ ...spot, saved: next });
     try {
       await (next ? spotsApi.save(token, spot.id) : spotsApi.unsave(token, spot.id));
+      // For the results list underneath, which no longer re-searches to find out.
+      rememberSaved(spot.id, next);
     } catch {
       setSpot((current) => (current ? { ...current, saved: !next } : current));
     }
@@ -236,7 +240,7 @@ export default function SpotDetailScreen() {
                   {quote ? (
                     quote.available ? (
                       <View style={s.row}>
-                        <CheckIcon size={13} color="#166534" />
+                        <CheckIcon size={13} color={colors.successInk} />
                         <Text style={s.ok}>Available for your whole time</Text>
                       </View>
                     ) : (
@@ -298,19 +302,19 @@ export default function SpotDetailScreen() {
                 <View style={s.amenities}>
                   {spot.amenities.map((amenity) => (
                     <View key={amenity} style={s.amenity}>
-                      <CheckIcon size={15} color="#166534" />
+                      <CheckIcon size={15} color={colors.successInk} />
                       <Text style={s.amenityText}>{AMENITY_LABELS[amenity]}</Text>
                     </View>
                   ))}
                   {spot.open24x7 ? (
                     <View style={s.amenity}>
-                      <CheckIcon size={15} color="#166534" />
+                      <CheckIcon size={15} color={colors.successInk} />
                       <Text style={s.amenityText}>24/7 access</Text>
                     </View>
                   ) : null}
                   {spot.amenityNote ? (
                     <View style={s.amenity}>
-                      <CheckIcon size={15} color="#166534" />
+                      <CheckIcon size={15} color={colors.successInk} />
                       <Text style={s.amenityText}>{spot.amenityNote}</Text>
                     </View>
                   ) : null}
@@ -367,7 +371,7 @@ export default function SpotDetailScreen() {
                 {spot.host.since ? <Text style={s.muted}>Host since {spot.host.since}</Text> : null}
               </View>
               <View style={s.row}>
-                <ShieldIcon size={14} color="#166534" />
+                <ShieldIcon size={14} color={colors.successInk} />
                 <Text style={s.verified}>Verified</Text>
               </View>
             </View>
@@ -506,8 +510,8 @@ const s = StyleSheet.create({
     padding: 14,
   },
   stayWhen: { fontSize: 14, fontWeight: "700", color: colors.ink },
-  ok: { fontSize: 12, fontWeight: "600", color: "#166534" },
-  bad: { fontSize: 12, fontWeight: "600", color: "#b91c1c" },
+  ok: { fontSize: 12, fontWeight: "600", color: colors.successInk },
+  bad: { fontSize: 12, fontWeight: "600", color: colors.dangerInk },
   change: { minHeight: 44, justifyContent: "center" },
   changeText: { fontSize: 14, fontWeight: "600", color: colors.ink, textDecorationLine: "underline" },
   section: { gap: space.sm },
@@ -516,7 +520,7 @@ const s = StyleSheet.create({
   tile: { flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: 10, padding: 12, gap: 2 },
   tileAmount: { fontSize: 19, fontWeight: "700", color: colors.ink },
   tileUnit: { fontSize: 12, color: colors.inkMuted },
-  note: { fontSize: 13, lineHeight: 19, color: "#374151" },
+  note: { fontSize: 13, lineHeight: 19, color: colors.inkSoft },
   amenities: { flexDirection: "row", flexWrap: "wrap", gap: 14 },
   amenity: { flexDirection: "row", alignItems: "center", gap: 6, minWidth: "42%" },
   amenityText: { fontSize: 14, color: colors.ink },
@@ -525,7 +529,7 @@ const s = StyleSheet.create({
   accessTitle: { fontSize: 16, fontWeight: "700", color: colors.ink, marginLeft: 4 },
   locked: { flexDirection: "row", alignItems: "center", gap: space.sm, backgroundColor: colors.canvas, borderRadius: radius.sm, padding: space.md, marginTop: 4 },
   lockedText: { flex: 1, fontSize: 13, color: colors.inkMuted },
-  map: { height: 170, borderRadius: radius.md, overflow: "hidden", backgroundColor: "#eceee8", alignItems: "center", justifyContent: "center" },
+  map: { height: 170, borderRadius: radius.md, overflow: "hidden", backgroundColor: colors.mapSurface, alignItems: "center", justifyContent: "center" },
   mapPin: { marginTop: -30 },
   description: { fontSize: 14, lineHeight: 20, color: colors.ink, marginTop: 2 },
   address: { fontSize: 14, lineHeight: 20, color: colors.ink },
@@ -533,7 +537,7 @@ const s = StyleSheet.create({
   avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.canvas, alignItems: "center", justifyContent: "center" },
   avatarText: { fontSize: 16, fontWeight: "700", color: colors.ink },
   hostName: { fontSize: 15, fontWeight: "600", color: colors.ink },
-  verified: { fontSize: 12, fontWeight: "600", color: "#166534" },
+  verified: { fontSize: 12, fontWeight: "600", color: colors.successInk },
   policy: { backgroundColor: colors.canvas, borderRadius: radius.md, padding: 14, gap: 4 },
   policyTitle: { fontSize: 14, fontWeight: "700", color: colors.ink },
   policyText: { fontSize: 13, lineHeight: 19, color: colors.inkMuted },

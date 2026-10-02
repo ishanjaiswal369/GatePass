@@ -4,10 +4,10 @@ import { colors, radius } from "@/theme";
 export type ChipTone = "success" | "warning" | "danger" | "neutral" | "ink";
 
 const TONES: Record<ChipTone, { bg: string; fg: string }> = {
-  success: { bg: "#dcfce7", fg: "#166534" },
+  success: { bg: colors.successSurface, fg: colors.successInk },
   warning: { bg: colors.accentSurface, fg: colors.accentInk },
-  danger: { bg: colors.dangerSurface, fg: "#b91c1c" },
-  neutral: { bg: colors.canvas, fg: "#374151" },
+  danger: { bg: colors.dangerSurface, fg: colors.dangerInk },
+  neutral: { bg: colors.canvas, fg: colors.inkSoft },
   ink: { bg: colors.ink, fg: colors.onInk },
 };
 

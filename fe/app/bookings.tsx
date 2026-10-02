@@ -61,13 +61,9 @@ export default function BookingsScreen() {
       setError(null);
 
       try {
-        const [page, active] = await Promise.all([
-          bookingsApi.list(token, which),
-          bookingsApi.active(token),
-        ]);
+        const page = await bookingsApi.list(token, which);
         setRows(page.items);
         setCursor(page.nextCursor);
-        setParkedNow(active.booking !== null);
       } catch (err) {
         setRows([]);
         setError(err instanceof ApiError ? err.message : "Could not load your bookings.");
@@ -77,11 +73,24 @@ export default function BookingsScreen() {
   );
 
   // On focus, not mount: a booking cancelled or extended on another screen
-  // has to show here the moment the driver comes back.
+  // has to show here the moment the driver comes back. Also runs when the tab
+  // changes, which is why "am I parked?" is asked separately below: a change
+  // of tab needs a new list, not that answer again.
   useFocusEffect(
     useCallback(() => {
       void load(scope);
     }, [load, scope])
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!token) return;
+      bookingsApi
+        .active(token)
+        .then(({ booking }) => setParkedNow(booking !== null))
+        // Not being parked is the normal state, so a failure stays quiet.
+        .catch(() => undefined);
+    }, [token])
   );
 
   const loadMore = async () => {
@@ -232,7 +241,7 @@ const s = StyleSheet.create({
   tabOn: { backgroundColor: colors.surface },
   tabText: { fontSize: 14, fontWeight: "600", color: colors.inkMuted },
   tabTextOn: { color: colors.ink },
-  liveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#16a34a" },
+  liveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.successStrong },
   body: { paddingHorizontal: 20, paddingTop: space.sm, paddingBottom: 24, gap: space.md },
   loading: { paddingVertical: space.xxl },
 });

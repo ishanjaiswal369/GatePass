@@ -23,8 +23,7 @@ import { colors, space } from "@/theme";
  * mean when there isn't one. And "where do I park?" -- the search. The
  * Bookings tab keeps the full history.
  *
- * Event parking no longer has a list here: the product leads with a search,
- * not a feed. Its API and data are untouched.
+ * There is no feed here: the product leads with a search.
  */
 export default function HomeScreen() {
   const { token, user, isRestoring } = useSession();
@@ -136,6 +135,6 @@ const s = StyleSheet.create({
   segPressed: { backgroundColor: colors.border },
   segText: { fontSize: 14, fontWeight: "600", color: colors.inkMuted },
   segTextOn: { color: colors.ink },
-  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#16a34a" },
+  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.successStrong },
   body: { paddingHorizontal: 20, paddingBottom: 20, gap: 18 },
 });

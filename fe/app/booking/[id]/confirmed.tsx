@@ -67,7 +67,7 @@ export default function BookingConfirmedScreen() {
           <>
             <View style={s.hero}>
               <View style={s.tick}>
-                <CheckIcon size={34} color="#166534" />
+                <CheckIcon size={34} color={colors.successInk} />
               </View>
               <Text style={s.title} accessibilityRole="header">
                 Booking Confirmed
@@ -131,7 +131,7 @@ const s = StyleSheet.create({
   body: { padding: 20, gap: space.lg, paddingBottom: 32 },
   loading: { paddingVertical: space.xxl },
   hero: { alignItems: "center", gap: space.sm },
-  tick: { width: 72, height: 72, borderRadius: 36, backgroundColor: "#dcfce7", alignItems: "center", justifyContent: "center" },
+  tick: { width: 72, height: 72, borderRadius: 36, backgroundColor: colors.successSurface, alignItems: "center", justifyContent: "center" },
   title: { fontSize: 25, fontWeight: "700", color: colors.ink },
   ref: { fontSize: 14, fontWeight: "700", color: colors.ink, backgroundColor: colors.canvas, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 18, overflow: "hidden" },
   card: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: space.lg, paddingVertical: space.sm },

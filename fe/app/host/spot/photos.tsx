@@ -293,7 +293,7 @@ const s = StyleSheet.create({
     paddingVertical: 3,
     overflow: "hidden",
   },
-  countDone: { color: "#166534", backgroundColor: "#dcfce7" },
+  countDone: { color: colors.successInk, backgroundColor: colors.successSurface },
   // Grey dashes on a tinted ground: an empty slot, not a black-outlined box.
   dropZone: {
     alignItems: "center",

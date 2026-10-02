@@ -166,7 +166,7 @@ const s = StyleSheet.create({
     borderRadius: radius.md,
     paddingLeft: 14,
   },
-  undoText: { flex: 1, fontSize: 14, color: "#374151" },
+  undoText: { flex: 1, fontSize: 14, color: colors.inkSoft },
   undoButton: { minHeight: HIT_SLOP_MIN, paddingHorizontal: 14, justifyContent: "center" },
   undoAction: { fontSize: 14, fontWeight: "700", color: colors.ink, textDecorationLine: "underline" },
 });

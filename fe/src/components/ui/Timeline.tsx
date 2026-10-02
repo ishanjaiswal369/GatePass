@@ -44,7 +44,7 @@ export function Timeline({ steps }: { steps: TimelineStep[] }) {
   );
 }
 
-const GREEN = "#166534";
+const GREEN = colors.successInk;
 
 const s = StyleSheet.create({
   row: { flexDirection: "row", gap: 12 },

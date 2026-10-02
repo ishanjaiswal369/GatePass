@@ -124,14 +124,14 @@ export function ResultsMap({
 }
 
 const s = StyleSheet.create({
-  frame: { width: "100%", overflow: "hidden", backgroundColor: "#eceee8" },
+  frame: { width: "100%", overflow: "hidden", backgroundColor: colors.mapSurface },
   image: { position: "absolute", left: "50%", top: "50%" },
   destination: {
     position: "absolute",
     width: 16,
     height: 16,
     borderRadius: 8,
-    backgroundColor: "#2563eb",
+    backgroundColor: colors.mapSelf,
     borderWidth: 3,
     borderColor: colors.surface,
   },

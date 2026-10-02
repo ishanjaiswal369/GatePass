@@ -1,7 +1,7 @@
 import { Redirect, router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { ApiError, profileApi, spotsApi } from "@/api";
+import { ApiError, spotsApi } from "@/api";
 import {
   Button,
   ChevronLeftIcon,
@@ -34,8 +34,10 @@ import {
   NO_FILTERS,
   type SearchFilters,
 } from "@/lib/searchFilters";
+import { takeSavedChanges } from "@/lib/savedSpots";
 import { searchVehicle } from "@/lib/searchVehicle";
 import { VEHICLE_LABELS } from "@/lib/spotLabels";
+import { loadVehicles } from "@/lib/vehicleCache";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, radius, space } from "@/theme";
 import type { NearbySpot } from "@/types/api.types";
@@ -43,6 +45,8 @@ import type { NearbySpot } from "@/types/api.types";
 /** Offered once when nothing is found: a driver who won't walk 5 km rarely walks 10. */
 const WIDER_RADIUS_KM = 15;
 const MAP_HEIGHT = 230;
+/** How long a search's answer stands when the driver returns to it unchanged. */
+const RESEARCH_AFTER_MS = 30_000;
 
 /**
  * What the search found: a map and a list of the same spaces.
@@ -70,6 +74,8 @@ export default function SpotResultsScreen() {
 
   const scroller = useRef<ScrollView>(null);
   const offsets = useRef<Record<string, number>>({});
+  /** The search the list on screen came from, and when. */
+  const lastSearch = useRef<{ key: string; at: number } | null>(null);
 
   // The vehicle picked on the search form (lib/searchVehicle) decides which
   // spaces come back and which rate the cards show -- by type only: a bike
@@ -77,9 +83,8 @@ export default function SpotResultsScreen() {
   // so the search waits for it rather than running twice.
   useEffect(() => {
     if (!token) return;
-    profileApi
-      .listVehicles(token)
-      .then(({ vehicles }) => {
+    loadVehicles(token)
+      .then((vehicles) => {
         const chosen = searchVehicle(vehicles, criteria?.vehicle);
         setVehicleNumber(chosen?.vehicleNumber ?? null);
         setVehicleType(chosen?.vehicleType ?? null);
@@ -89,10 +94,11 @@ export default function SpotResultsScreen() {
   }, [token, criteria?.vehicle]);
 
   const load = useCallback(
-    async (search: SearchCriteria, narrow: SearchFilters, vehicle: VehicleType | null) => {
+    async (search: SearchCriteria, narrow: SearchFilters, vehicle: VehicleType | null, key: string) => {
       if (!token) return;
       setSpots(null);
       setError(null);
+      lastSearch.current = null;
 
       // A search reopened from history or a tab left open carries the time it
       // was made with; one that has started can't be booked, so it isn't run.
@@ -119,6 +125,7 @@ export default function SpotResultsScreen() {
         });
         setSpots(found);
         setSelected(found[0]?.id ?? null);
+        lastSearch.current = { key, at: Date.now() };
       } catch (err) {
         setSpots([]);
         setError(err instanceof ApiError ? err.message : "Could not search for spaces");
@@ -127,12 +134,32 @@ export default function SpotResultsScreen() {
     [token]
   );
 
-  // On focus: coming back from Filters or a spot (where it may have been
-  // saved) has to show the current state.
+  // On focus. Coming back from Filters changes the URL, so the search runs.
+  // Coming back from a spot doesn't: the same search moments later has the
+  // same answer, so it isn't asked again -- the list, the scroll position and
+  // the selected pin stay as they were, and only a heart changed on the
+  // spot's screen is carried over (lib/savedSpots). After RESEARCH_AFTER_MS
+  // it is asked again, since hours do get booked.
   useFocusEffect(
     useCallback(() => {
       if (!criteria || !token || vehicleType === undefined) return;
-      void load(criteria, filters, vehicleType);
+      const key = `${paramKey}|${vehicleType}`;
+      const last = lastSearch.current;
+      const changes = takeSavedChanges();
+
+      if (last && last.key === key && Date.now() - last.at < RESEARCH_AFTER_MS) {
+        if (changes.size > 0) {
+          setSpots((list) =>
+            list?.map((s) => {
+              const saved = changes.get(s.id);
+              return saved === undefined ? s : { ...s, saved };
+            }) ?? null
+          );
+        }
+        return;
+      }
+
+      void load(criteria, filters, vehicleType, key);
       // Criteria and filters are rebuilt from the URL every render.
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [token, load, paramKey, vehicleType])
@@ -270,7 +297,7 @@ export default function SpotResultsScreen() {
                 </EmptyState>
               ) : (
                 <EmptyState icon={<SearchIcon size={28} color={colors.ink} />} title="Something went wrong." body={error}>
-                  <Button label="Retry" onPress={() => vehicleType !== undefined && void load(criteria, filters, vehicleType)} />
+                  <Button label="Retry" onPress={() => vehicleType !== undefined && void load(criteria, filters, vehicleType, `${paramKey}|${vehicleType}`)} />
                 </EmptyState>
               )
             ) : (
@@ -337,7 +364,7 @@ function Skeleton() {
   );
 }
 
-const SK = "#eceef1";
+const SK = colors.skeleton;
 
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.surface },

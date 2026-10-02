@@ -21,6 +21,7 @@ import {
 } from "@/components/ui";
 import type { VehicleSize, VehicleType } from "@/constants/enums";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
+import { loadVehicles } from "@/lib/vehicleCache";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, radius, space } from "@/theme";
 import type { Vehicle } from "@/types/api.types";
@@ -58,8 +59,9 @@ export default function VehiclesScreen() {
     if (!token) return;
 
     try {
-      const { vehicles: rows } = await profileApi.listVehicles(token);
-      setVehicles(rows);
+      // Always a fresh read: this is where the list changes, and what it
+      // reads replaces what the other screens share (lib/vehicleCache).
+      setVehicles(await loadVehicles(token, { fresh: true }));
       setLoadError(null);
     } catch (err) {
       setVehicles([]);

@@ -174,8 +174,8 @@ const s = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center", gap: space.md },
   cardTitle: { fontSize: 15, fontWeight: "700", color: colors.ink },
   refundRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  refund: { fontSize: 22, fontWeight: "700", color: "#166534" },
-  rule: { fontSize: 13, lineHeight: 19, color: "#374151" },
+  refund: { fontSize: 22, fontWeight: "700", color: colors.successInk },
+  rule: { fontSize: 13, lineHeight: 19, color: colors.inkSoft },
   label: { fontSize: 12, fontWeight: "700", letterSpacing: 1.2, color: colors.inkMuted },
   reasons: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
   reason: {

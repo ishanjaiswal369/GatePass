@@ -1,7 +1,7 @@
 import { Redirect, router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { ApiError, authApi, bookingsApi, paymentsApi, profileApi, spotsApi } from "@/api";
+import { ApiError, authApi, bookingsApi, paymentsApi, spotsApi } from "@/api";
 import {
   BikeIcon,
   Button,
@@ -35,6 +35,7 @@ import { UserError } from "@/lib/userError";
 import { describeRange, formatDuration, hasStarted, MIN_STAY_MINUTES, STARTED_MESSAGE } from "@/lib/searchCriteria";
 import { searchVehicle } from "@/lib/searchVehicle";
 import { spaceLabel, VEHICLE_LABELS } from "@/lib/spotLabels";
+import { loadVehicles } from "@/lib/vehicleCache";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, radius, space } from "@/theme";
@@ -95,6 +96,8 @@ export default function CheckoutScreen() {
   const [card, setCard] = useState(EMPTY_CARD);
   const [phone, setPhone] = useState("");
   const attempt = useRef<Attempt | null>(null);
+  /** What this visit has already read and needn't read again. */
+  const loaded = useRef<{ id: string; spot: PublicSpot; options: PaymentOptions } | null>(null);
 
   /**
    * The spot and the driver's vehicles, on every focus -- not once on mount.
@@ -106,15 +109,21 @@ export default function CheckoutScreen() {
    * otherwise it starts on the vehicle the driver searched with (carried in
    * the params from the search form), then the default that fits, then any
    * that fits -- which is also how a first vehicle, just added, is selected.
+   *
+   * Only the vehicles can have changed while this screen sat underneath
+   * another, so the spot and the payment options are read once per visit and
+   * kept; the price itself always comes fresh from the quote below.
    */
   const load = useCallback(async () => {
     if (!token || !id) return;
     try {
-      const [found, { vehicles: saved }, payment] = await Promise.all([
-        spotsApi.getById(token, id),
-        profileApi.listVehicles(token),
-        paymentsApi.options(token),
+      const kept = loaded.current?.id === id ? loaded.current : null;
+      const [found, saved, payment] = await Promise.all([
+        kept?.spot ?? spotsApi.getById(token, id),
+        loadVehicles(token),
+        kept?.options ?? paymentsApi.options(token),
       ]);
+      loaded.current = { id, spot: found, options: payment };
       setSpot(found);
       setVehicles(saved);
       setOptions(payment);
@@ -546,7 +555,7 @@ const s = StyleSheet.create({
   thumb: { width: 64, height: 64, aspectRatio: undefined, borderRadius: 10 },
   spotName: { fontSize: 16, fontWeight: "700", color: colors.ink },
   muted: { fontSize: 13, color: colors.inkMuted },
-  warn: { fontSize: 13, color: "#b91c1c" },
+  warn: { fontSize: 13, color: colors.dangerInk },
   big: { fontSize: 16, fontWeight: "700", color: colors.ink },
   label: { fontSize: 12, fontWeight: "700", letterSpacing: 1.2, color: colors.inkMuted },
   card: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: space.lg, gap: 4 },

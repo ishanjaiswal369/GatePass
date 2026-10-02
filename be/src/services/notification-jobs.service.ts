@@ -1,4 +1,5 @@
 import { env } from "../config/env.js";
+import { app } from "../lib/app.js";
 import { prisma } from "../lib/prisma.js";
 import { completeEndedStays } from "./booking.service.js";
 import { HOLD_EXPIRY_LOOKBACK_MS, REMINDER_LEAD_MS, REVIEW_AFTER_MS, syncFromState } from "./notification.service.js";
@@ -49,12 +50,10 @@ async function tick(): Promise<void> {
     await clearExpiredPushTokens();
     const pushed = await flushPushes();
     if (pushed.sent || pushed.failed || pushed.dropped) {
-      console.log(
-        `[push] sent ${pushed.sent}, skipped ${pushed.skipped}, failed ${pushed.failed}, dead tokens ${pushed.dropped}`
-      );
+      app.log.info({ push: pushed }, "push: outbox flushed");
     }
   } catch (error) {
-    console.error("[notification-jobs] tick failed", error);
+    app.log.error({ err: error }, "notification jobs: tick failed");
   } finally {
     running = false;
   }
@@ -129,7 +128,7 @@ export async function sweepDueReminders(now = new Date()): Promise<number> {
       await syncFromState(userId, now);
     } catch (error) {
       // One user's bad row mustn't stop everyone else's reminders.
-      console.error(`[notification-jobs] sync for ${userId} failed`, error);
+      app.log.error({ err: error, userId }, "notification jobs: sync failed");
     }
   }
   return users.size;

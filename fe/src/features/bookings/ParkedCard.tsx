@@ -13,7 +13,7 @@ import {
 import { colors, radius, space } from "@/theme";
 import type { BookingRow } from "@/types/api.types";
 
-const MINT = "#86efac";
+const MINT = colors.successBorder;
 
 /**
  * The booking a driver is parked on, drawn to be found at a glance: the one

@@ -1,7 +1,7 @@
 import { Redirect, router } from "expo-router";
 import { useEffect, useState } from "react";
 import { StyleSheet, Switch, Text, View } from "react-native";
-import { hostApi, spotListingApi } from "@/api";
+import { spotListingApi } from "@/api";
 import { Button, Field, RequiredLabel, RestoringScreen, WizardShell } from "@/components/ui";
 import { TOTAL_STEPS, firstStepPath, stepHref, stepNumber } from "@/constants/wizard";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
@@ -72,12 +72,8 @@ export default function PricingScreen() {
   const [rates, setRates] = useState<Partial<Record<Vehicle, Rate>>>({});
   // GatePass's service fee, from the API (COMMISSION_RATE in its .env) --
   // for the preview only; what the host is actually paid is computed there.
-  const [feeRate, setFeeRate] = useState<number | null>(null);
-
-  useEffect(() => {
-    if (!token) return;
-    hostApi.summary(token).then((summary) => setFeeRate(summary.month.commissionRate), () => setFeeRate(null));
-  }, [token]);
+  // It arrives with the spot, so the preview costs no request of its own.
+  const feeRate = spot?.serviceFeeRate ?? null;
 
   useEffect(() => {
     if (!spot) return;
@@ -158,7 +154,7 @@ export default function PricingScreen() {
                     value={rate.on[mode.key]}
                     onValueChange={(on) => update(t, { ...rate, on: { ...rate.on, [mode.key]: on } })}
                     accessibilityLabel={`${mode.label} price for ${t === "CAR" ? "cars" : "bikes"}`}
-                    trackColor={{ true: colors.ink, false: "#d1d5db" }}
+                    trackColor={{ true: colors.ink, false: colors.trackOff }}
                     thumbColor={colors.surface}
                     {...({ activeThumbColor: colors.surface } as object)}
                   />
@@ -219,7 +215,7 @@ const s = StyleSheet.create({
   mode: { gap: space.sm },
   modeHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 36 },
   modeLabel: { fontSize: 15, fontWeight: "600", color: colors.ink },
-  issue: { ...type.caption, color: "#b91c1c" },
+  issue: { ...type.caption, color: colors.dangerInk },
   split: { gap: 4, backgroundColor: colors.canvas, borderRadius: radius.md, padding: space.lg },
   splitTitle: { fontSize: 14, fontWeight: "700", color: colors.ink },
   note: { ...type.caption, color: colors.inkFaint, lineHeight: 18 },

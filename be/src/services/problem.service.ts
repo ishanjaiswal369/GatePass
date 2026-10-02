@@ -208,6 +208,7 @@ export async function listForAdmin(status: "OPEN" | "RESOLVED" = "OPEN") {
   return prisma.problemReport.findMany({
     where: { status },
     orderBy: { createdAt: "asc" },
+    take: 200,
     select: {
       ...reportView,
       listing: { select: { id: true, name: true } },

@@ -127,5 +127,5 @@ const s = StyleSheet.create({
   hint: { ...type.caption, color: colors.inkFaint },
   boxError: { borderColor: colors.danger },
   // The darker red the app uses for text: #ef4444 is under 4.5:1 on white.
-  error: { ...type.caption, color: "#b91c1c" },
+  error: { ...type.caption, color: colors.dangerInk },
 });

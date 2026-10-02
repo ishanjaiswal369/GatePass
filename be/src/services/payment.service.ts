@@ -428,5 +428,6 @@ export async function listForDriver(driverId: string) {
     where: { booking: { driverId } },
     select: { id: true, bookingId: true, amount: true, status: true, createdAt: true, updatedAt: true },
     orderBy: { createdAt: "desc" },
+    take: 100,
   });
 }

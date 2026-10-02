@@ -97,7 +97,7 @@ export default function ReviewBookingScreen() {
           ) : submitted !== null ? (
             <View style={s.done}>
               <View style={s.doneBadge}>
-                <CheckIcon size={36} color="#166534" />
+                <CheckIcon size={36} color={colors.successInk} />
               </View>
               <Text style={s.doneTitle}>Review submitted</Text>
               <Stars value={submitted} size={22} />
@@ -230,7 +230,7 @@ const s = StyleSheet.create({
     width: 72,
     height: 72,
     borderRadius: 36,
-    backgroundColor: "#dcfce7",
+    backgroundColor: colors.successSurface,
     alignItems: "center",
     justifyContent: "center",
   },

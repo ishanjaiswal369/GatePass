@@ -29,7 +29,7 @@ import { formatRupees } from "@/lib/money";
 import { colors, HIT_SLOP_MIN, radius, space } from "@/theme";
 import type { BookingRow } from "@/types/api.types";
 
-const GREEN = "#166534";
+const GREEN = colors.successInk;
 
 /**
  * One booking in the Bookings tab.
@@ -181,7 +181,7 @@ const s = StyleSheet.create({
   lines: { gap: 6 },
   line: { flexDirection: "row", alignItems: "center", gap: space.sm },
   lineText: { flex: 1, fontSize: 14, color: colors.ink },
-  muted: { color: "#374151" },
+  muted: { color: colors.inkSoft },
   warning: { color: colors.accentInk, fontWeight: "600" },
   success: { color: GREEN, fontWeight: "600" },
   foot: {

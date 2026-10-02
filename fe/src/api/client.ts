@@ -41,14 +41,29 @@ export interface RequestOptions {
 }
 
 /**
+ * How long a request may take before it is given up. Longer than the API's
+ * own slowest path (a gateway call with its retries), so this only ends
+ * requests that have stalled -- which fetch, left alone, never does.
+ */
+const TIMEOUT_MS = 30_000;
+
+/**
  * The only place fetch is called. Domain modules in this folder build on it;
  * screens never call it directly.
+ *
+ * Every failure leaves here as an ApiError: no connection and a stalled
+ * request as status 0, an answer that isn't the API's JSON (a proxy's error
+ * page) under its own status.
  */
 export async function request<T>(
   path: string,
   { method = "GET", body, token }: RequestOptions = {}
 ): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
   let response: Response;
+  let text: string;
 
   try {
     response = await fetch(`${API_URL}${path}`, {
@@ -58,13 +73,28 @@ export async function request<T>(
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
     });
+    text = await response.text();
   } catch {
-    throw new ApiError(`Cannot reach the API at ${API_URL}`, 0);
+    throw new ApiError(
+      controller.signal.aborted
+        ? "That took too long. Check your connection and try again."
+        : `Cannot reach the API at ${API_URL}`,
+      0
+    );
+  } finally {
+    clearTimeout(timer);
   }
 
-  const text = await response.text();
-  const data = text ? JSON.parse(text) : null;
+  let data = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new ApiError(`Unexpected answer from the server (${response.status})`, response.ok ? 502 : response.status);
+    }
+  }
 
   if (!response.ok) {
     // The API returns { error } for AppError and { errors: [...] } for zod.

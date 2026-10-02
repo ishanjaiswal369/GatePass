@@ -8,11 +8,11 @@
  * signature of everything that decides what gets booked, and only a change
  * there earns a new key.
  */
+import { randomId } from "./randomId";
 
-/** ~60 bits of randomness, well inside the API's 8..128 characters. */
+/** 96 bits from the secure generator, well inside the API's 8..128 characters. */
 function randomKey(): string {
-  const chunk = () => Math.random().toString(36).slice(2, 10);
-  return `${Date.now().toString(36)}-${chunk()}${chunk()}`;
+  return `${Date.now().toString(36)}-${randomId(12)}`;
 }
 
 export interface Attempt {

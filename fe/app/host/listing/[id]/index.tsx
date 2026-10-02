@@ -185,7 +185,7 @@ export default function ListingDashboardScreen() {
                     onValueChange={(v) => void togglePause(v)}
                     disabled={pausing}
                     accessibilityLabel="Pause new bookings"
-                    trackColor={{ true: colors.ink, false: "#d1d5db" }}
+                    trackColor={{ true: colors.ink, false: colors.trackOff }}
                     thumbColor={colors.surface}
                     {...({ activeThumbColor: colors.surface } as object)}
                   />
@@ -248,7 +248,7 @@ const s = StyleSheet.create({
   nav: { gap: space.sm, paddingRight: 20 },
   navChip: { minHeight: 36, paddingHorizontal: 14, borderRadius: 18, justifyContent: "center", backgroundColor: colors.canvas },
   navChipOn: { backgroundColor: colors.ink },
-  navText: { fontSize: 13, fontWeight: "600", color: "#374151" },
+  navText: { fontSize: 13, fontWeight: "600", color: colors.inkSoft },
   navTextOn: { color: colors.onInk },
   tiles: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   tile: { flexBasis: "47%", flexGrow: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: 14, gap: 2 },

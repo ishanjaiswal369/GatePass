@@ -1,3 +1,4 @@
+import { randomId } from "./randomId";
 import { getItem, setItem } from "./storage";
 
 const KEY = "gatepass.deviceId";
@@ -25,7 +26,7 @@ export function getDeviceId(): Promise<string> {
     const saved = await getItem(KEY);
     if (saved) return saved;
 
-    const fresh = `dev-${Math.random().toString(36).slice(2, 10)}`;
+    const fresh = `dev-${randomId(8)}`;
     await setItem(KEY, fresh);
     return fresh;
   })();

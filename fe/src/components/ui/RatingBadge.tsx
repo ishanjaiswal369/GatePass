@@ -42,7 +42,7 @@ export function Stars({ value, size = 14 }: { value: number; size?: number }) {
 
 const s = StyleSheet.create({
   chip: { paddingHorizontal: 8, height: 22, borderRadius: 6, backgroundColor: colors.canvas, justifyContent: "center" },
-  chipText: { fontSize: 11, fontWeight: "700", color: "#374151" },
+  chipText: { fontSize: 11, fontWeight: "700", color: colors.inkSoft },
   rated: { flexDirection: "row", alignItems: "center", gap: 3, height: 22 },
   value: { fontSize: 13, fontWeight: "700", color: colors.ink },
   count: { fontSize: 12, color: colors.inkMuted },

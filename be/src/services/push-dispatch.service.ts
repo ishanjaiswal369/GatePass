@@ -1,4 +1,5 @@
 import { getPushProvider } from "../integrations/push/index.js";
+import { app } from "../lib/app.js";
 import { prisma } from "../lib/prisma.js";
 
 /**
@@ -46,7 +47,7 @@ export function schedulePushFlush(): void {
   if (kick) return;
   kick = setTimeout(() => {
     kick = null;
-    flushPushes().catch((error) => console.error("[push] flush failed", error));
+    flushPushes().catch((error) => app.log.error({ err: error }, "push: flush failed"));
   }, KICK_DELAY_MS);
   kick.unref();
 }
@@ -108,7 +109,7 @@ export async function flushPushes(now = new Date()): Promise<FlushResult> {
         // Not retried later: a reminder that arrives after its moment is
         // worse than one that doesn't. The inbox still has it.
         result.failed++;
-        console.error(`[push] ${row.kind} to user ${row.userId} failed`, error);
+        app.log.error({ err: error, kind: row.kind, userId: row.userId }, "push: send failed");
       }
     }
   }

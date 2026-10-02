@@ -2,6 +2,7 @@ import Constants, { ExecutionEnvironment } from "expo-constants";
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 import { notificationsApi } from "@/api";
+import { colors } from "@/theme";
 
 /**
  * Push notifications, through Firebase Cloud Messaging.
@@ -44,7 +45,7 @@ export async function registerForPush(sessionToken: string): Promise<void> {
     await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
       name: "Bookings and reminders",
       importance: Notifications.AndroidImportance.HIGH,
-      lightColor: "#111827",
+      lightColor: colors.ink,
     });
   }
 

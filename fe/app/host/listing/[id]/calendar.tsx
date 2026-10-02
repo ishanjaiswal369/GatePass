@@ -217,7 +217,7 @@ export default function HostCalendarScreen() {
 
           <View style={s.legend}>
             <Legend color={colors.ink} label="Booked" />
-            <Legend color="#dcfce7" label="Available" border="#166534" />
+            <Legend color={colors.successSurface} label="Available" border={colors.successInk} />
             <Legend color={colors.dangerSurface} label="Blocked" border={colors.danger} />
             <Legend color={colors.canvas} label="Closed" />
           </View>
@@ -353,20 +353,20 @@ const s = StyleSheet.create({
   swatch: { width: 12, height: 12, borderRadius: 3, borderWidth: 1 },
   small: { fontSize: 12, color: colors.inkMuted },
   dayTitle: { fontSize: 18, fontWeight: "700", color: colors.ink },
-  notice: { fontSize: 13, color: "#166534", backgroundColor: "#f0fdf4", padding: space.md, borderRadius: radius.sm },
+  notice: { fontSize: 13, color: colors.successInk, backgroundColor: colors.successTint, padding: space.md, borderRadius: radius.sm },
   timeline: { gap: 6 },
   segRow: { flexDirection: "row", gap: space.md, alignItems: "stretch" },
   segTime: { width: 44, fontSize: 12, color: colors.inkMuted, paddingTop: 10 },
   seg: { flex: 1, borderRadius: radius.sm, padding: space.md, minHeight: 44, justifyContent: "center", gap: 2 },
   segClosed: { backgroundColor: colors.canvas },
-  segOpen: { backgroundColor: "#f0fdf4", borderWidth: 1, borderColor: "#bbf7d0" },
+  segOpen: { backgroundColor: colors.successTint, borderWidth: 1, borderColor: colors.successBorderSoft },
   segBooked: { backgroundColor: colors.ink },
-  segBlocked: { backgroundColor: colors.dangerSurface, borderWidth: 1, borderColor: "#fecaca" },
+  segBlocked: { backgroundColor: colors.dangerSurface, borderWidth: 1, borderColor: colors.dangerBorder },
   segMuted: { fontSize: 13, color: colors.inkMuted },
-  segOpenText: { fontSize: 13, fontWeight: "600", color: "#166534" },
+  segOpenText: { fontSize: 13, fontWeight: "600", color: colors.successInk },
   segBookedTitle: { fontSize: 12, fontWeight: "700", letterSpacing: 0.5, color: colors.onInk },
   segBookedSub: { fontSize: 12, color: colors.onInkMuted },
-  segBlockedText: { fontSize: 13, fontWeight: "600", color: "#b91c1c" },
+  segBlockedText: { fontSize: 13, fontWeight: "600", color: colors.dangerInk },
   warn: { backgroundColor: colors.accentSurface, borderRadius: radius.md, padding: space.lg, gap: space.sm },
   warnHead: { flexDirection: "row", alignItems: "center", gap: space.sm },
   warnTitle: { fontSize: 15, fontWeight: "700", color: colors.accentInk },

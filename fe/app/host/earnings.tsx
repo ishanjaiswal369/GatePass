@@ -168,6 +168,6 @@ const s = StyleSheet.create({
   flex: { flex: 1, gap: 2 },
   txTitle: { fontSize: 14, fontWeight: "600", color: colors.ink },
   txRight: { alignItems: "flex-end", gap: 4 },
-  txAmount: { fontSize: 14, fontWeight: "700", color: "#166534" },
+  txAmount: { fontSize: 14, fontWeight: "700", color: colors.successInk },
   txOut: { color: colors.ink },
 });

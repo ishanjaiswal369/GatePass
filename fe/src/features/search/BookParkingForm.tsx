@@ -1,10 +1,10 @@
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { profileApi } from "@/api";
 import { Button, PickerField, PlusIcon, type SheetOption, minuteOptions } from "@/components/ui";
 import { useNow } from "@/features/bookings/useNow";
 import { ANY_VEHICLE, searchVehicle, vehicleLine } from "@/lib/searchVehicle";
+import { loadVehicles } from "@/lib/vehicleCache";
 import type { Vehicle } from "@/types/api.types";
 import {
   MAX_DAYS_AHEAD,
@@ -115,9 +115,8 @@ export function BookParkingForm({
     useCallback(() => {
       if (!token) return;
       let cancelled = false;
-      profileApi
-        .listVehicles(token)
-        .then(({ vehicles: saved }) => {
+      loadVehicles(token)
+        .then((saved) => {
           if (cancelled) return;
           setVehicles(saved);
           setVehicle((current) =>

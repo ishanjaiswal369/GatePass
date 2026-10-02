@@ -13,9 +13,16 @@ const emailSchema = z
 // lock those users out of signup.
 const nameSchema = z.string().trim().min(1).max(100);
 
+// Bounded: the device id is stored and travels in every token, the name is
+// shown in the Devices list, and a push token is kept per session. FCM tokens
+// are a few hundred characters; the limit only stops an unbounded string.
+const deviceIdSchema = z.string().min(1).max(128);
+const deviceNameSchema = z.string().min(1).max(100);
+const fcmTokenSchema = z.string().min(1).max(4096);
+
 const requestCodeBody = z.object({
   email: emailSchema,
-  deviceId: z.string().min(1),
+  deviceId: deviceIdSchema,
   deviceType: z.enum(DEVICE_TYPES).default(DEFAULT_DEVICE_TYPE),
   // Sent from the signup screen only. The sign-in screen omits both.
   firstName: nameSchema.optional(),
@@ -25,20 +32,20 @@ const requestCodeBody = z.object({
 const verifyCodeBody = z.object({
   email: emailSchema,
   code: z.string().regex(/^\d{6}$/, "must be a 6-digit code"),
-  deviceId: z.string().min(1),
+  deviceId: deviceIdSchema,
   deviceType: z.enum(DEVICE_TYPES).default(DEFAULT_DEVICE_TYPE),
-  deviceName: z.string().min(1).optional(),
-  fcmToken: z.string().min(1).optional(),
+  deviceName: deviceNameSchema.optional(),
+  fcmToken: fcmTokenSchema.optional(),
 });
 
 const googleSignInBody = z.object({
   // Only the token is trusted from the client. The email and name come out of
   // its verified payload, never from fields the caller could set.
-  idToken: z.string().min(1),
-  deviceId: z.string().min(1),
+  idToken: z.string().min(1).max(8192),
+  deviceId: deviceIdSchema,
   deviceType: z.enum(DEVICE_TYPES).default(DEFAULT_DEVICE_TYPE),
-  deviceName: z.string().min(1).optional(),
-  fcmToken: z.string().min(1).optional(),
+  deviceName: deviceNameSchema.optional(),
+  fcmToken: fcmTokenSchema.optional(),
 });
 
 /**
@@ -74,7 +81,7 @@ const updateProfileBody = z
 
 const requestPasswordCodeBody = z.object({
   email: emailSchema,
-  deviceId: z.string().min(1),
+  deviceId: deviceIdSchema,
   deviceType: z.enum(DEVICE_TYPES).default(DEFAULT_DEVICE_TYPE),
 });
 
@@ -82,32 +89,32 @@ const setPasswordBody = z.object({
   email: emailSchema,
   code: z.string().regex(/^\d{6}$/, "must be a 6-digit code"),
   password: passwordSchema,
-  deviceId: z.string().min(1),
+  deviceId: deviceIdSchema,
   deviceType: z.enum(DEVICE_TYPES).default(DEFAULT_DEVICE_TYPE),
-  deviceName: z.string().min(1).optional(),
-  fcmToken: z.string().min(1).optional(),
+  deviceName: deviceNameSchema.optional(),
+  fcmToken: fcmTokenSchema.optional(),
 });
 
 const loginBody = z.object({
   email: emailSchema,
   // Not passwordSchema: an old password that predates a rule change must
   // still be able to log in and be changed.
-  password: z.string().min(1),
-  deviceId: z.string().min(1),
+  password: z.string().min(1).max(1000),
+  deviceId: deviceIdSchema,
   deviceType: z.enum(DEVICE_TYPES).default(DEFAULT_DEVICE_TYPE),
-  deviceName: z.string().min(1).optional(),
-  fcmToken: z.string().min(1).optional(),
+  deviceName: deviceNameSchema.optional(),
+  fcmToken: fcmTokenSchema.optional(),
 });
 
 const changePasswordBody = z.object({
   // Not passwordSchema: the current password may predate a rule change, and
   // refusing it here would lock that user out of changing it.
-  currentPassword: z.string().min(1),
+  currentPassword: z.string().min(1).max(1000),
   newPassword: passwordSchema,
 });
 
 const requestDeletionCodeBody = z.object({
-  deviceId: z.string().min(1),
+  deviceId: deviceIdSchema,
   deviceType: z.enum(DEVICE_TYPES).default(DEFAULT_DEVICE_TYPE),
 });
 

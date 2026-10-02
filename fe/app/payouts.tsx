@@ -167,7 +167,7 @@ export default function PayoutsScreen() {
                 accessibilityLiveRegion="polite"
               >
                 <View style={s.statusHead}>
-                  {state === "ready" ? <CheckIcon color="#166534" size={16} /> : null}
+                  {state === "ready" ? <CheckIcon color={colors.successInk} size={16} /> : null}
                   <Text style={s.statusTitle}>{copy.title}</Text>
                 </View>
                 <Text style={s.statusBody}>{copy.body}</Text>
@@ -365,7 +365,7 @@ const s = StyleSheet.create({
     padding: space.lg,
   },
   statusBad: { backgroundColor: colors.dangerSurface, borderColor: colors.danger },
-  statusGood: { backgroundColor: "#dcfce7", borderColor: "#86efac" },
+  statusGood: { backgroundColor: colors.successSurface, borderColor: colors.successBorder },
   statusPending: { backgroundColor: colors.accentSurface, borderColor: colors.accentSurface },
   statusHead: { flexDirection: "row", alignItems: "center", gap: space.sm },
   statusTitle: { ...type.label, color: colors.ink, fontSize: 15 },

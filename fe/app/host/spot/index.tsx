@@ -125,7 +125,7 @@ function StatusCard({ spot, payout, justSubmitted }: { spot: SpotListing; payout
     return (
       <View style={[s.status, s.statusBad]}>
         <View style={s.statusHead}>
-          <InfoIcon color="#b91c1c" size={16} />
+          <InfoIcon color={colors.dangerInk} size={16} />
           <Text style={[s.statusTitle, s.bad]}>Your listing needs changes</Text>
         </View>
         <StatusChip label="REJECTED" tone="danger" />
@@ -146,7 +146,7 @@ function StatusCard({ spot, payout, justSubmitted }: { spot: SpotListing; payout
     return (
       <View style={[s.status, approved && s.statusGood]}>
         <View style={s.statusHead}>
-          {justSubmitted || approved ? <CheckIcon color="#166534" size={16} /> : <ClockIcon color={colors.inkMuted} size={16} />}
+          {justSubmitted || approved ? <CheckIcon color={colors.successInk} size={16} /> : <ClockIcon color={colors.inkMuted} size={16} />}
           <Text style={s.statusTitle}>
             {approved ? "Listing approved" : justSubmitted ? "Listing submitted" : "Your listing is being reviewed"}
           </Text>
@@ -183,7 +183,7 @@ function StatusCard({ spot, payout, justSubmitted }: { spot: SpotListing; payout
   return (
     <View style={[s.status, live && s.statusGood, spot.status === "SUSPENDED" && s.statusBad]}>
       <View style={s.statusHead}>
-        {live ? <CheckIcon color="#166534" size={16} /> : <InfoIcon color={colors.ink} size={16} />}
+        {live ? <CheckIcon color={colors.successInk} size={16} /> : <InfoIcon color={colors.ink} size={16} />}
         <Text style={s.statusTitle}>{live ? "Your listing is live" : spot.status === "SUSPENDED" ? "Your listing is suspended" : "This listing was removed"}</Text>
       </View>
       <StatusChip label={chip.label.toUpperCase()} tone={chip.tone} />
@@ -210,7 +210,7 @@ const PAYOUT_STEP_TEXT: Record<PayoutAccountState, string> = {
 function Step({ done, text }: { done: boolean; text: string }) {
   return (
     <View style={s.step}>
-      {done ? <CheckIcon color="#166534" size={14} /> : <View style={s.stepDot} />}
+      {done ? <CheckIcon color={colors.successInk} size={14} /> : <View style={s.stepDot} />}
       <Text style={s.stepText}>{text}</Text>
     </View>
   );
@@ -255,11 +255,11 @@ const s = StyleSheet.create({
     borderColor: colors.border,
     backgroundColor: colors.canvas,
   },
-  statusGood: { borderColor: "#86efac", backgroundColor: "#f0fdf4" },
-  statusBad: { borderColor: "#fecaca", backgroundColor: colors.dangerSurface },
+  statusGood: { borderColor: colors.successBorder, backgroundColor: colors.successTint },
+  statusBad: { borderColor: colors.dangerBorder, backgroundColor: colors.dangerSurface },
   statusHead: { flexDirection: "row", alignItems: "center", gap: space.sm },
   statusTitle: { fontSize: 16, fontWeight: "700", color: colors.ink },
-  bad: { color: "#b91c1c" },
+  bad: { color: colors.dangerInk },
   statusBody: { fontSize: 13, lineHeight: 20, color: colors.inkMuted },
   step: { flexDirection: "row", gap: space.md, alignItems: "center" },
   stepDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.accent, marginHorizontal: 4 },

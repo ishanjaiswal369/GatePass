@@ -76,7 +76,7 @@ export function SpotListItem({
           <View style={s.amenities}>
             {shown.map((amenity) => (
               <View key={amenity} style={s.amenity}>
-                <CheckIcon size={13} color="#166534" />
+                <CheckIcon size={13} color={colors.successInk} />
                 <Text style={s.amenityText}>{AMENITY_LABELS[amenity]}</Text>
               </View>
             ))}
@@ -150,7 +150,7 @@ const s = StyleSheet.create({
   meta: { fontSize: 13, color: colors.inkMuted },
   amenities: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 10 },
   amenity: { flexDirection: "row", alignItems: "center", gap: 4 },
-  amenityText: { fontSize: 13, color: "#374151" },
+  amenityText: { fontSize: 13, color: colors.inkSoft },
   more: { fontSize: 12, color: colors.inkMuted },
   foot: {
     flexDirection: "row",

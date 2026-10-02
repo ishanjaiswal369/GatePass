@@ -1,5 +1,5 @@
 import { Redirect, router, useFocusEffect } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import { ApiError, notificationsApi, settingsApi } from "@/api";
 import { BellIcon, Button, EmptyState, ErrorNotice, PhoneFrame, RestoringScreen, ScreenHeader, SegmentedControl } from "@/components/ui";
@@ -78,10 +78,9 @@ export default function NotificationsScreen() {
   const load = useCallback(async () => {
     if (!token) return;
     try {
-      const [page, p] = await Promise.all([notificationsApi.list(token), settingsApi.get(token)]);
+      const page = await notificationsApi.list(token);
       setItems(page.items);
       setCursor(page.nextCursor);
-      setPrefs(p);
       setError(null);
       if (page.unread > 0) void notificationsApi.markRead(token).catch(() => undefined);
     } catch (err) {
@@ -94,6 +93,16 @@ export default function NotificationsScreen() {
       void load();
     }, [load])
   );
+
+  // The settings are read when their tab is first opened: most visits are to
+  // the inbox and never look at them.
+  useEffect(() => {
+    if (tab !== "settings" || prefs !== null || !token) return;
+    settingsApi
+      .get(token)
+      .then(setPrefs)
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load your settings."));
+  }, [tab, prefs, token]);
 
   if (isRestoring) return <RestoringScreen />;
   if (!token) return <Redirect href="/" />;
@@ -183,7 +192,7 @@ export default function NotificationsScreen() {
                           value={prefs[row.key]}
                           onValueChange={(value) => void toggle(row.key!, value)}
                           accessibilityLabel={row.label}
-                          trackColor={{ true: colors.ink, false: "#d1d5db" }}
+                          trackColor={{ true: colors.ink, false: colors.trackOff }}
                           thumbColor={colors.surface}
                           // react-native-web colours the "on" thumb from this, not thumbColor.
                           {...({ activeThumbColor: colors.surface } as object)}
@@ -248,7 +257,7 @@ const s = StyleSheet.create({
   dotRead: { backgroundColor: "transparent" },
   flex: { flex: 1, gap: 2 },
   entryTitle: { fontSize: 14, fontWeight: "700", color: colors.ink },
-  entryBody: { fontSize: 13, lineHeight: 19, color: "#374151" },
+  entryBody: { fontSize: 13, lineHeight: 19, color: colors.inkSoft },
   when: { fontSize: 12, color: colors.inkMuted },
   card: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: space.lg },
   prefRow: {

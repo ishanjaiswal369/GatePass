@@ -372,9 +372,9 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 const s = StyleSheet.create({
   problem: { backgroundColor: colors.dangerSurface },
   problemHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  extended: { backgroundColor: "#dcfce7", borderRadius: radius.md, padding: space.lg, gap: 4 },
-  extendedTitle: { fontSize: 15, fontWeight: "700", color: "#166534" },
-  extendedBody: { fontSize: 14, lineHeight: 20, color: "#166534" },
+  extended: { backgroundColor: colors.successSurface, borderRadius: radius.md, padding: space.lg, gap: 4 },
+  extendedTitle: { fontSize: 15, fontWeight: "700", color: colors.successInk },
+  extendedBody: { fontSize: 14, lineHeight: 20, color: colors.successInk },
   rate: { backgroundColor: colors.canvas, borderRadius: radius.md, padding: space.lg, gap: space.sm },
   rated: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   rateTitle: { fontSize: 15, fontWeight: "700", color: colors.ink },

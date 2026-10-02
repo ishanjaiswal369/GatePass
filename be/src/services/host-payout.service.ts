@@ -11,6 +11,7 @@ import {
 } from "../integrations/payment/index.js";
 import { AppError, badRequest, conflict, notFound } from "../lib/errors.js";
 import { normalisePhone } from "../lib/phone.js";
+import { app } from "../lib/app.js";
 import { prisma } from "../lib/prisma.js";
 import { audit } from "../lib/security-log.js";
 import * as adminSpotService from "./admin-spot.service.js";
@@ -228,7 +229,7 @@ async function accountStatus(hostProfileId: string) {
       const refreshed = await record(hostProfileId, profile.userId, vendor, "getVendor");
       if (refreshed) return refreshed;
     } catch (error) {
-      console.warn("payout status refresh failed; showing the stored status", error instanceof Error ? error.message : error);
+      app.log.warn({ err: error, hostProfileId }, "payout status refresh failed; showing the stored status");
     }
   }
 

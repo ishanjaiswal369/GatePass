@@ -10,6 +10,7 @@
     "dev:fe": "npm --workspace fe run start",
     "dev:be": "npm --workspace be run dev",
     "build:be": "npm --workspace be run build",
+    "typecheck": "npm --workspace be run typecheck && npm --workspace fe run typecheck",
     "prisma:generate": "npm --workspace be run prisma:generate",
     "prisma:migrate": "npm --workspace be run prisma:migrate"
   }

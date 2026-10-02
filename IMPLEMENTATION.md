@@ -36,7 +36,18 @@ Logging is pino through Fastify (`lib/app.ts`), level from `LOG_LEVEL`.
 Per-request access lines are off; what is logged is logged on purpose:
 security and audit events (`lib/security-log`), one line per gateway call,
 and failures (`lib/errors`). The `authorization` and `cookie` headers are
-redacted and no request body is logged.
+redacted and no request body is logged. Services log through `app.log` with
+the error attached; `console` is left to the boot messages and the "console"
+stand-in providers.
+
+Every response carries `X-Content-Type-Options: nosniff` and
+`X-Frame-Options: DENY`. CORS allows any origin in development and only
+`APP_WEB_URL` when `NODE_ENV=production`. The process shuts down cleanly on
+both SIGINT and SIGTERM (so `docker stop` doesn't wait out its timeout).
+
+A code review on 2026-10-03 made these and the app-side changes in section 4;
+what it found, changed and left for a decision is in
+`specs/code-quality-review_design.md`.
 
 There is **no SMS/MSG91 integration** any more. Login codes go out by email.
 
@@ -190,12 +201,17 @@ proves identity.
 ### Sessions
 
 - JWT payload: `{ userId, email, role, sessionId, deviceId, deviceType }`,
-  30-day expiry.
+  30-day expiry, signed and accepted with HS256 only.
 - One `UserSession` row per `(userId, deviceId)`, upserted — logging in again
   from the same device reuses its session rather than piling up rows.
 - Every authenticated request re-checks that the session row still exists and
-  has not expired, then refreshes `lastActiveAt`. So logout and remote logout
-  take effect immediately with no token blocklist.
+  has not expired. So logout and remote logout take effect immediately with
+  no token blocklist. That is one read per request; `lastActiveAt` (the
+  Devices list) is refreshed only when it is over a minute old, not on every
+  call. A database failure here is a 500, never a 401: the app reads 401 as
+  "signed out", and an outage must not sign everyone out.
+- Login, reset and deletion codes come from `crypto.randomInt` and are
+  compared in constant time (`lib/secure.ts`).
 - `request.user` carries the payload, so handlers read the caller directly.
 
 ### Verified
@@ -391,8 +407,36 @@ fe/
 ```
 
 - Imports use `@/` (→ `src/`), never `../..`.
-- A raw hex or `fetch` call in a screen is a bug.
+- A raw hex or `fetch` call in a screen is a bug. (Since 2026-10-03 there are
+  none: every colour is a token in `theme/tokens.ts`, except brand marks --
+  the UPI apps' and Google's.)
 - Every pressable clears 44px.
+
+### Reading from the API without waste
+
+The app has no data cache library; each screen reads what it shows, on focus.
+Four rules keep that from turning into repeated requests:
+
+- **Vehicles are read once and shared** (`lib/vehicleCache`). The search
+  form, the results, the spot and the checkout all need them; they share one
+  read for a minute. The vehicles screen reads fresh after every change, and
+  that replaces what is shared.
+- **A screen doesn't re-read what cannot have changed.** Checkout keeps the
+  spot and the payment options for the visit and re-reads only the vehicles;
+  Bookings asks "am I parked?" once per focus, not on each tab change;
+  Notifications reads the settings when that tab is first opened; the
+  wizard's review step doesn't re-read the spot `useSpotDraft` just loaded.
+- **Results don't search again on the way back from a spot.** The same search
+  within 30 seconds keeps its list, scroll position and pin; a heart changed
+  on the spot's screen is carried back through `lib/savedSpots`.
+- **One number isn't worth a request.** The pricing step's fee preview reads
+  `serviceFeeRate` off the spot it already has.
+
+`api/client.ts` turns every failure into an `ApiError`: no connection or a
+request stalled past 30 seconds is status 0, and an answer that isn't the
+API's JSON is reported under its own status rather than thrown as a parse
+error. Ids the app makes (device id, idempotency keys) come from
+`expo-crypto` (`lib/randomId`), not `Math.random`.
 
 Screens follow the published design canvas: dark brand header, first/last name
 on one row, a six-box code input, a live resend timer matching the API's 60 s
@@ -598,9 +642,14 @@ Three decisions worth knowing:
 
 ### Splash
 
-`assets/splash.png` (1284×2778) is the opening brand image: the barrier mark
-and wordmark on the app's ink, above a row of nine painted parking bays with
-one (06) held brighter. Design rationale: `design/splash-philosophy.md`.
+`assets/splash.png` (1284×2778) is the opening brand image: the barrier mark,
+the wordmark and the line "PARKING BY THE HOUR OR DAY" on the app's ink, above
+a day drawn as a scale -- an hour stroke from 00 to 24 -- with one span of it
+(13 to 16) raised into a parking bay. Until 2026-10-03 the line read "PARKING
+FOR TICKETED EVENTS" over a row of nine bays. Design rationale:
+`design/splash-philosophy.md`. The native splash is baked into the build, so
+changing the image needs `npx expo prebuild` and a new build, not just a
+reload.
 
 The one image is used twice:
 

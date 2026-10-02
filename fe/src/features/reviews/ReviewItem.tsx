@@ -33,13 +33,13 @@ export function ReviewItem({ review }: { review: SpotReview }) {
   );
 }
 
-const GREEN = "#166534";
+const GREEN = colors.successInk;
 
 const s = StyleSheet.create({
   item: { gap: space.sm, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: colors.border },
   top: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   when: { fontSize: 12, color: colors.inkMuted },
-  comment: { fontSize: 14, lineHeight: 21, color: "#374151" },
+  comment: { fontSize: 14, lineHeight: 21, color: colors.inkSoft },
   who: { flexDirection: "row", alignItems: "center", gap: space.sm },
   avatar: {
     width: 28,

@@ -19,6 +19,7 @@ import type {
   SavePermissionInput,
   OwnershipDocumentInput,
 } from "../requests/spot-listing.request.js";
+import { pricing } from "../config/pricing.js";
 import { sendFile } from "../lib/send-file.js";
 import { audit } from "../lib/security-log.js";
 import * as hostPayoutService from "../services/host-payout.service.js";
@@ -59,9 +60,11 @@ export const spotListingController = {
     request: FastifyRequest,
     reply: FastifyReply
   ) => {
-    return reply.send(
-      await spotListingService.getForHost(input.params.id, hostProfileId(request))
-    );
+    const spot = await spotListingService.getForHost(input.params.id, hostProfileId(request));
+    // The service fee rides along for the pricing step's "you receive"
+    // preview: one number, not worth a request of its own. What the host is
+    // actually paid is still computed here, never in the app.
+    return reply.send({ ...spot, serviceFeeRate: pricing.hostCommissionRate });
   },
 
   /**

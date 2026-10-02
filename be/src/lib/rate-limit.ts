@@ -42,7 +42,7 @@ function callerOf(request: FastifyRequest): string {
   const header = request.headers.authorization;
   if (header?.startsWith("Bearer ")) {
     try {
-      const payload = jwt.verify(header.slice(7), env.JWT_SECRET) as { userId?: string };
+      const payload = jwt.verify(header.slice(7), env.JWT_SECRET, { algorithms: ["HS256"] }) as { userId?: string };
       if (payload.userId) return `user:${payload.userId}`;
     } catch {
       // Falls through to the IP.

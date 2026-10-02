@@ -2,6 +2,7 @@ import { createHmac, randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { env } from "../../config/env.js";
+import { sameSecret } from "../../lib/secure.js";
 import type {
   PresignOptions,
   PresignedUpload,
@@ -85,7 +86,7 @@ export class LocalStorageProvider implements StorageProvider {
 
     const expected = this.sign(key, expiresAt, query.contentType);
 
-    if (expected !== query.signature) {
+    if (!sameSecret(query.signature, expected)) {
       return { ok: false, reason: "Upload URL signature does not match" };
     }
 

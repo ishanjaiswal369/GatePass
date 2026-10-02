@@ -97,6 +97,7 @@ export async function listForReview(status = "PENDING_REVIEW") {
     where: { listingType: "INDEPENDENT_SPOT", status },
     select: reviewView,
     orderBy: { submittedAt: "asc" },
+    take: 200,
   });
 }
 

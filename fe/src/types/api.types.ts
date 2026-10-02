@@ -543,6 +543,11 @@ export interface SpotListing {
   id: string;
   name: string;
   venueName: string;
+  /**
+   * GatePass's service fee as a fraction (0.1 = 10%), for the pricing step's
+   * preview. Only on `GET /host/spots/:id`; a save's answer doesn't carry it.
+   */
+  serviceFeeRate?: number;
   spaceType: SpaceType | null;
   description: string | null;
   status: SpotListingStatus;

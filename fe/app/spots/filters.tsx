@@ -210,7 +210,7 @@ const s = StyleSheet.create({
   toggle: { flexDirection: "row", alignItems: "center", gap: space.md, minHeight: 48 },
   toggleLabel: { fontSize: 15, fontWeight: "600", color: colors.ink },
   toggleSub: { fontSize: 12, color: colors.inkMuted },
-  track: { width: 44, height: 26, borderRadius: 13, backgroundColor: "#d1d5db", justifyContent: "center" },
+  track: { width: 44, height: 26, borderRadius: 13, backgroundColor: colors.trackOff, justifyContent: "center" },
   trackOn: { backgroundColor: colors.ink },
   knob: { width: 20, height: 20, borderRadius: 10, backgroundColor: colors.surface, marginLeft: 3 },
   knobOn: { marginLeft: 21 },
