@@ -29,14 +29,6 @@ export type PaymentOutcome =
   /** No gateway is wired for this. */
   | { status: "NOT_CONFIGURED" };
 
-/**
- * Extra time is held but not yet sold through the gateway: its orders come
- * with a later step, so the extension screen keeps saying so.
- */
-export async function payForExtension(): Promise<PaymentOutcome> {
-  return { status: "NOT_CONFIGURED" };
-}
-
 // ---- where the driver is paying from ----
 
 const userAgent = () => (Platform.OS === "web" && typeof navigator !== "undefined" ? navigator.userAgent : "");

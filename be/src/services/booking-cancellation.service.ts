@@ -1,11 +1,14 @@
 import { Prisma } from "@prisma/client";
 import { cancellationPolicy } from "../config/pricing.js";
-import { conflict, notFound } from "../lib/errors.js";
+import { IntegrationError } from "../integrations/errors.js";
+import { conflict, notFound, serviceUnavailable } from "../lib/errors.js";
 import { prisma } from "../lib/prisma.js";
 import { audit } from "../lib/security-log.js";
 import { bookingRef, rupees } from "../lib/format.js";
 import { notify } from "./notification.service.js";
 import { getForDriver } from "./booking.service.js";
+import * as paymentConfirmation from "./payment-confirmation.service.js";
+import * as refundService from "./refund.service.js";
 
 /**
  * Cancelling a booking, and what comes back.
@@ -121,8 +124,38 @@ async function loadOwned(bookingId: string, driverId: string): Promise<Cancellat
 }
 
 export async function quote(bookingId: string, driverId: string): Promise<CancellationQuote> {
+  // A payment that just went through is recorded first (throttled, best
+  // effort), so the quote is for the paid booking. `cancel` checks for real.
+  await paymentConfirmation.refreshPayment(bookingId, driverId);
   const { refund: _refund, ...shown } = assess(await loadOwned(bookingId, driverId), new Date());
   return shown;
+}
+
+/**
+ * A hold with an open order is only judged once the gateway has said whether
+ * it was paid (owner's decision, 2026-10-01): a payment that landed a moment
+ * ago would otherwise be cancelled as unpaid, then refunded in full when it
+ * arrived -- whatever the policy says about a late cancellation.
+ */
+async function settlePaymentFirst(bookingId: string, driverId: string): Promise<void> {
+  const row = await prisma.booking.findFirst({
+    where: { id: bookingId, driverId },
+    select: { status: true, payment: { select: { status: true } } },
+  });
+  if (row?.status !== "PENDING" || row.payment?.status !== "CREATED") return;
+
+  let state: paymentConfirmation.PaymentBeforeCancel;
+  try {
+    state = await paymentConfirmation.settleBeforeCancel(bookingId, driverId);
+  } catch (error) {
+    if (error instanceof IntegrationError) {
+      throw serviceUnavailable("Couldn't check your payment with the bank just now. Try cancelling again in a minute.");
+    }
+    throw error;
+  }
+  if (state === "IN_PROGRESS") {
+    throw conflict("Your payment is still being processed. Try cancelling again in a minute.");
+  }
 }
 
 /**
@@ -132,11 +165,16 @@ export async function quote(bookingId: string, driverId: string): Promise<Cancel
  * after a dropped response -- cannot cancel twice or open two refunds: the
  * second finds nothing left to change and gets the already-cancelled booking
  * back. The unique bookingId on Refund is the backstop.
+ *
+ * The refund goes to the gateway only after this has committed
+ * (refund.service): the booking is cancelled -- and its hours free -- whatever
+ * the gateway says, and the refund's own status tracks the money.
  */
 export async function cancel(bookingId: string, driverId: string, reason?: string) {
+  await settlePaymentFirst(bookingId, driverId);
   const now = new Date();
 
-  await prisma.$transaction(async (tx) => {
+  const refundId = await prisma.$transaction(async (tx): Promise<string | null> => {
     const row = await tx.booking.findFirst({
       where: { id: bookingId, driverId },
       select: cancellationRow,
@@ -145,7 +183,7 @@ export async function cancel(bookingId: string, driverId: string, reason?: strin
     if (!row) throw notFound("Booking not found");
 
     // Asked again after it already went through: answer with what happened.
-    if (row.status === "CANCELLED") return;
+    if (row.status === "CANCELLED") return null;
 
     const outcome = assess(row, now);
     if (!outcome.cancellable) throw conflict(outcome.reason ?? "This booking can't be cancelled");
@@ -163,11 +201,12 @@ export async function cancel(bookingId: string, driverId: string, reason?: strin
     // Something else moved it between the read and this write.
     if (changed.count === 0) throw conflict("This booking changed. Refresh and try again.");
 
-    if (outcome.refund.greaterThan(0)) {
-      await tx.refund.create({
-        data: { bookingId: row.id, amount: outcome.refund, policy: outcome.rule! },
-      });
-    }
+    const refund = outcome.refund.greaterThan(0)
+      ? await tx.refund.create({
+          data: { bookingId: row.id, amount: outcome.refund, policy: outcome.rule! },
+          select: { id: true },
+        })
+      : null;
 
     await notify(
       driverId,
@@ -189,7 +228,9 @@ export async function cancel(bookingId: string, driverId: string, reason?: strin
       refund: outcome.refund.toString(),
       rule: outcome.rule,
     });
+    return refund?.id ?? null;
   });
 
+  await refundService.sendAfterCommit(refundId);
   return getForDriver(bookingId, driverId);
 }

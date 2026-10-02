@@ -35,7 +35,7 @@ const EnvSchema = z
       .min(16, "must be at least 16 characters")
       .refine((value) => !PLACEHOLDER_SECRETS.has(value.toLowerCase()), {
         // The length check alone passes the template value, which then signs
-        // every session token and every gate pass with a secret that is in the
+        // every session token with a secret that is in the
         // repository. Anyone could mint a valid token for any user.
         message:
           "is still the example value -- generate one with: openssl rand -base64 48",

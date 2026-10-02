@@ -11,8 +11,8 @@ Driver payment, in build order:
 | 3 | Get Payments for an Order `GET /pg/orders/{id}/payments` | On the driver's booking read (`GET /bookings/:id`), throttled | **done** |
 | 4 | Payment webhook (`x-webhook-signature` / `x-webhook-timestamp`) | `POST /webhooks/cashfree`, `notify_url` per order | **done** (live test needs the tunnel) |
 | 5 | Booking confirmation + 15-min hold handling | PENDING → CONFIRMED; paid-after-expiry | **done** (with step 3) |
-| 6 | Create Refund | Cancellation / problem report | later |
-| 7 | Refund status + refund webhook | `Refund` REFUND_PENDING → REFUNDED / FAILED | later |
+| 6 | Create Refund `POST /pg/orders/{id}/refunds` | Every `Refund` row, sent after commit + 60 s job (`refund.service`) | **done** (2026-10-01, `specs/cashfree-refunds_design.md`) |
+| 7 | Get Refund + `REFUND_STATUS_WEBHOOK` | `Refund` REFUND_PENDING → REFUNDED / FAILED; admin retry | **done** (webhook needs the dashboard URL) |
 | 8 | Host payouts shown in earnings: Easy Split settlement webhook (the manual `Settlement` tables were deleted 2026-09-27) | earnings `paidOut`, `HOST_PAYOUT` notice | **done** |
 
 Host side, separate from the driver's payment:

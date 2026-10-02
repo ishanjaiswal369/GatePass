@@ -7,6 +7,7 @@ import { prisma } from "../lib/prisma.js";
 import { audit } from "../lib/security-log.js";
 import { isOverlapViolation } from "./booking.service.js";
 import { notify } from "./notification.service.js";
+import * as refundService from "./refund.service.js";
 
 /**
  * Money in, turned into a booking.
@@ -256,11 +257,17 @@ export async function resolvePaidBooking(bookingId: string, now = new Date()): P
       startsAt: true,
       endsAt: true,
       driverId: true,
+      extendsBookingId: true,
       payment: { select: { status: true, amount: true } },
       refund: { select: { id: true } },
     },
   });
   if (!booking || booking.payment?.status !== "CAPTURED") return "NOT_PAID";
+
+  const confirmed = (afterLapsedHold: boolean): PaidOutcome => {
+    audit("BOOKING_CONFIRMED", { bookingId: booking.id, userId: booking.driverId, ...(afterLapsedHold ? { afterLapsedHold } : {}) });
+    return "CONFIRMED";
+  };
   if (booking.refund || booking.status === "CONFIRMED" || booking.status === "COMPLETED" || booking.status === "NO_SHOW") {
     return "ALREADY_SETTLED";
   }
@@ -272,14 +279,17 @@ export async function resolvePaidBooking(bookingId: string, now = new Date()): P
   }
 
   if (booking.status === "PENDING") {
-    const moved = await prisma.booking.updateMany({
-      where: { id: booking.id, status: "PENDING" },
-      data: { status: "CONFIRMED" },
+    // With the stay it extends, in one transaction: confirmed extra time on a
+    // stay left closed would read as over, and a retry sees ALREADY_SETTLED.
+    const moved = await prisma.$transaction(async (tx) => {
+      const result = await tx.booking.updateMany({
+        where: { id: booking.id, status: "PENDING" },
+        data: { status: "CONFIRMED" },
+      });
+      if (result.count > 0 && booking.extendsBookingId) await reopenExtendedStay(tx, booking.extendsBookingId);
+      return result;
     });
-    if (moved.count > 0) {
-      audit("BOOKING_CONFIRMED", { bookingId: booking.id, userId: booking.driverId });
-      return "CONFIRMED";
-    }
+    if (moved.count > 0) return confirmed(false);
     // Moved on meanwhile (swept, or confirmed by the other path): look again.
     return resolvePaidBooking(bookingId, now);
   }
@@ -293,15 +303,14 @@ export async function resolvePaidBooking(bookingId: string, now = new Date()): P
         // update if another booking holds any of these hours now.
         await lockListing(tx, listingId);
         await assertNotBlocked(tx, listingId, startsAt, endsAt);
-        return tx.booking.updateMany({
+        const result = await tx.booking.updateMany({
           where: { id: booking.id, status: "CANCELLED", cancelledAt: null },
           data: { status: "CONFIRMED" },
         });
+        if (result.count > 0 && booking.extendsBookingId) await reopenExtendedStay(tx, booking.extendsBookingId);
+        return result;
       });
-      if (revived.count > 0) {
-        audit("BOOKING_CONFIRMED", { bookingId: booking.id, userId: booking.driverId, afterLapsedHold: true });
-        return "CONFIRMED";
-      }
+      if (revived.count > 0) return confirmed(true);
       return resolvePaidBooking(bookingId, now);
     } catch (error) {
       // Another booking has the hours (the EXCLUDE constraint), or the host
@@ -320,8 +329,23 @@ export async function resolvePaidBooking(bookingId: string, now = new Date()): P
 }
 
 /**
+ * Extra time paid for after the stay it extends reached its old end: by then
+ * `completeEndedStays` may have closed that stay, because only a CONFIRMED
+ * extension keeps it open. Paid extra time means it is running again. Its
+ * own hours are past, so nothing else can have claimed them. Runs inside the
+ * transaction that confirms the extra time.
+ */
+async function reopenExtendedStay(tx: Prisma.TransactionClient, parentId: string): Promise<void> {
+  const reopened = await tx.booking.updateMany({
+    where: { id: parentId, status: "COMPLETED" },
+    data: { status: "CONFIRMED" },
+  });
+  if (reopened.count > 0) audit("BOOKING_REOPENED_BY_EXTENSION", { bookingId: parentId });
+}
+
+/**
  * The whole payment back, for a booking that can't be honoured. Recorded as
- * REFUND_PENDING; sending it to the gateway is the Create Refund step. The
+ * REFUND_PENDING and sent to the gateway once committed (refund.service). The
  * unique bookingId on Refund makes a second attempt a no-op.
  */
 async function openRefund(
@@ -330,17 +354,55 @@ async function openRefund(
   policy: "HOLD_LAPSED" | "CANCELLED_BEFORE_PAYMENT" | "PAID_AFTER_STAY",
   driverId: string
 ): Promise<PaidOutcome> {
+  let refundId: string;
   try {
-    await prisma.$transaction(async (tx) => {
-      await tx.refund.create({ data: { bookingId, amount, policy } });
+    refundId = await prisma.$transaction(async (tx) => {
+      const refund = await tx.refund.create({ data: { bookingId, amount, policy }, select: { id: true } });
       // A booking that was still PENDING (a stay already over) is closed too,
       // so it never reads as a hold waiting on payment.
       await tx.booking.updateMany({ where: { id: bookingId, status: "PENDING" }, data: { status: "CANCELLED" } });
+      return refund.id;
     });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return "ALREADY_SETTLED";
     throw error;
   }
   audit("PAYMENT_REFUND_OPENED", { bookingId, userId: driverId, amount: amount.toFixed(2), policy });
+  await refundService.sendAfterCommit(refundId);
   return "REFUNDING";
+}
+
+export type PaymentBeforeCancel = "PAID" | "IN_PROGRESS" | "UNPAID";
+
+/**
+ * Where a hold's payment stands before its cancellation is judged -- asked of
+ * the gateway now, not throttled like a screen's poll (owner's decision,
+ * 2026-10-01). A payment that already succeeded is recorded first, so the
+ * booking is cancelled as the paid booking it is and gets the policy's
+ * refund, not the full "cancelled before payment" one. A payment still under
+ * way can't be judged yet. Throws when the gateway can't be asked: guessing
+ * either way could refund the wrong amount.
+ */
+export async function settleBeforeCancel(bookingId: string, driverId: string, now = new Date()): Promise<PaymentBeforeCancel> {
+  const gateway = getPaymentGateway();
+  if (!gateway) return "UNPAID";
+
+  const row = await prisma.payment.findFirst({
+    where: { bookingId, booking: { driverId } },
+    select: { status: true, gatewayOrderId: true },
+  });
+  if (!row?.gatewayOrderId) return "UNPAID";
+  if (row.status === "CAPTURED") {
+    await resolvePaidBooking(bookingId, now);
+    return "PAID";
+  }
+  if (row.status !== "CREATED") return "UNPAID";
+
+  const payments = await gateway.getOrderPayments(row.gatewayOrderId);
+  const success = payments.find((payment) => payment.status === "SUCCESS");
+  if (success) {
+    await recordSuccess(bookingId, success, "poll", now);
+    return "PAID";
+  }
+  return payments.some((payment) => payment.status === "PENDING") ? "IN_PROGRESS" : "UNPAID";
 }

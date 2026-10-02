@@ -52,10 +52,21 @@ const LATE_REFUND_REASONS: Record<string, string> = {
  * seconds and when the app comes back to the front, and only a booking the
  * API calls confirmed goes on to the confirmation screen. Nothing the UPI app
  * or the card page says counts.
+ *
+ * Extra time is paid here too, by its own id (`parent` is the stay it
+ * extends): confirmed, it goes back to that stay rather than to "Booking
+ * Confirmed", and every way out leads there.
  */
 export default function PayScreen() {
   const { token, isRestoring } = useSession();
-  const params = useLocalSearchParams<{ id: string; method?: string; app?: string; channel?: string; from?: string }>();
+  const params = useLocalSearchParams<{
+    id: string;
+    method?: string;
+    app?: string;
+    channel?: string;
+    from?: string;
+    parent?: string;
+  }>();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
   // Every second: this is a countdown the driver is watching.
   const now = useNow(1000);
@@ -75,14 +86,17 @@ export default function PayScreen() {
   const started = useRef(false);
 
   const done = !!booking && booking.phase !== "PENDING";
+  // The API's word once loaded; the route's `parent` only until then.
+  const parentId = booking ? booking.extendsBookingId : (params.parent ?? null);
 
   // Back goes to the booking -- the hold, with its countdown, Pay and Cancel
   // -- never to the checkout that made it: that screen would read the
   // driver's own hold as hours someone else just booked.
   const back = useCallback(() => {
     if (params.from === "booking" && router.canGoBack()) router.back();
+    else if (parentId) router.replace({ pathname: "/booking/[id]", params: { id: parentId } });
     else if (id) router.replace({ pathname: "/booking/[id]", params: { id } });
-  }, [params.from, id]);
+  }, [params.from, parentId, id]);
 
   // Android's hardware back takes the same way, not the stack's.
   useFocusEffect(
@@ -103,7 +117,11 @@ export default function PayScreen() {
       setBooking(found);
       setLoadError(null);
       if (found.status === "CONFIRMED") {
-        router.replace({ pathname: "/booking/[id]/confirmed", params: { id: found.id } });
+        if (found.extendsBookingId) {
+          router.replace({ pathname: "/booking/[id]", params: { id: found.extendsBookingId, extended: "1" } });
+        } else {
+          router.replace({ pathname: "/booking/[id]/confirmed", params: { id: found.id } });
+        }
       }
     } catch (err) {
       setLoadError(err instanceof ApiError && err.status === 404 ? "This booking doesn't exist, or isn't yours." : "Couldn't check the booking.");
@@ -182,7 +200,11 @@ export default function PayScreen() {
   return (
     <PhoneFrame>
       <View style={s.screen}>
-        <ScreenHeader title={isUpi ? "Pay with UPI" : "Confirming payment"} sub={listing?.name ?? undefined} onBack={back} />
+        <ScreenHeader
+          title={isUpi ? "Pay with UPI" : "Confirming payment"}
+          sub={listing?.name ? (parentId ? `Extra time · ${listing.name}` : listing.name) : undefined}
+          onBack={back}
+        />
 
         <ScrollView contentContainerStyle={s.body}>
           {loadError ? <ErrorNotice message={loadError} /> : null}
@@ -217,13 +239,21 @@ export default function PayScreen() {
             // hours were taken, or it was cancelled first. The API refunds all of it.
             <View style={s.ended}>
               <Text style={s.endedTitle}>
-                {booking.refund.policy === "HOLD_LAPSED" ? "Your payment came too late for these hours" : "This booking is being refunded"}
+                {booking.refund.policy === "HOLD_LAPSED"
+                  ? "Your payment came too late for these hours"
+                  : parentId
+                    ? "This extra time is being refunded"
+                    : "This booking is being refunded"}
               </Text>
               <Text style={s.endedBody}>
                 {LATE_REFUND_REASONS[booking.refund.policy] ?? "This booking couldn't go ahead."} We're refunding the full{" "}
                 {formatRupees(booking.refund.amount)}. It usually reaches you in 5–7 working days.
               </Text>
-              <Button label="Find another space" variant="ghost" onPress={() => router.replace("/home")} />
+              {parentId ? (
+                <Button label="Back to your booking" variant="ghost" onPress={back} />
+              ) : (
+                <Button label="Find another space" variant="ghost" onPress={() => router.replace("/home")} />
+              )}
             </View>
           ) : expired ? (
             <View style={s.ended}>
@@ -232,7 +262,11 @@ export default function PayScreen() {
                 These hours went back on sale before a payment came through. If money left your account it comes back
                 automatically within 5–7 working days.
               </Text>
-              <Button label="Back to search" variant="ghost" onPress={() => router.replace("/home")} />
+              {parentId ? (
+                <Button label="Back to your booking" variant="ghost" onPress={back} />
+              ) : (
+                <Button label="Back to search" variant="ghost" onPress={() => router.replace("/home")} />
+              )}
             </View>
           ) : booking?.phase === "CANCELLED" ? (
             <View style={s.ended}>

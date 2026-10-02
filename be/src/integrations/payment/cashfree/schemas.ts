@@ -73,6 +73,42 @@ export const cashfreePaymentSchema = z
 
 export const cashfreePaymentListSchema = z.array(cashfreePaymentSchema);
 
+/**
+ * A refund (POST /orders/{id}/refunds, GET /orders/{id}/refunds/{refund_id}).
+ * The docs show the create answer both as the entity and as a one-entry
+ * list; gateway.ts takes either. `cf_refund_id` is kept as a string -- an id
+ * past what a JS number holds exactly would otherwise be rounded.
+ */
+export const cashfreeRefundSchema = z
+  .object({
+    cf_refund_id: z.union([z.string().min(1), z.number()]).transform(String),
+    refund_id: z.string().min(1),
+    order_id: z.string().min(1),
+    refund_amount: z.number(),
+    refund_status: z.string().min(1),
+    refund_arn: z.union([z.string(), z.number()]).nullish(),
+    status_description: z.string().nullish(),
+    processed_at: z.string().nullish(),
+  })
+  .passthrough();
+
+/** The body of POST /orders/{order_id}/refunds. */
+export interface CashfreeCreateRefundBody {
+  refund_amount: number;
+  refund_id: string;
+  refund_note: string;
+  refund_speed: "STANDARD";
+  refund_splits?: { vendor_id: string; amount: number }[];
+}
+
+/**
+ * REFUND_STATUS_WEBHOOK's data. Only the two ids are read; the status comes
+ * from Get Refund, so nothing in the body decides what GatePass records.
+ */
+export const cashfreeRefundWebhookSchema = z
+  .object({ refund: z.object({ order_id: z.string().min(1), refund_id: z.string().min(1) }).passthrough() })
+  .passthrough();
+
 /** Every Cashfree webhook: an event name and its data. */
 export const cashfreeWebhookSchema = z
   .object({ type: z.string().min(1), data: z.record(z.string(), z.unknown()).nullish() })

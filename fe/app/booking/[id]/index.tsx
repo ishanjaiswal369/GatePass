@@ -60,7 +60,8 @@ function canReport(booking: BookingDetail): boolean {
 
 export default function BookingDetailScreen() {
   const { token, isRestoring } = useSession();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  // `extended` is set by the pay screen when extra time has just been paid.
+  const { id, extended } = useLocalSearchParams<{ id: string; extended?: string }>();
   const now = useNow();
 
   const [booking, setBooking] = useState<BookingDetail | null>(null);
@@ -114,7 +115,7 @@ export default function BookingDetailScreen() {
           {!booking ? (
             error ? null : <ActivityIndicator color={colors.ink} style={s.loading} />
           ) : (
-            <Body booking={booking} now={now} onPay={pay} />
+            <Body booking={booking} now={now} onPay={pay} justExtended={extended === "1"} />
           )}
         </ScrollView>
       </View>
@@ -126,10 +127,12 @@ function Body({
   booking,
   now,
   onPay,
+  justExtended,
 }: {
   booking: BookingDetail;
   now: number;
   onPay: () => void;
+  justExtended: boolean;
 }) {
   const listing = bookingListing(booking);
   const chip = phaseChip(booking);
@@ -145,6 +148,13 @@ function Body({
         <StatusChip label={chip.label} tone={chip.tone} />
         <Text style={s.when}>{bookingWhen(booking)}</Text>
       </View>
+
+      {justExtended && booking.effectiveEndsAt ? (
+        <View style={s.extended}>
+          <Text style={s.extendedTitle}>Extra time confirmed</Text>
+          <Text style={s.extendedBody}>You can stay until {dateTime(booking.effectiveEndsAt)}.</Text>
+        </View>
+      ) : null}
 
       {booking.phase === "ACTIVE" ? (
         <>
@@ -202,7 +212,9 @@ function Body({
           <Button
             label={`Pay ${formatRupees(extra.amount)}`}
             variant="ghost"
-            onPress={() => router.push({ pathname: "/booking/[id]/extend", params: { id: booking.id } })}
+            onPress={() =>
+              router.push({ pathname: "/booking/[id]/pay", params: { id: extra.id, method: "UPI", parent: booking.id } })
+            }
           />
         </View>
       ) : null}
@@ -269,13 +281,6 @@ function Body({
         </Section>
       ) : null}
 
-      {!spot && booking.phase !== "CANCELLED" && booking.status === "CONFIRMED" ? (
-        <Button
-          label="Show gate pass"
-          onPress={() => router.push({ pathname: "/pass/[id]", params: { id: booking.id } })}
-        />
-      ) : null}
-
       {cancellable ? (
         <Section title="CANCELLATION">
           <Text style={s.policy}>
@@ -305,18 +310,19 @@ function stepsFor(booking: BookingDetail): TimelineStep[] {
       { title: "Booking cancelled", sub: booking.cancelledAt ? dateTime(booking.cancelledAt) : null, state: "done" },
     ];
     if (booking.refund) {
-      const refunded = booking.refund.status === "REFUNDED";
+      const { status, processedAt, reference } = booking.refund;
       steps.push(
         { title: `Refund of ${formatRupees(booking.refund.amount)} started`, sub: dateTime(booking.refund.createdAt), state: "done" },
-        {
-          title: refunded ? "Refund reached you" : "Refund reaches your account",
-          sub: refunded
-            ? booking.refund.processedAt
-              ? dateTime(booking.refund.processedAt)
-              : null
-            : "Usually 5–7 working days, to the way you paid",
-          state: refunded ? "done" : "next",
-        }
+        status === "REFUNDED"
+          ? {
+              title: "Refund processed",
+              // The bank's reference is what a driver quotes to their bank.
+              sub: [processedAt ? dateTime(processedAt) : null, reference ? `Bank ref ${reference}` : null].filter(Boolean).join(" · ") || null,
+              state: "done",
+            }
+          : status === "FAILED"
+            ? { title: "Refund delayed", sub: "Our team is sending it again. You don't need to do anything.", state: "next" }
+            : { title: "Refund reaches your account", sub: "Usually 5–7 working days, to the way you paid", state: "next" }
       );
     } else {
       steps.push({ title: "Nothing to refund", sub: "No payment was taken for this booking.", state: "done" });
@@ -366,6 +372,9 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 const s = StyleSheet.create({
   problem: { backgroundColor: colors.dangerSurface },
   problemHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  extended: { backgroundColor: "#dcfce7", borderRadius: radius.md, padding: space.lg, gap: 4 },
+  extendedTitle: { fontSize: 15, fontWeight: "700", color: "#166534" },
+  extendedBody: { fontSize: 14, lineHeight: 20, color: "#166534" },
   rate: { backgroundColor: colors.canvas, borderRadius: radius.md, padding: space.lg, gap: space.sm },
   rated: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   rateTitle: { fontSize: 15, fontWeight: "700", color: colors.ink },

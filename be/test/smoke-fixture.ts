@@ -188,7 +188,7 @@ async function main(): Promise<void> {
   const from = encodeURIComponent(istAt(1, 14).toISOString());
   const to = encodeURIComponent(istAt(1, 16).toISOString());
   const screens: [string, string][] = [
-    [`/booking/${upcoming}`, "paid, tomorrow 10-12; also /cancel, /problem, /confirmed and /pass/:id"],
+    [`/booking/${upcoming}`, "paid, tomorrow 10-12; also /cancel, /problem and /confirmed"],
     [`/booking/${threeDay}`, "paid, 3 days"],
     [`/booking/${running}`, "running; also /extend, /report and /parking"],
     [`/booking/${finished}`, "finished, not rated; also /review"],

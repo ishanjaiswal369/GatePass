@@ -139,6 +139,8 @@ export interface BookingRow {
   refund: BookingRefund | null;
   /** Extra time bought on this stay, paid or awaiting payment. */
   extensions: BookingExtension[];
+  /** Set on extra time itself: the stay it extends. Paid for like a booking. */
+  extendsBookingId: string | null;
   /** The driver's own rating of this stay, once given. */
   review: { rating: number; createdAt: string } | null;
   /** A paid, finished host-spot stay not yet rated: offer "Rate Parking". */
@@ -212,20 +214,6 @@ export interface ExtensionOptions {
   pending: { id: string; endsAt: string; amount: string; holdExpiresAt: string } | null;
   unavailableAfter: string | null;
   options: ExtensionOption[];
-}
-
-export interface GatePassResult {
-  booking: {
-    id: string;
-    /** Always null: a spot has no gate (a leftover of event passes). */
-    gate: string | null;
-    vehicleType: VehicleType;
-    eventName: string;
-    venueName: string;
-    eventDate: string | null;
-  };
-  /** Short-lived; re-fetch once `expiresInSeconds` has run down. */
-  pass: { token: string; expiresAt: string; expiresInSeconds: number };
 }
 
 export interface NearbySpot {

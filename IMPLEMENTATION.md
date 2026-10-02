@@ -3,8 +3,9 @@
 Last updated: 2026-09-22
 
 A paid marketplace for parking at public ticketed events in India. Organizers
-list parking capacity at a venue; drivers reserve and pay in advance; the
-platform issues a QR pass for gate entry.
+list parking capacity at a venue; drivers reserve and pay in advance. There
+is no QR pass in v1 (removed 2026-10-01): a paid booking is confirmed and
+releases the address and access instructions, and the host checks the plate.
 
 This document describes **what is actually built**, verified against the code
 and a running database. Where something is scaffolding rather than working
@@ -33,8 +34,7 @@ the dev login code, startup failure in `index.ts`, integration retries, and
 unhandled errors in `registerErrorHandler` (which previously called
 `request.log.error` — a silent no-op once the logger was removed).
 
-There is **no SMS/MSG91 integration** any more. Login codes and (eventually)
-the QR pass both go out by email.
+There is **no SMS/MSG91 integration** any more. Login codes go out by email.
 
 ---
 
@@ -362,7 +362,7 @@ fe/
   metro.config.js       workspace resolution (see below)
   app/                  routes only: index, verify, profile, home, bookings,
                         host, password, account (+ details, vehicles,
-                        address), event/[id], pass/[id]
+                        address), event/[id]
   src/
     api/
       client.ts         the only caller of fetch; ApiError carries HTTP status
@@ -454,9 +454,8 @@ driven end to end in a browser (sign in → Events → Nearby → pass).
   with no visible reason gets denied, and a denial is far harder to undo than
   a delay. A refusal falls back to typing an area, which resolves through
   `GET /geocode`.
-- **The pass card sits above discovery**, because a driver mid-booking needs
-  the QR before anything else here. `GET /bookings/active` answers 200 with
-  `booking: null`, so "no pass" is a layout state rather than an error.
+- `GET /bookings/active` answers 200 with `booking: null`, so "nothing
+  booked" is a layout state rather than an error.
 - **Three parallel calls, no aggregate endpoint.** The feed is shared and
   cacheable, the pass is per-user and must be fresh. A failing pass call stays
   silent instead of blanking the feed.
@@ -476,8 +475,6 @@ driven end to end in a browser (sign in → Events → Nearby → pass).
   - A stale flag (the user became a host on another device) makes onboarding
     return 409; the app treats that as "already a host", flips the flag and
     loads the dashboard rather than showing an error.
-- `app/pass/[id].tsx` re-mints the five-minute pass on a timer, so the code on
-  screen is never the one that just expired.
 
 Screens reached from the home screen but **not** in the canvas --
 `bookings`, `host`, `event/[id]` -- are built plainly from the same tokens so
@@ -635,7 +632,7 @@ it needs `expo-secure-store` on native and is a separate decision.
 | `SpotPhoto` / `SpotPricing` | a spot's photos in display order, and one rate per vehicle type for the whole spot |
 | `Organizer` / `OrganizerMember` | the business entity and its staff logins; listings and settlements hang off the entity |
 | `ParkingCapacity` | per `(listing, vehicleType)`: `totalCapacity`, `bookedCount`, `price` |
-| `Booking` | `quantity`, `amount` snapshot, `status`, `idempotencyKey` unique, `qrToken` unique |
+| `Booking` | `quantity`, `amount` snapshot, `status`, `idempotencyKey` unique |
 | `Payment` | separate from `Booking` because payment state and booking state are different machines; gateway-neutral `gateway*` ids, written with the booking |
 | `Settlement` / `SettlementItem` | per-period payout with a per-booking breakdown; paid to an organizer **or** a host (DB `CHECK`) |
 
@@ -757,7 +754,6 @@ open group left.
 | GET | `/bookings` | JWT | Working; driver-scoped, cursor paginated |
 | GET | `/bookings/active` | JWT | Working; the home screen's pass card |
 | GET | `/bookings/:id` | JWT | Working |
-| GET | `/bookings/:id/pass` | JWT | Working; mints a 5-minute pass |
 | POST | `/bookings` | JWT | Working; atomic and idempotent |
 | GET | `/payments` | JWT | The driver's own payments, no gateway ids. No POST: the row is opened with its booking |
 | GET | `/host/profile` | JWT | Working; `profile: null` for a non-host |
@@ -816,18 +812,21 @@ a live Postgres:
   racing case is covered by catching the unique violation: the loser's whole
   transaction rolls back, its capacity increment included. A key belonging to
   *another* user answers `409` rather than handing over their booking.
-- **Server-derived fields.** `driverId` comes from the JWT, `amount` from
-  `ParkingCapacity.price`, and `qrToken` from `randomBytes(32)`. None of the
-  three is accepted from the request body any more.
+- **Server-derived fields.** `driverId` comes from the JWT and `amount` from
+  the spot's price. Neither is accepted from the request body.
 
-### Passes
+### No gate pass in v1
 
-`qrToken` is the durable secret and never appears in any response. Displaying
-a pass calls `GET /bookings/:id/pass`, which returns a JWT with `typ:
-"gate-pass"`, the booking id and a hash of `qrToken`, valid for five minutes.
-A screenshot is therefore worthless within minutes, and rotating `qrToken`
-invalidates every pass already issued. **The gate scanner that verifies these
-is not built** -- `pass.service.verify` exists for it.
+Removed on 2026-10-01 (owner's decision): `Booking.qrToken`, `pass.service`,
+`GET /bookings/:id/pass`, the app's pass screen and `react-native-qrcode-svg`.
+Nothing ever scanned a pass, and most spots are gate-code, intercom or open
+access, where nobody would. A confirmed booking releases the address, access
+instructions and bay; the host's booking list shows the driver's first name
+and plate to check at the gate; "I can't use this parking" covers a driver
+turned away. If check-in comes back (society guards), the plan discussed was
+a pass valid for the whole stay (saved for basements with no signal), a
+six-digit fallback code, and a host scan screen -- never built; the old
+five-minute pass is in git history before this change.
 
 ---
 
@@ -854,7 +853,6 @@ Also missing:
   row and the Cashfree order and returns `checkout`; nothing yet takes the
   money (app SDK), verifies it (Get Payments / webhook) or refunds it -- so
   nothing reaches `CONFIRMED` on its own. See `specs/cashfree-payments_design.md`.
-- **The gate scanner.** Passes are minted but nothing verifies them yet.
 - **Settlement calculation.** Commission and payout maths are not written.
   Hosts are paid through the same periodic engine as organizers in v1; instant
   payout (Razorpay Route) is a deliberate omission -- it needs a linked
@@ -908,18 +906,25 @@ Also missing:
   driver's list is read. Cancellation quotes and applies one policy
   (`be/src/config/pricing.ts`); refunds are their own table. Extra time is a
   PENDING child booking (`extendsBookingId`) so it is held while being paid
-  for. Design: `specs/driver-journey_design.md`.
+  for. Design: `specs/driver-journey_design.md`. Since 2026-10-01 it is paid
+  exactly like a booking -- its own Payment row and Cashfree order with the
+  host's split, paid on the same pay screen by its own id, confirmed or
+  refunded by the same code; confirming it reopens a stay the sweep had
+  already closed. Options stay 30 min / 1 hr / 2 hr. Design:
+  `specs/extension-payments_design.md`.
 - **`/spots/nearby` does not subtract existing bookings.** It matches a search
   against the host's *availability* only, so a spot whose hours are already
   taken still comes back as a result. The driver finds out at checkout, from
   the 409 the `EXCLUDE` constraint produces. Honest, but late:
   `booking.service.bookedRanges` exists to fix this and has no route yet.
-- **Payments are half wired.** The API opens a Cashfree order with each spot
-  booking (`PAYMENT_PROVIDER=cashfree`); the app's pay UI still goes through
-  one seam, `fe/src/lib/payments.ts`, which answers NOT_CONFIGURED until the
-  Cashfree SDK is connected there. A booking becomes CONFIRMED from the
-  gateway's webhook on the API, never from the app. Until then every booking
-  stops at a PENDING hold; later states are tested by setting data directly.
+- **Payments and refunds go through Cashfree** (`PAYMENT_PROVIDER=cashfree`,
+  `specs/cashfree-payments_design.md`). Every `Refund` row -- driver cancel
+  (FULL / LATE), late payments (HOLD_LAPSED, CANCELLED_BEFORE_PAYMENT,
+  PAID_AFTER_STAY), an upheld problem report -- is sent after its transaction
+  commits, retried by a 60 s job (5 sends max), reconciled by Get Refund and
+  `REFUND_STATUS_WEBHOOK`; partial refunds are split 90/10 with
+  `refund_splits`; failed ones wait for `POST /admin/refunds/:id/retry`
+  (3 attempts). Design: `specs/cashfree-refunds_design.md`.
 - **Migrations are dev-shaped.** One `CREATE` per table, edited in place as
   the schema changes. Before the first production deploy they become the
   baseline, and every later change is a new additive migration.

@@ -150,6 +150,62 @@ export interface GatewaySettlement {
 }
 
 /**
+ * Money back to the payer, on the order it was paid against.
+ */
+export interface CreateRefundInput {
+  /** The order the payment was made on. */
+  orderId: string;
+  /** Our id for this refund: 3-40 letters and digits, unique per order. */
+  refundId: string;
+  /** Rupees with at most two decimals, no more than was paid. */
+  amount: string;
+  /** For the gateway's dashboard and the payer's statement: ids and rules only. */
+  note: string;
+  /**
+   * Who bears what of it (Easy Split): each payee's balance is debited this
+   * much, the rest comes out of GatePass's share. Rupees, exact to the paisa.
+   */
+  splits?: { vendorId: string; amount: string }[];
+  /** A UUID, the same on every retry of this refund. */
+  idempotencyKey: string;
+}
+
+/**
+ * Where a refund stands, in GatePass's words:
+ * - PENDING: accepted, on its way (the gateway's PENDING, ONHOLD, PENDING_APPROVAL).
+ * - SUCCESS: the money has gone back.
+ * - FAILED: it won't -- cancelled or rejected by the gateway.
+ * Anything the gateway adds later reads as PENDING: never as money returned.
+ */
+export type GatewayRefundStatus = "PENDING" | "SUCCESS" | "FAILED";
+
+export interface GatewayRefund {
+  /** Our id, as sent. */
+  refundId: string;
+  /** The gateway's own id for it (Cashfree cf_refund_id). */
+  refundRef: string;
+  orderId: string;
+  status: GatewayRefundStatus;
+  /** The gateway's own status word, kept for support and logs. */
+  providerStatus: string;
+  /** Rupees, exact to the paisa. */
+  amount: string;
+  /** The bank's reference (ARN), once it has one. */
+  bankReference: string | null;
+  /** The gateway's description of the status, when it gives one. */
+  description: string | null;
+  processedAt: Date | null;
+}
+
+/** createRefund with a refund id the gateway already has: read that one instead. */
+export class RefundExistsError extends Error {
+  constructor(readonly orderId: string, readonly refundId: string) {
+    super(`Refund ${refundId} already exists on order ${orderId}`);
+    this.name = "RefundExistsError";
+  }
+}
+
+/**
  * A webhook the gateway sent, once its signature has checked out -- reduced
  * to what GatePass acts on. For a payment or a vendor it is only which one:
  * what happened is then asked of the gateway, so nothing in the body is
@@ -160,6 +216,8 @@ export type GatewayNotice =
   | { kind: "PAYMENT"; type: string; orderId: string }
   | { kind: "VENDOR_STATUS"; type: string; vendorId: string }
   | { kind: "VENDOR_SETTLEMENT"; type: string; settlement: GatewaySettlement }
+  /** A refund moved: which one. Its state is then asked of the gateway. */
+  | { kind: "REFUND"; type: string; orderId: string; refundId: string }
   /** Signed, but nothing GatePass handles (or a body it can't read). */
   | { kind: "OTHER"; type: string };
 
@@ -220,6 +278,14 @@ export interface PaymentGateway {
 
   /** Every payment attempt on an order, as the gateway sees it now. */
   getOrderPayments(orderId: string): Promise<GatewayPayment[]>;
+
+  /**
+   * Sends money back on a paid order. Throws RefundExistsError when the
+   * refund id was already used on it -- an earlier send got through.
+   */
+  createRefund(input: CreateRefundInput): Promise<GatewayRefund>;
+  /** One refund, as the gateway sees it now. */
+  getRefund(orderId: string, refundId: string): Promise<GatewayRefund>;
 
   /**
    * A webhook, if it is genuinely the gateway's: null when the signature

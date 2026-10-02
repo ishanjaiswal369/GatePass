@@ -73,7 +73,6 @@ export const bookingRequests = {
   list: { query: listBookingsQuery } satisfies RequestSchemas,
   createSpot: { body: createSpotBookingBody } satisfies RequestSchemas,
   getById: { params: bookingIdParams } satisfies RequestSchemas,
-  pass: { params: bookingIdParams } satisfies RequestSchemas,
   cancellation: { params: bookingIdParams } satisfies RequestSchemas,
   cancel: { params: bookingIdParams, body: cancelBookingBody } satisfies RequestSchemas,
   extensionOptions: { params: bookingIdParams } satisfies RequestSchemas,
@@ -85,7 +84,6 @@ export type CreateSpotBookingInput = RequestInput<
   typeof bookingRequests.createSpot
 >;
 export type GetBookingInput = RequestInput<typeof bookingRequests.getById>;
-export type BookingPassInput = RequestInput<typeof bookingRequests.pass>;
 export type CancellationInput = RequestInput<typeof bookingRequests.cancellation>;
 export type CancelBookingInput = RequestInput<typeof bookingRequests.cancel>;
 export type ExtensionOptionsInput = RequestInput<typeof bookingRequests.extensionOptions>;

@@ -16,6 +16,7 @@
     "test:migrations": "node --import tsx/esm test/migrations.ts",
     "test:fixture": "node --import tsx/esm test/smoke-fixture.ts",
     "test:cashfree": "node --import tsx/esm test/cashfree.ts",
+    "test:refunds": "node --import tsx/esm test/cashfree-refunds.ts",
     "tunnel": "cloudflared tunnel --url http://127.0.0.1:3000"
   },
   "dependencies": {

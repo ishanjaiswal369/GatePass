@@ -1,9 +1,13 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { IntegrationError } from "../../errors.js";
 import {
+  RefundExistsError,
   UPI_APPS,
   VendorExistsError,
   type CreateOrderInput,
+  type CreateRefundInput,
+  type GatewayRefund,
+  type GatewayRefundStatus,
   type GatewayOrder,
   type GatewayNotice,
   type GatewaySettlement,
@@ -23,6 +27,8 @@ import type { CashfreeClient } from "./client.js";
 import {
   cashfreeOrderSchema,
   cashfreePaymentListSchema,
+  cashfreeRefundSchema,
+  cashfreeRefundWebhookSchema,
   cashfreeUpiPaySchema,
   cashfreePaymentWebhookSchema,
   cashfreeSettlementWebhookSchema,
@@ -30,6 +36,7 @@ import {
   cashfreeWebhookSchema,
   cashfreeVendorSchema,
   type CashfreeCreateOrderBody,
+  type CashfreeCreateRefundBody,
   type CashfreeVendorBody,
 } from "./schemas.js";
 
@@ -195,6 +202,50 @@ export class CashfreeGateway implements PaymentGateway {
     });
   }
 
+  async createRefund(input: CreateRefundInput): Promise<GatewayRefund> {
+    const body: CashfreeCreateRefundBody = {
+      // Exact to the paisa already, so the number can't round.
+      refund_amount: Number(input.amount),
+      refund_id: input.refundId,
+      refund_note: input.note,
+      refund_speed: "STANDARD",
+      ...(input.splits?.length
+        ? { refund_splits: input.splits.map((split) => ({ vendor_id: split.vendorId, amount: Number(split.amount) })) }
+        : {}),
+    };
+
+    let raw: unknown;
+    try {
+      raw = await this.client.request({
+        operation: "createRefund",
+        method: "POST",
+        path: `/orders/${encodeURIComponent(input.orderId)}/refunds`,
+        body,
+        idempotencyKey: input.idempotencyKey,
+      });
+    } catch (error) {
+      // The refund id is ours and fixed per attempt, so "already exists" is an
+      // earlier send that got through with its answer lost.
+      if (error instanceof IntegrationError && isDuplicate(error)) throw new RefundExistsError(input.orderId, input.refundId);
+      throw error;
+    }
+
+    const refund = toRefund(raw, "createRefund", input.orderId, input.refundId);
+    if (toPaise(Number(refund.amount)) !== toPaise(body.refund_amount)) {
+      throw unexpected("createRefund", `asked to refund ${body.refund_amount}, refund is for ${refund.amount}`);
+    }
+    return refund;
+  }
+
+  async getRefund(orderId: string, refundId: string): Promise<GatewayRefund> {
+    const raw = await this.client.request({
+      operation: "getRefund",
+      method: "GET",
+      path: `/orders/${encodeURIComponent(orderId)}/refunds/${encodeURIComponent(refundId)}`,
+    });
+    return toRefund(raw, "getRefund", orderId, refundId);
+  }
+
   readWebhook(rawBody: string, headers: Record<string, string | string[] | undefined>): GatewayNotice | null {
     const header = (name: string) => {
       const value = headers[name];
@@ -230,6 +281,15 @@ export class CashfreeGateway implements PaymentGateway {
     if (type.startsWith("PAYMENT_")) {
       const payment = cashfreePaymentWebhookSchema.safeParse(data);
       return payment.success ? { kind: "PAYMENT", type, orderId: payment.data.order.order_id } : { kind: "OTHER", type };
+    }
+
+    // Refunds we started. AUTO_REFUND_STATUS_WEBHOOK (the gateway refunding a
+    // duplicate payment by itself) has no refund of ours behind it: OTHER.
+    if (type === "REFUND_STATUS_WEBHOOK") {
+      const refund = cashfreeRefundWebhookSchema.safeParse(data);
+      return refund.success
+        ? { kind: "REFUND", type, orderId: refund.data.refund.order_id, refundId: refund.data.refund.refund_id }
+        : { kind: "OTHER", type };
     }
 
     if (type === "VENDOR_STATUS_UPDATE") {
@@ -282,6 +342,47 @@ export class CashfreeGateway implements PaymentGateway {
     });
     return toVendor(raw, "getVendor", vendorId);
   }
+}
+
+/**
+ * Cashfree's refund statuses in GatePass's three. ONHOLD and
+ * PENDING_APPROVAL are still on their way; a word Cashfree adds later reads
+ * as PENDING -- never as money returned, and never as a failure that would
+ * invite a second refund.
+ */
+const REFUND_STATUSES: Record<string, GatewayRefundStatus> = {
+  SUCCESS: "SUCCESS",
+  PENDING: "PENDING",
+  ONHOLD: "PENDING",
+  PENDING_APPROVAL: "PENDING",
+  CANCELLED: "FAILED",
+  REJECTED: "FAILED",
+};
+
+function toRefund(raw: unknown, operation: string, orderId: string, refundId: string): GatewayRefund {
+  const entity = Array.isArray(raw) && raw.length === 1 ? raw[0] : raw;
+  const parsed = cashfreeRefundSchema.safeParse(entity);
+  if (!parsed.success) {
+    throw unexpected(operation, `response did not match the refund schema (${parsed.error.issues.map((i) => i.path.join(".")).join(", ")})`);
+  }
+
+  const refund = parsed.data;
+  if (refund.refund_id !== refundId || refund.order_id !== orderId) {
+    throw unexpected(operation, `asked for refund ${refundId} on ${orderId}, got ${refund.refund_id} on ${refund.order_id}`);
+  }
+
+  const status = refund.refund_status.toUpperCase();
+  return {
+    refundId: refund.refund_id,
+    refundRef: refund.cf_refund_id,
+    orderId: refund.order_id,
+    status: REFUND_STATUSES[status] ?? "PENDING",
+    providerStatus: status,
+    amount: refund.refund_amount.toFixed(2),
+    bankReference: present(refund.refund_arn),
+    description: present(refund.status_description),
+    processedAt: whenOf(refund.processed_at),
+  };
 }
 
 function isDuplicate(error: IntegrationError): boolean {

@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { bookingRuleSelect, ruleViolation } from "../lib/booking-rules.js";
 import { coarsen } from "../lib/location-privacy.js";
@@ -14,24 +13,15 @@ import { prisma } from "../lib/prisma.js";
 import { audit } from "../lib/security-log.js";
 import { driverFees, stayPrice } from "../lib/stay-price.js";
 import { windowsCover } from "../lib/venue-time.js";
-import * as passService from "./pass.service.js";
 import * as paymentService from "./payment.service.js";
 import type { Checkout } from "./payment.service.js";
 import * as paymentConfirmation from "./payment-confirmation.service.js";
+import * as refundService from "./refund.service.js";
 
 export type BookingScope = "upcoming" | "active" | "past";
 
 /** Listing states a driver is allowed to book into. */
 const BOOKABLE_LISTING_STATUSES = ["PUBLISHED", "ONGOING"];
-
-/**
- * 32 random bytes, so the token cannot be guessed from a booking id or from
- * another driver's pass. It is the durable secret behind a pass; the short
- * lived token the app displays is derived from it in pass.service.
- */
-export function generateQrToken(): string {
-  return randomBytes(32).toString("base64url");
-}
 
 /**
  * The projection every driver-facing booking response is built from.
@@ -356,6 +346,9 @@ export async function getForDriver(
   // no-op for anything already settled), so the pay screen's polling is what
   // confirms a paid booking even before the webhook arrives.
   await paymentConfirmation.refreshPayment(bookingId, driverId);
+  // A refund on its way is asked after too (throttled), so the booking says
+  // "refunded" even when the gateway's webhook never arrived.
+  await refundService.refreshForBooking(bookingId);
 
   const booking = await prisma.booking.findFirst({
     // driverId in the filter, not checked after the read: a "not yours" and a
@@ -385,55 +378,6 @@ export async function getForDriver(
   }
 
   return { ...present({ ...rest, listing: publicListing }), access };
-}
-
-/**
- * Mints a short-lived pass for the driver's own booking.
- *
- * qrToken is read here and handed straight to the signer; it is not part of
- * any response projection, so the durable secret never leaves the server even
- * though the pass derived from it does.
- */
-export async function issuePassForDriver(bookingId: string, driverId: string) {
-  const booking = await prisma.booking.findFirst({
-    where: { id: bookingId, driverId },
-    select: {
-      id: true,
-      status: true,
-      qrToken: true,
-      vehicleType: true,
-      startsAt: true,
-      listing: { select: { name: true, venueName: true } },
-    },
-  });
-
-  if (!booking) {
-    throw notFound("Booking not found");
-  }
-
-  if (booking.status !== "CONFIRMED") {
-    throw badRequest("This booking has no pass yet");
-  }
-
-  const listing = booking.listing;
-  if (!listing) {
-    throw notFound("Booking not found");
-  }
-
-  // The field names are the pass screen's, from when event passes carried a
-  // gate and an event date. A spot has no gate -- the access instructions come
-  // with the booking instead -- and its "date" is when the stay starts.
-  return {
-    booking: {
-      id: booking.id,
-      gate: null,
-      vehicleType: booking.vehicleType ?? "CAR",
-      eventName: listing.name,
-      venueName: listing.venueName,
-      eventDate: booking.startsAt,
-    },
-    pass: passService.issue(booking.id, booking.qrToken),
-  };
 }
 
 // ------------------------------------------------------- host spot booking --
@@ -500,10 +444,9 @@ export async function releaseExpiredHolds(
 /**
  * Books a host's spot for a stretch of time.
  *
- * Three things are never taken from the request: the driver comes from the
- * JWT, the price from SpotPricing, and the QR token is generated here.
- * Accepting any of them from the caller would let someone book as another
- * user, at a price they choose, with a pass they minted.
+ * Two things are never taken from the request: the driver comes from the
+ * JWT and the price from SpotPricing. Accepting either from the caller would
+ * let someone book as another user, or at a price they choose.
  *
  * With a payment gateway configured, the hold comes with its gateway order:
  * the driver's phone is checked before anything is held, the Payment row is
@@ -630,7 +573,6 @@ async function placeSpotBooking(
           platformFee,
           taxAmount,
           idempotencyKey: input.idempotencyKey,
-          qrToken: generateQrToken(),
           createdBy: driverId,
           updatedBy: driverId,
         },

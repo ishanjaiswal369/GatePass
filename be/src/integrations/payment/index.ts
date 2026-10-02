@@ -39,10 +39,13 @@ export function getPaymentGateway(): PaymentGateway | null {
   return cached;
 }
 
-export { UPI_APPS, VendorExistsError } from "./provider.js";
+export { RefundExistsError, UPI_APPS, VendorExistsError } from "./provider.js";
 export type {
   ClientHints,
   CreateOrderInput,
+  CreateRefundInput,
+  GatewayRefund,
+  GatewayRefundStatus,
   GatewayNotice,
   GatewaySettlement,
   GatewaySettlementStatus,

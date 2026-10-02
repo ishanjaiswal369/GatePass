@@ -56,6 +56,9 @@ model Payment {
 /// The amount is decided by the cancellation policy at the moment of
 /// cancelling and never recomputed. Moving it to REFUNDED is the payment
 /// integration's job.
+/// Money going back to a driver (specs/cashfree-refunds_design.md). Opened
+/// inside the transaction that decides it, sent to the gateway by
+/// refund.service once that has committed.
 model Refund {
   id          String    @id @default(uuid())
   bookingId   String    @unique
@@ -63,9 +66,26 @@ model Refund {
   status      String    @default("REFUND_PENDING")
   /// The rule that set the amount, shown back to the driver.
   policy      String
-  /// The gateway's reference once the refund is sent.
+  /// The bank's reference for the refund (Cashfree refund_arn), once it has one.
   reference   String?
   processedAt DateTime?
+  /// Our refund_id at the gateway for the current attempt, derived from this
+  /// row: a repeat of the same attempt is refused by the gateway, never doubled.
+  gatewayRefundId  String?  @unique
+  /// The gateway's own id for it (Cashfree cf_refund_id).
+  gatewayRefundRef String?
+  /// The host's part of this refund (Easy Split), fixed on the first send.
+  splitAmount Decimal?
+  /// 1 for the first; an admin retry after a failure is the next (at most 3).
+  attempt     Int       @default(1)
+  /// Sends of the current attempt that got no answer from the gateway.
+  sendTries   Int       @default(0)
+  /// When the gateway accepted the current attempt.
+  submittedAt DateTime?
+  /// The last send or status check: claims one at a time, and spaces retries.
+  checkedAt   DateTime?
+  /// Why it FAILED, in the gateway's words or ours.
+  failureReason String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 

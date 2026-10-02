@@ -7,6 +7,7 @@ import { bookingRef, rupees } from "../lib/format.js";
 import { prisma } from "../lib/prisma.js";
 import { audit } from "../lib/security-log.js";
 import { notify } from "./notification.service.js";
+import * as refundService from "./refund.service.js";
 
 /**
  * "I can't use what I paid for" (Phase 4).
@@ -253,12 +254,18 @@ export async function resolve(reportId: string, adminUserId: string, input: { re
     if (changed.count === 0) throw conflict("This report has already been resolved.");
 
     let refundAmount: Prisma.Decimal | null = null;
+    let refundId: string | null = null;
     if (input.refund) {
       const payment = report.booking.payment;
       if (payment?.status !== "CAPTURED") throw conflict("Nothing was paid for this booking.");
       if (report.booking.refund) throw conflict("This booking has already been refunded.");
       refundAmount = payment.amount;
-      await tx.refund.create({ data: { bookingId: report.bookingId, amount: payment.amount, policy: "PROBLEM_REPORT" } });
+      refundId = (
+        await tx.refund.create({
+          data: { bookingId: report.bookingId, amount: payment.amount, policy: "PROBLEM_REPORT" },
+          select: { id: true },
+        })
+      ).id;
     }
 
     await notify(
@@ -289,9 +296,17 @@ export async function resolve(reportId: string, adminUserId: string, input: { re
       );
     }
 
-    return { reportId: report.id, bookingId: report.bookingId, refunded: input.refund, amount: refundAmount?.toString() ?? null };
+    return {
+      reportId: report.id,
+      bookingId: report.bookingId,
+      refunded: input.refund,
+      amount: refundAmount?.toString() ?? null,
+      refundId,
+    };
   });
 
-  audit("PROBLEM_RESOLVED", { userId: adminUserId, ...result });
-  return result;
+  const { refundId, ...shown } = result;
+  audit("PROBLEM_RESOLVED", { userId: adminUserId, ...shown });
+  await refundService.sendAfterCommit(refundId);
+  return shown;
 }

@@ -1,6 +1,5 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type {
-  BookingPassInput,
   CancelBookingInput,
   CancellationInput,
   CreateExtensionInput,
@@ -47,20 +46,6 @@ export const bookingController = {
       await bookingService.getForDriver(input.params.id, request.user.userId)
     );
   },
-
-  pass: async (
-    input: BookingPassInput,
-    request: FastifyRequest,
-    reply: FastifyReply
-  ) => {
-    return reply.send(
-      await bookingService.issuePassForDriver(
-        input.params.id,
-        request.user.userId
-      )
-    );
-  },
-
 
   createSpot: async (
     input: CreateSpotBookingInput,

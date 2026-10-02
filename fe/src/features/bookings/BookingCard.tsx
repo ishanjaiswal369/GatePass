@@ -71,7 +71,13 @@ export function BookingCard({ row, now }: { row: BookingRow; now: number }) {
             tone="warning"
           />
         ) : null}
-        {row.refund ? (
+        {row.refund?.status === "FAILED" ? (
+          <Line
+            icon={<ClockIcon size={15} color={colors.accentInk} />}
+            text={`Refund of ${formatRupees(row.refund.amount)} delayed. We're on it.`}
+            tone="warning"
+          />
+        ) : row.refund ? (
           <Line
             icon={<ClockIcon size={15} color={GREEN} />}
             text={

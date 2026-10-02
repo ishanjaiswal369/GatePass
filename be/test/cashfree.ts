@@ -120,6 +120,19 @@ const paymentsFor = (entries: { status: string; amount: number; ref?: string; or
   })),
 });
 
+/** A Create Refund answer: accepted, still on its way (refunds have their own suite, test/cashfree-refunds.ts). */
+const refundFor = (req: Seen) => ({
+  status: 200,
+  body: {
+    cf_refund_id: "1553338",
+    refund_id: req.body.refund_id,
+    order_id: decodeURIComponent(req.url.split("/")[2]!),
+    entity: "refund",
+    refund_amount: req.body.refund_amount,
+    refund_status: "PENDING",
+  },
+});
+
 /** Whatever Cashfree would say by default: an order for /orders, a vendor being set up otherwise. */
 const byDefault = (req: Seen) =>
   req.url.startsWith("/easy-split/vendors")
@@ -128,7 +141,9 @@ const byDefault = (req: Seen) =>
       ? upiFor()(req)
       : /^\/orders\/[^/]+\/payments$/.test(req.url)
         ? paymentsFor([])(req)
-        : orderFor(req);
+        : /^\/orders\/[^/]+\/refunds$/.test(req.url)
+          ? refundFor(req)
+          : orderFor(req);
 
 const server = createServer((request, response) => {
   let data = "";

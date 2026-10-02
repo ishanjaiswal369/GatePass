@@ -20,6 +20,8 @@ export const NOTIFICATION_KINDS = {
   ENDING_SOON: "endingSoon",
   REFUND_STARTED: "refunds",
   REFUND_SENT: "refunds",
+  /** The gateway couldn't return the money; support retries it. Always delivered. */
+  REFUND_FAILED: null,
   REVIEW_REMINDER: "reviewReminders",
   PROBLEM_LOGGED: null,
   PROBLEM_RESOLVED: null,

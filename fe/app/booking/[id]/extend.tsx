@@ -16,7 +16,6 @@ import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { clockTime, timeLeft } from "@/lib/booking";
 import { keyFor, type Attempt } from "@/lib/idempotency";
 import { formatRupees } from "@/lib/money";
-import { payForExtension } from "@/lib/payments";
 import { useSession } from "@/providers/SessionProvider";
 import { colors, radius, space } from "@/theme";
 import type { ExtensionOptions } from "@/types/api.types";
@@ -31,7 +30,8 @@ function describe(minutes: number): string {
  * Every choice is shown, including the ones that can't be had, each with the
  * reason -- "booked from 6:00 PM" tells a driver whether to move the car,
  * where a missing option would only make them wonder. The extra time is held
- * for them the moment they choose it, and becomes theirs once paid.
+ * for them the moment they choose it, and becomes theirs once paid -- on the
+ * same pay screen as a booking, by the extra time's own id.
  */
 export default function ExtendScreen() {
   const { token, isRestoring } = useSession();
@@ -41,7 +41,6 @@ export default function ExtendScreen() {
   const [data, setData] = useState<ExtensionOptions | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [minutes, setMinutes] = useState<number | null>(null);
-  const [payNote, setPayNote] = useState<string | null>(null);
   const attempt = useRef<Attempt | null>(null);
 
   const load = useCallback(async () => {
@@ -60,28 +59,18 @@ export default function ExtendScreen() {
     void load();
   }, [load]);
 
-  const pay = async () => {
-    if (!token) return;
-    const outcome = await payForExtension();
-    if (outcome.status === "PAID") {
-      router.replace({ pathname: "/booking/[id]", params: { id: id! } });
-    } else if (outcome.status === "FAILED") {
-      setPayNote(`Payment couldn't be completed. ${outcome.message}`);
-    } else if (outcome.status === "NOT_CONFIGURED") {
-      setPayNote(
-        "Online payment isn't switched on in this version yet. The extra time is held for you for 15 minutes, but it isn't yours until it's paid."
-      );
-    }
-  };
+  // Replace, not push: back from paying goes to the booking, never to a
+  // choice that has already been held.
+  const pay = (extensionId: string) =>
+    router.replace({ pathname: "/booking/[id]/pay", params: { id: extensionId, method: "UPI", parent: id! } });
 
   const { run: hold, busy, error } = useAsyncAction(async () => {
     if (!token || !id || minutes === null) return;
     // One key per choice: a retry after a dropped response replays the same
     // hold, while picking a different length is a new attempt.
     const idempotencyKey = keyFor(attempt, `${id}|${minutes}`);
-    await bookingsApi.createExtension(token, id, { minutes, idempotencyKey });
-    await load();
-    await pay();
+    const { extensionId } = await bookingsApi.createExtension(token, id, { minutes, idempotencyKey });
+    pay(extensionId);
   });
 
   if (isRestoring) return <RestoringScreen />;
@@ -115,9 +104,8 @@ export default function ExtendScreen() {
               <Button
                 label={`Pay ${formatRupees(data.pending.amount)} & Extend`}
                 size="lg"
-                onPress={() => void pay()}
+                onPress={() => pay(data.pending!.id)}
               />
-              {payNote ? <Text style={s.note}>{payNote}</Text> : null}
             </View>
           ) : (
             <>
@@ -183,7 +171,6 @@ export default function ExtendScreen() {
                     onPress={hold}
                     busy={busy}
                   />
-                  {payNote ? <Text style={s.note}>{payNote}</Text> : null}
                 </>
               ) : null}
             </>
@@ -225,5 +212,4 @@ const s = StyleSheet.create({
   noticeTitle: { fontSize: 15, fontWeight: "700", color: colors.accentInk },
   noticeBody: { fontSize: 13, lineHeight: 19, color: colors.accentInk },
   summary: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: space.lg, paddingVertical: space.sm },
-  note: { fontSize: 13, lineHeight: 19, color: colors.accentInk, fontWeight: "600" },
 });

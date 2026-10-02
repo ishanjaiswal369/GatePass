@@ -9,6 +9,7 @@ import { hostOperationsController } from "./controllers/host-operations.controll
 import { hostPayoutController } from "./controllers/host-payout.controller.js";
 import { notificationController } from "./controllers/notification.controller.js";
 import { paymentController } from "./controllers/payment.controller.js";
+import { refundController } from "./controllers/refund.controller.js";
 import { problemController } from "./controllers/problem.controller.js";
 import { reviewController } from "./controllers/review.controller.js";
 import { settingsController } from "./controllers/settings.controller.js";
@@ -32,6 +33,7 @@ import { hostOperationsRequests } from "./requests/host-operations.request.js";
 import { hostPayoutRequests } from "./requests/host-payout.request.js";
 import { notificationRequests } from "./requests/notification.request.js";
 import { problemRequests } from "./requests/problem.request.js";
+import { refundRequests } from "./requests/refund.request.js";
 import { reviewRequests } from "./requests/review.request.js";
 import { settingsRequests } from "./requests/settings.request.js";
 import { spotRequests } from "./requests/spot.request.js";
@@ -251,11 +253,6 @@ export function registerApi(app: App): void {
     "/bookings/:id",
     driver,
     request(bookingRequests.getById, bookingController.getById)
-  );
-  app.get(
-    "/bookings/:id/pass",
-    driver,
-    request(bookingRequests.pass, bookingController.pass)
   );
   // Cancelling: the quote first, so the driver sees the refund before
   // committing; the POST applies the same policy to the same row.
@@ -574,6 +571,18 @@ export function registerApi(app: App): void {
     "/admin/problems/:id/resolve",
     admin,
     request(problemRequests.resolve, problemController.resolve)
+  );
+  // Refunds at the gateway: the list (with the ids to reconcile against the
+  // gateway's dashboard) and a retry of a failed one, at most 3 attempts.
+  app.get(
+    "/admin/refunds",
+    admin,
+    request(refundRequests.adminList, refundController.adminList)
+  );
+  app.post(
+    "/admin/refunds/:id/retry",
+    admin,
+    request(refundRequests.retry, refundController.retry)
   );
   app.post(
     "/admin/host-payout-status",

@@ -3,9 +3,9 @@ import type {
   BookingRow,
   CancellationQuote,
   ExtensionOptions,
-  GatePassResult,
   HeldSpotBooking,
   Page,
+  PaymentCheckout,
   ReviewInput,
   VehicleType,
 } from "@/types/api.types";
@@ -24,9 +24,6 @@ export const list = (
 /** 200 with `booking: null` is the normal "not parked" answer, not an error. */
 export const active = (token: string) =>
   request<{ booking: BookingRow | null }>("/bookings/active", { token });
-
-export const getPass = (token: string, bookingId: string) =>
-  request<GatePassResult>(`/bookings/${bookingId}/pass`, { token });
 
 /**
  * Books a host's spot for a stretch of time. The key is generated once per
@@ -69,15 +66,17 @@ export const extensionOptions = (token: string, bookingId: string) =>
   request<ExtensionOptions>(`/bookings/${bookingId}/extensions`, { token });
 
 /**
- * Holds extra time on a running stay, for the driver to pay for. As with a
- * booking, the key is generated once per attempt and reused on retry.
+ * Holds extra time on a running stay, for the driver to pay for, and opens
+ * its order. As with a booking, the key is generated once per attempt and
+ * reused on retry; the extra time is then paid on the pay screen by its own
+ * id, `extensionId`.
  */
 export const createExtension = (
   token: string,
   bookingId: string,
   input: { minutes: number; idempotencyKey: string }
 ) =>
-  request<{ extensionId: string; booking: BookingDetail }>(
+  request<{ extensionId: string; checkout: PaymentCheckout | null; booking: BookingDetail }>(
     `/bookings/${bookingId}/extensions`,
     { method: "POST", body: input, token }
   );

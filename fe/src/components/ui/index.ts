@@ -1,4 +1,3 @@
-export { ActivePassCard } from "./ActivePassCard";
 export { BottomNav, type NavKey } from "./BottomNav";
 export { BrandHeader } from "./BrandHeader";
 export { BrandSplash } from "./BrandSplash";

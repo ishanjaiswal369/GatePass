@@ -6,9 +6,9 @@ import { assertNotBlocked, lockListing } from "../lib/listing-lock.js";
 import { prisma } from "../lib/prisma.js";
 import { audit } from "../lib/security-log.js";
 import { venueDayAndMinute, windowsCover, type WeeklyWindow } from "../lib/venue-time.js";
+import * as paymentService from "./payment.service.js";
 import {
   HOLD_MINUTES,
-  generateQrToken,
   getForDriver,
   isOverlapViolation,
   releaseExpiredHolds,
@@ -22,6 +22,10 @@ import {
  * by moving the parked booking's `endsAt`. That way the overlap guard holds
  * the extra hours while they are being paid for, an unpaid extension lapses
  * like any other hold, and the time is never handed out for free.
+ *
+ * It is paid for exactly like a booking: its own Payment row and gateway
+ * order, with the host's share split out on the order, and it is confirmed
+ * or refunded by the same payment-confirmation code.
  */
 
 const parentRow = {
@@ -215,21 +219,35 @@ export async function options(bookingId: string, driverId: string) {
 }
 
 /**
- * Holds the extra time for the driver to pay for.
+ * Holds the extra time for the driver to pay for, with its gateway order.
  *
  * Replays by idempotency key like any booking. The overlap guard is what
  * refuses time that another driver holds; the checks before it only turn the
  * common cases into a clear message.
+ *
+ * The same three payment steps as a booking (booking.service
+ * createSpotBooking): refuse before holding anything if it couldn't be paid
+ * for, open the Payment row inside the hold's transaction, and open the order
+ * once that has committed -- on a replay too, which is how the app retries an
+ * order that failed to open.
  */
 export async function create(
   bookingId: string,
   driverId: string,
   input: { minutes: number; idempotencyKey: string }
-) {
+): Promise<{ extensionId: string; checkout: paymentService.Checkout | null; booking: Awaited<ReturnType<typeof getForDriver>> }> {
   const now = new Date();
 
+  const parent = await prisma.booking.findFirst({
+    where: { id: bookingId, driverId },
+    select: { listingId: true },
+  });
+  // A booking that isn't theirs is left to loadRunning's 404.
+  if (parent?.listingId) await paymentService.assertCanPay(driverId, parent.listingId);
+
+  let extensionId: string;
   try {
-    const extensionId = await prisma.$transaction(async (tx) => {
+    extensionId = await prisma.$transaction(async (tx) => {
       const existing = await tx.booking.findUnique({
         where: { idempotencyKey: input.idempotencyKey },
         select: { id: true, driverId: true, extendsBookingId: true },
@@ -276,18 +294,18 @@ export async function create(
           quantity: 1,
           amount: priceFor(terms, input.minutes),
           idempotencyKey: input.idempotencyKey,
-          qrToken: generateQrToken(),
           createdBy: driverId,
           updatedBy: driverId,
         },
-        select: { id: true },
+        select: { id: true, amount: true, platformFee: true, taxAmount: true },
       });
+
+      // With the hold, so extra time never exists without its payment row.
+      await paymentService.openPaymentRow(tx, created, driverId);
 
       audit("EXTENSION_HELD", { userId: driverId, bookingId: row.id, extensionId: created.id, minutes: input.minutes });
       return created.id;
     });
-
-    return { extensionId, booking: await getForDriver(bookingId, driverId) };
   } catch (error) {
     if (isOverlapViolation(error)) {
       throw conflict("Another driver has booked this space for part of that time.");
@@ -297,4 +315,10 @@ export async function create(
     }
     throw error;
   }
+
+  // Outside the transaction: a network call must never hold a listing lock,
+  // and a gateway that is down must not undo a valid hold.
+  const checkout = await paymentService.openOrder(extensionId, driverId);
+
+  return { extensionId, checkout, booking: await getForDriver(bookingId, driverId) };
 }

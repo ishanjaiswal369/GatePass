@@ -18,7 +18,6 @@ CREATE TABLE "Booking" (
     "cancelledAt" TIMESTAMP(3),
     "cancellationReason" TEXT,
     "idempotencyKey" TEXT NOT NULL,
-    "qrToken" TEXT NOT NULL,
     "createdBy" TEXT,
     "updatedBy" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -28,7 +27,6 @@ CREATE TABLE "Booking" (
 );
 
 CREATE UNIQUE INDEX "Booking_idempotencyKey_key" ON "Booking"("idempotencyKey");
-CREATE UNIQUE INDEX "Booking_qrToken_key" ON "Booking"("qrToken");
 CREATE INDEX "Booking_listingId_startsAt_idx" ON "Booking"("listingId", "startsAt");
 CREATE INDEX "Booking_driverId_idx" ON "Booking"("driverId");
 CREATE INDEX "Booking_driverId_status_idx" ON "Booking"("driverId", "status");

@@ -9,6 +9,7 @@ import { recordRoutes, routeCount } from "./lib/routes.js";
 import { BUILD_STAMP } from "./lib/build.js";
 import { getPushProvider } from "./integrations/push/index.js";
 import { startNotificationJobs, stopNotificationJobs } from "./services/notification-jobs.service.js";
+import { startRefundJobs, stopRefundJobs } from "./services/refund.service.js";
 
 await app.register(cors, { origin: true });
 await registerRateLimit(app);
@@ -57,6 +58,7 @@ async function start() {
     // Firebase key stops the boot instead of failing quietly later.
     getPushProvider();
     startNotificationJobs();
+    startRefundJobs();
   } catch (err) {
     app.log.fatal({ err }, "failed to start server");
     process.exit(1);
@@ -65,6 +67,7 @@ async function start() {
 
 process.on("SIGINT", async () => {
   stopNotificationJobs();
+  stopRefundJobs();
   await app.close();
   await prisma.$disconnect();
   process.exit(0);

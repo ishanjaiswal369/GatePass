@@ -3,14 +3,15 @@ import { audit } from "../lib/security-log.js";
 import * as hostPayoutLedger from "./host-payout-ledger.service.js";
 import * as hostPayoutService from "./host-payout.service.js";
 import * as paymentConfirmation from "./payment-confirmation.service.js";
+import * as refundService from "./refund.service.js";
 
 export type WebhookOutcome = "HANDLED" | "IGNORED" | "BAD_SIGNATURE";
 
 /**
  * Every webhook the payment gateway sends (POST /webhooks/cashfree): a
  * payment on one of our orders (each order's notify_url), and -- from URLs
- * set in the gateway's dashboard -- a change to a host's payee status or a
- * transfer of a host's money to their bank.
+ * set in the gateway's dashboard -- a refund changing state, a change to a
+ * host's payee status, or a transfer of a host's money to their bank.
  *
  * The signature is checked against the raw body before anything is read from
  * it. Throws when a handler can't finish (usually the gateway can't be asked
@@ -37,8 +38,10 @@ export async function receiveGatewayWebhook(
       return hostPayoutService.onVendorNotice(notice.vendorId);
     case "VENDOR_SETTLEMENT":
       return hostPayoutLedger.recordSettlement(notice.settlement);
+    case "REFUND":
+      return refundService.onRefundNotice(notice.orderId, notice.refundId, now);
     default:
-      // Refunds, disputes... not handled yet. Acknowledged so it isn't resent.
+      // Auto-refunds, disputes... not handled. Acknowledged so it isn't resent.
       audit("GATEWAY_WEBHOOK_IGNORED", { provider: gateway.name, type: notice.type });
       return "IGNORED";
   }
