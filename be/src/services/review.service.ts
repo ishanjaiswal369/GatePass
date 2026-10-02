@@ -108,8 +108,7 @@ function whyNotReviewable(booking: {
   review: { id: string } | null;
 }): string | null {
   if (booking.review) return "You've already reviewed this parking.";
-  // Event parking is rated nowhere, and extra time is part of the stay it
-  // extends -- that stay gets the one review.
+  // Extra time is part of the stay it extends -- that stay gets the one review.
   if (!booking.listingId || booking.extendsBookingId) return "This booking can't be reviewed.";
   if (booking.status === "CANCELLED") return "A cancelled booking can't be reviewed.";
   if (booking.status === "NO_SHOW") return "This booking was marked as a no-show, so it can't be reviewed.";

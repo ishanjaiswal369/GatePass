@@ -126,9 +126,7 @@ export const placeDetails = (
 /**
  * One spot, for a driver deciding whether to book it.
  *
- * `/events/:id` cannot answer this -- it excludes INDEPENDENT_SPOT by design
- * -- so host spots have their own read. Access instructions are not in it:
- * those arrive with a paid booking.
+ * Access instructions are not in it: those arrive with a paid booking.
  */
 export const getById = (token: string, id: string) =>
   request<PublicSpot>(`/spots/${id}`, { token });

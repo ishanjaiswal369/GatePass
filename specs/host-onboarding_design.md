@@ -25,8 +25,11 @@ It is not a rebuild: same routes → requests → controllers → services, same
 | 6 | Pricing (`pricing`) | per vehicle type from step 4; hourly / daily toggles |
 | 7 | Getting in (`access`) | + entry method, bay number, marker |
 | 8 | Proof & permission (`documents`) | + document type, owner vs permission, society/RWA, document states |
-| 9 | Getting paid (`payout`) | four named states, support link |
-| 10 | Review (`review`) | listing preview, Edit per section, checklist that links to steps |
+| 9 | Review (`review`) | listing preview, Edit per section, checklist that links to steps |
+
+Getting paid is not a wizard step: since 2026-09-26 the payout account is set
+up once on the Payouts tab (`host-payouts_design.md`), so the wizard has nine
+steps.
 
 After Submit: the status screen (`/host/spot?id=`) shows *Listing submitted ✓ · Under review*.
 
@@ -47,7 +50,7 @@ ACTIVATED) — `admin-spot.publishIfReady`, unchanged.
 ## Requirements (EARS)
 
 **Wizard**
-- R1. The wizard shall show 10 steps, "N of 10", in the order above; every step has Back, a title, a
+- R1. The wizard shall show 9 steps, "N of 9", in the order above; every step has Back, a title, a
   subtitle, a sticky Continue that is disabled until its required fields are valid, and a footer
   message saying what is missing.
 - R2. When a host continues from step 1, the system shall create a DRAFT; every later Continue saves
@@ -117,17 +120,18 @@ ACTIVATED) — `admin-spot.publishIfReady`, unchanged.
   Needs attention (rejection in this section) with *Fix document*.
 - R29. The document is served only to its host and to admins, never through the public upload URL.
 
-**Step 9 — Getting paid**
+**Getting paid (the Payouts tab, not a wizard step)**
 - R30. States: Ready to be paid (ACTIVATED), Verification pending (PENDING / UNDER_REVIEW), Needs
   attention (REJECTED → form, *Fix details*), Not configured (→ form, *Add payout account*).
   PAN, account number masked; details locked while pending; *Contact support* link.
 
-**Step 10 — Review**
+**Step 9 — Review**
 - R31. A preview: cover, name, description, type, area + city, prices per vehicle, hours, vehicles,
   amenities, access status, photo count, document status, payout status — each with *Edit* to its step.
 - R32. The server returns what is missing as `{ step, message }`; the screen lists it under
   "Complete these before submitting:" and each row opens its step. Submit is disabled until empty.
-- R33. Submit requires everything in R4–R30, including payout details submitted and not REJECTED.
+- R33. Submit requires everything in R4–R29. A payout account is not required to submit; the listing
+  goes live once the document is approved and the payout account is ACTIVATED.
 - R34. When a rejected listing is opened, the system shall show the reason, the section it concerns
   and a button to it (admins give the section when rejecting).
 

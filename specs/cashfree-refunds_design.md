@@ -2,6 +2,13 @@
 
 Status: built 2026-10-01. Steps 6-7 of `specs/cashfree-payments_design.md`.
 
+Verified in the sandbox on 2026-10-03, from the phone: UPI payment -> booking
+confirmed -> driver cancel (`LATE`, Rs 9.38 of Rs 18.75, host's part Rs 8.44)
+-> Create Refund 200 `PENDING` -> `REFUNDED` five seconds later with
+Cashfree's test ARN. The failure path (a refund Cashfree rejects, the admin
+retry) has so far run only against the fake Cashfree in
+`be/test/cashfree-refunds.ts`.
+
 ## What already existed
 
 - `Refund` rows (one per booking, `bookingId` unique), status
@@ -113,7 +120,11 @@ money itself. `refund_splits: [{ vendor_id, amount: refund x splitAmount / paid 
   conditional on `REFUND_PENDING`; Cashfree refuses a reused `refund_id`.
 
 ## Manual Cashfree configuration
-- Dashboard -> Developers -> Webhooks: add the refund webhook
-  (`REFUND_STATUS_WEBHOOK`) pointing at `<public API>/webhooks/cashfree`.
-  (Create Refund has no per-refund notify_url.) Until then the job's Get Refund
-  polling reconciles.
+- Dashboard -> Developers -> Webhooks: the refund webhook
+  (`REFUND_STATUS_WEBHOOK`) points at `<public API>/webhooks/cashfree`.
+  (Create Refund has no per-refund notify_url.) Added in the sandbox dashboard
+  on 2026-10-03.
+- In development `<public API>` is a Cloudflare quick tunnel
+  (`npm run tunnel -w be`), whose address changes on every start: the endpoint
+  in the dashboard has to be edited each time, along with `WEBHOOK_PUBLIC_URL`
+  in `be/.env`. While it is stale the job's Get Refund polling reconciles.

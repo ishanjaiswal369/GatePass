@@ -6,8 +6,9 @@
  *
  * Needs EMAIL_PROVIDER=console and SHOW_OTP_IN_RESPONSE=true (the sign-up
  * reads the code off the response), and this process's DATABASE_URL pointing
- * at the same database as the API: payments are front-end only, so paid,
- * running and finished stays are set directly in the database. API_URL
+ * at the same database as the API: this suite doesn't go through the payment
+ * gateway (test:cashfree and test:refunds do), so paid, running and finished
+ * stays are set directly in the database. API_URL
  * overrides the default http://127.0.0.1:3000.
  *
  * Each run signs up its own driver and host and gives the host a spot of its

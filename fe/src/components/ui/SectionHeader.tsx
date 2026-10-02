@@ -7,7 +7,7 @@ import { ChevronLeftIcon } from "./Icon";
  * The Host section's header: light, on the body's own surface.
  *
  * Deliberately not `ScreenHeader`'s dark ink band. That one marks a screen
- * reached from the app's chrome -- the account hub, a pass -- and the whole
+ * reached from the app's chrome -- the account hub, a booking -- and the whole
  * host flow lives inside the Host tab, so a dark band partway through reads
  * as having left the section rather than moved within it. The listing status
  * screen used one and looked like a different app.

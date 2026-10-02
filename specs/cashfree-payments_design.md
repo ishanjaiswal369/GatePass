@@ -9,10 +9,10 @@ Driver payment, in build order:
 | 1 | Create Order `POST /pg/orders` | Driver books a spot (`POST /spot-bookings`) | **done** |
 | 2 | Order Pay `POST /pg/orders/sessions`: UPI (intent / QR) via the API, card (sandbox only) from the app | `POST /bookings/:id/pay/upi`, `fe/src/lib/payments.ts` | **done** |
 | 3 | Get Payments for an Order `GET /pg/orders/{id}/payments` | On the driver's booking read (`GET /bookings/:id`), throttled | **done** |
-| 4 | Payment webhook (`x-webhook-signature` / `x-webhook-timestamp`) | `POST /webhooks/cashfree`, `notify_url` per order | **done** (live test needs the tunnel) |
+| 4 | Payment webhook (`x-webhook-signature` / `x-webhook-timestamp`) | `POST /webhooks/cashfree`, `notify_url` per order | **done** (seen live in the sandbox through the tunnel, 2026-10-03) |
 | 5 | Booking confirmation + 15-min hold handling | PENDING → CONFIRMED; paid-after-expiry | **done** (with step 3) |
 | 6 | Create Refund `POST /pg/orders/{id}/refunds` | Every `Refund` row, sent after commit + 60 s job (`refund.service`) | **done** (2026-10-01, `specs/cashfree-refunds_design.md`) |
-| 7 | Get Refund + `REFUND_STATUS_WEBHOOK` | `Refund` REFUND_PENDING → REFUNDED / FAILED; admin retry | **done** (webhook needs the dashboard URL) |
+| 7 | Get Refund + `REFUND_STATUS_WEBHOOK` | `Refund` REFUND_PENDING → REFUNDED / FAILED; admin retry | **done** (webhook endpoint added in the sandbox dashboard 2026-10-03; a real refund reached REFUNDED) |
 | 8 | Host payouts shown in earnings: Easy Split settlement webhook (the manual `Settlement` tables were deleted 2026-09-27) | earnings `paidOut`, `HOST_PAYOUT` notice | **done** |
 
 Host side, separate from the driver's payment:
@@ -24,7 +24,7 @@ Host side, separate from the driver's payment:
 | Easy Split: vendor settlement webhook (`VENDOR_SETTLEMENT_*`) | `POST /webhooks/cashfree` → `HostPayout` rows, earnings, notifications | **done** (URL set in the Cashfree dashboard) |
 | Easy Split: **split on the order** (`order_splits` in Create Order) — replaced Split After Payment on 2026-09-27 | `openOrder`: host's vendor + parking less the service fee | **done** |
 
-Refunds after a split: by default Cashfree debits the vendor's balance **in proportion to their share** (Easy Split FAQ). For a ₹40 order with ₹36 to the host, a ₹20 refund takes ₹18 from the host, leaving 90% of what was kept, which is our earnings formula. So `refund_splits` may not be needed; confirm at the Create Refund step.
+Refunds after a split: by default Cashfree debits the vendor's balance **in proportion to their share** (Easy Split FAQ). For a ₹40 order with ₹36 to the host, a ₹20 refund takes ₹18 from the host, leaving 90% of what was kept, which is our earnings formula. Create Refund still sends `refund_splits` explicitly (owner's decision, 2026-10-01), so a Cashfree account setting can't change the split.
 
 ## Owner decisions
 
@@ -33,7 +33,7 @@ Refunds after a split: by default Cashfree debits the vendor's balance **in prop
 | When is the order created | **At booking time**, in the same request that places the 15-minute hold. |
 | `customer_phone` (required by Cashfree) | **Asked at checkout.** No phone on the profile → the API refuses with `PHONE_REQUIRED` before any hold is placed; the app asks once and saves it to the profile. |
 | Host / platform money split | **Easy Split on the order** (`order_splits`), owner's decision 2026-09-27, reversing "Split After Payment" (26 Sep). No job, worker or queue: Cashfree settles the host's share itself. Safe because a listing is only bookable while the host's vendor is ACTIVATED. A host with no vendor → payment refused (`409 HOST_NOT_PAYABLE`), before any hold. |
-| Old `POST /payments` stub | **Replaced.** The route is removed; `Payment.razorpay*` becomes gateway-neutral. |
+| Old `POST /payments` stub | **Replaced.** The route is removed; the `Payment` columns are gateway-neutral (`gateway*`). |
 
 ## Structure
 
@@ -81,15 +81,15 @@ Boot refuses `NODE_ENV=production` with `CASHFREE_ENV=sandbox` (sandbox payments
 
 ## Data (`Payment`, migration `0019_create_payment` edited in place)
 
-| Column | Was | Meaning |
-|---|---|---|
-| `provider` | new | `cashfree` |
-| `gatewayOrderId` | `razorpayOrderId` | our `order_id` at the gateway; unique |
-| `gatewayPaymentId` | `razorpayPaymentId` | `cf_payment_id`, from the webhook (later) |
-| `gatewayOrderRef` | new | `cf_order_id` |
-| `gatewaySessionId` | new | `payment_session_id` -- given only to the booking's driver |
-| `gatewayExpiresAt` | new | order expiry |
-| `amount` | parking only | **full total** the driver pays (booking amount + platformFee + taxAmount; the last two are now 0) |
+| Column | Meaning |
+|---|---|
+| `provider` | `cashfree` |
+| `gatewayOrderId` | our `order_id` at the gateway; unique |
+| `gatewayPaymentId` | `cf_payment_id`, from Get Payments after the webhook or a booking read |
+| `gatewayOrderRef` | `cf_order_id` |
+| `gatewaySessionId` | `payment_session_id` -- given only to the booking's driver |
+| `gatewayExpiresAt` | order expiry |
+| `amount` | **full total** the driver pays (booking amount + platformFee + taxAmount; the last two are now 0) |
 
 ## Security checklist
 
@@ -300,7 +300,9 @@ Best-effort: a Cashfree error shows the stored status. The `VENDOR_STATUS_UPDATE
 
 **Confirmed in sandbox (2026-09-26):** Create Vendor with `account_type: "INDIVIDUAL"` + `business_type: "Travel and Hospitality"` → 200, status `IN_BANK_VALIDATION`. **Still to confirm:** Cashfree's `business_type` list (only "Travel and Hospitality" confirmed — add the rest to `PAYOUT_BUSINESS_TYPES` in both apps).
 
-## Not in this change
+## Not built
 
-- Webhook, Get Order, confirmation of the booking, split, vendor, refunds (rows 2–5 above).
-- Orders for extensions and event bookings.
+- Production: live Cashfree keys, cards outside the sandbox, a fixed HTTPS webhook URL.
+- The refund failure path and admin retry against the real gateway (covered by the fake-Cashfree suite only).
+
+Extra time is paid the same way as a booking: `extension-payments_design.md`.

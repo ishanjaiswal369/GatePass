@@ -7,7 +7,7 @@
     "state": "Uttar Pradesh",
     "country": "India",
     "email": "ishanjaiswal567@gmail.com",
-    "lastUpdated": "29 September 2026",
+    "lastUpdated": "3 October 2026",
     "year": "2026"
   },
   "pages": [
@@ -22,7 +22,7 @@
           "heading": "What we do",
           "blocks": [
             "Hosts are individuals and businesses with a parking space they are not using all the time: a driveway, a garage, an open plot, or spaces in a building. They list the space on {brand} with its address, photos, the hours it is available and its price.",
-            "Drivers search by location and time, see the price before they book, and pay online. Once the payment is confirmed they get a digital parking pass in the app, with the directions and access instructions for the space."
+            "Drivers search by location and time, see the price before they book, and pay online. Once the payment is confirmed the booking shows in the app with the address, directions and access instructions for the space."
           ]
         },
         {
@@ -32,7 +32,7 @@
               "list": [
                 "Search for parking near where you are going and choose the time you need, from an hour up to 30 days.",
                 "Book and pay online. The price you see is the price you pay: {brand} adds no booking or convenience fee.",
-                "Show your digital pass and park. You can add extra time from the app, cancel under our [Cancellation & Refund Policy](/refund), or report a problem if the space can't be used."
+                "Follow the directions and access instructions in your booking and park. You can add extra time from the app, cancel under our [Cancellation & Refund Policy](/refund), or report a problem if the space can't be used."
               ]
             }
           ]
@@ -149,7 +149,7 @@
                 "A booking is for one vehicle, at one space, for the times you choose. Hosts may set a shortest and longest stay and how far ahead a space can be booked.",
                 "When you start a booking we hold the space for 15 minutes while you pay. The booking is confirmed only once our payment partner confirms your payment.",
                 "If your payment arrives after the hold has run out and the space has been taken in the meantime, the booking is not confirmed and you get a full refund.",
-                "Your parking pass is valid only for the space, times and vehicle on the booking, and is not transferable.",
+                "Your booking is valid only for the space, times and vehicle on it, and is not transferable.",
                 "You can add extra time to a booking from the app, if the space is still free."
               ]
             }
@@ -318,7 +318,7 @@
             {
               "list": [
                 "To create your account and sign you in, including emailing you sign-in codes.",
-                "To show parking, take bookings, issue your parking pass and send booking updates.",
+                "To show parking, take and confirm bookings, and send booking updates.",
                 "To take payments, make refunds and pay hosts.",
                 "To review listings and host documents, and to handle problem reports, disputes and support requests.",
                 "To keep {brand} secure and prevent fraud and misuse.",
@@ -474,8 +474,8 @@
           "blocks": [
             {
               "list": [
-                "Once our payment partner confirms your payment, your booking is confirmed and your digital parking pass appears in the app under Bookings, usually within a few minutes.",
-                "The pass includes the address, directions and the host's access instructions for your space.",
+                "Once our payment partner confirms your payment, your booking is confirmed and appears in the app under Bookings, usually within a few minutes.",
+                "The confirmed booking shows the address, directions and the host's access instructions for your space.",
                 "The service itself, the use of the parking space, is provided by the host at the space for the times on your booking."
               ]
             }

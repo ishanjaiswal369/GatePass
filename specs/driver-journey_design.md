@@ -5,6 +5,15 @@ Prototype*) in the Expo app (`fe/`) and the Fastify + Prisma API (`be/`),
 phase by phase. Each phase ships on its own: typechecked, verified against the
 live dev database, committed.
 
+> **Read this as the record of phases 0–5.** Later decisions changed parts of
+> it, and the text below has been corrected where it would mislead:
+> payments are wired (`cashfree-payments_design.md`,
+> `cashfree-refunds_design.md`, `extension-payments_design.md`); there is no
+> driver-side fee; event parking is gone (2026-09-27); hosts are paid by
+> Cashfree Easy Split, not a settlement engine; there is no QR pass
+> (2026-10-01); the payout account lives on its own tab
+> (`host-payouts_design.md`).
+
 ## Ground rules
 
 - **Structure stays as it is.** API: route in `src/api.ts` → zod schemas in
@@ -12,9 +21,11 @@ live dev database, committed.
   `src/services`. Enums are TEXT + zod in `src/constants/enums/` mirrored in
   `fe/src/constants/enums.ts`. App: routes only under `fe/app/`, everything
   else under `fe/src/` (`api/`, `components/ui/`, `features/`, `lib/`, `hooks/`).
-- **No new migration files in development.** Schema changes are made in
-  `be/prisma/schema/*.prisma` and applied with `npm run db:push`. Before any
-  production deploy a baseline migration has to be generated from the schema.
+- **One `CREATE` migration per table, edited in place during development.**
+  A schema change is made in `be/prisma/schema/*.prisma`, applied with
+  `npm run db:push`, and mirrored in that table's `create_*` migration so a
+  fresh database still builds from migrations alone. Before the first
+  production deploy these become the baseline and changes turn additive.
   - `db push` drops whatever the schema does not declare. Twenty indexes and
     the `ON DELETE RESTRICT` rule of six foreign keys existed only in migration
     SQL; Phase 0 declares them, so a push against an unchanged schema is a
@@ -22,13 +33,15 @@ live dev database, committed.
   - The raw-SQL `Booking_one_target` CHECK and `Booking_no_overlap` EXCLUDE
     are invisible to Prisma and survive every push. They **cannot be changed**
     without a migration, so the design works inside them (below).
-- **Payments are front-end only.** The owner wires Cashfree. The app gets a
-  complete pay UI behind one seam, `fe/src/lib/payments.ts`; until it is wired
-  a booking stays a `PENDING` hold and the UI says so.
+- **Payments go through Cashfree.** A booking is a 15-minute `PENDING` hold
+  with its own Cashfree order; it becomes `CONFIRMED` only when Cashfree says
+  the order is paid. The app's side sits behind one seam,
+  `fe/src/lib/payments.ts`. See `cashfree-payments_design.md`.
 - **Fees and policy are config**, `be/src/config/pricing.ts`, mirrored to the
-  app through the API rather than duplicated: driver platform fee ₹20 + 18% GST
-  on the fee; host commission 10%; free cancellation until 1 h before start,
-  50% of the parking amount until start, nothing after.
+  app through the API rather than duplicated: no driver-side fee (the driver
+  pays the listed price); a service fee of 10% taken from the host's side
+  (`COMMISSION_RATE`); free cancellation until 1 h before start, 50% of the
+  parking amount until start, nothing after.
 
 ## Cross-cutting: rate limiting and security logging
 
@@ -108,7 +121,7 @@ parking. A booking's effective end is the latest confirmed extension's end.
 | Route | Who | Notes |
 |---|---|---|
 | `GET /bookings?scope=upcoming\|active\|past` | driver | `active` is new. Upcoming excludes started stays. Past includes expired holds, cancelled, completed. |
-| `GET /bookings/active` | driver | now returns spot bookings too (it filtered through `parkingCapacity` only) |
+| `GET /bookings/active` | driver | the stay running now; 200 with `booking: null` when there is none |
 | `GET /bookings/:id` | owner | adds `phase`, `refund`, `extensions`, and `access` (instructions) **only when CONFIRMED or COMPLETED** |
 | `GET /bookings/:id/cancellation` | owner | refund quote under the policy: amount, rule applied, deadline |
 | `POST /bookings/:id/cancel` | owner | `{ reason? }`. Atomic conditional update; a PENDING hold cancels with nothing to refund; a paid booking creates a `REFUND_PENDING` refund for the quoted amount. Repeating it returns the same result. |
@@ -124,8 +137,8 @@ parking. A booking's effective end is the latest confirmed extension's end.
 - `app/booking/[id]/cancel.tsx` and `app/booking/[id]/extend.tsx`.
 - `app/parking.tsx`: the Home *Already parked* target. It shows active parking
   when there is a booking, else the "Are you already parked?" chooser.
-- Home: the events list goes (its API stays), and *Already parked* navigates
-  to `/parking`.
+- Home: no feed, only the search form; *Already parked* navigates to
+  `/parking`.
 
 ### Security checklist (Phase 1)
 
@@ -381,14 +394,14 @@ Prototype boards: *Report a problem*, *Problem · support & alternatives*,
 
 ### What is deliberately not built
 
-- **Push and email delivery.** Preferences for both channels are stored; no
-  FCM credentials exist and there is no scheduler, so only the in-app inbox
-  is delivered. Flagged for production.
+- **Email delivery of notifications.** Preferences for both channels are
+  stored. Push is built since (FCM, with an every-minute job); notification
+  emails are not sent.
 - **Masked calls to the host.** No telephony provider. *Contact Host* is shown
   disabled with that reason; *Contact Support* opens email.
-- **Saved payment methods.** Payments are front-end only, through
-  `fe/src/lib/payments.ts`; the screen lists what the gateway will offer and
-  reads saved methods from that seam, which returns none until it is wired.
+- **Saved payment methods.** Nothing is saved: each payment is a fresh UPI
+  payment through Cashfree, and the screen lists what the pay screen offers
+  (`GET /payments/options`).
 - **Languages.** *हिन्दी coming soon*, as the prototype says.
 
 ### Security checklist (Phase 4)
@@ -460,8 +473,8 @@ steps 1–12.
 - R6. When a host removes a block, the system shall make those hours
   bookable again.
 - R7. When a host opens Earnings, the system shall show available (stays
-  ended, not yet paid out), pending (not ended), paid out (in a PAID
-  settlement), this month gross − commission = net, how one booking splits,
+  ended, not yet paid out), pending (not ended), paid out (transfers Cashfree
+  reports as sent to the host's bank), this month gross − commission = net, how one booking splits,
   a transactions list, and the masked payout account.
 - R8. The wizard shall additionally ask for amenities, vehicle limits
   (height, largest vehicle, other rules), daily prices beside
@@ -485,8 +498,8 @@ steps 1–12.
 - **Host earning** of a paid booking = `retained × (1 − commission)`, where
   `retained = max(0, amount − refund)` — a full refund leaves nothing, a
   late cancellation's 50% refund leaves half the parking. Status: *Pending*
-  until the stay ends, then *Available*, then *Paid out* once its settlement
-  item belongs to a PAID settlement.
+  until the stay ends, then *Available*. *Paid out* is the sum of the
+  `HostPayout` rows Cashfree's settlement webhook reports as `SUCCESS`.
 
 ### API
 
@@ -528,9 +541,9 @@ in spot-listing.service).
   EXCLUDE (which must not change) allows one booking at a time. A host with
   three bays lists three spaces.
 - **Masked calls** to the driver (as Phase 4).
-- **Automatic payouts.** Settlements are still created by an admin; the
-  Earnings screen shows what is available and says payouts are sent by
-  GatePass rather than promising a date.
+- **Payouts by GatePass.** GatePass never sends host money: Cashfree settles
+  the host's share of each order to their bank (Easy Split), and the Earnings
+  screen shows the transfers its webhook reports.
 - **DigiLocker identity check** in the wizard: no integration; PAN and the
   ownership document remain the checks.
 - **Labelled photo slots** (entrance / parking area): photos stay one ordered
@@ -559,7 +572,7 @@ in spot-listing.service).
    *free hours only* creates blocks that exactly surround it.
 4. Another host's space, booking list or block is 404.
 5. Earnings: a completed paid booking of ₹60 parking shows ₹54 available; a
-   late-cancelled one ₹27; a fully refunded one ₹0; in a PAID settlement it
-   moves to paid out.
+   late-cancelled one ₹27; a fully refunded one ₹0; a `SUCCESS` payout from
+   Cashfree adds to paid out.
 6. Host booking lists never include unpaid holds, and show the driver as
    "First L." with the plate.

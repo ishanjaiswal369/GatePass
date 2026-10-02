@@ -1,11 +1,14 @@
 # GatePass — frontend
 
-Expo (React Native) app for drivers. Runs on web for development, so the flow
-can be driven in a browser against the local API.
+Expo (React Native) app for drivers and hosts: search and book parking, pay
+by UPI through Cashfree, manage a stay; list a space, run it, get paid. Runs
+on web for development, so the flows can be driven in a browser against the
+local API, and on Android as a development build.
 
 ```bash
-npm run web      # browser, talks to http://localhost:3000
-npm start        # Expo Go / device
+npm run web                                # browser, talks to http://localhost:3000
+npx expo start --dev-client --localhost    # the installed development build, over USB
+npm run android                            # build and install it (after native changes)
 ```
 
 `EXPO_PUBLIC_API_URL` overrides the API base; it defaults to
@@ -18,16 +21,19 @@ npm start        # Expo Go / device
 Web is where the flows are driven day to day; these are the things that only
 matter on a device.
 
-1. **Bundle IDs.** Set `expo.ios.bundleIdentifier` and `expo.android.package`
-   in `app.json` before the first native build. They become permanent once
-   published.
+1. **Bundle IDs.** `expo.android.package` is `com.gatepass.app`;
+   `expo.ios.bundleIdentifier` is not set yet and has to be before the first
+   iOS build. They become permanent once published.
 2. **A development build, not Expo Go.** The store Expo Go app runs only the
    latest SDK; this project is on SDK 51. Use `npx expo run:android` /
    `npx expo run:ios` (Android Studio / Xcode) or an EAS development build.
-3. **Reachable addresses.** `localhost` on a phone is the phone. Point
-   `EXPO_PUBLIC_API_URL` (here) and the API's `STORAGE_PUBLIC_BASE_URL` at an
-   address the phone can reach, e.g. `http://192.168.1.20:3000` on the same
-   Wi-Fi. Photos upload to, and load from, the storage URL directly.
+3. **Reachable addresses.** `localhost` on a phone is the phone. Over USB,
+   forward the ports -- `adb reverse tcp:3000 tcp:3000` (API and uploads) and
+   `adb reverse tcp:8081 tcp:8081` (Metro), again after every replug -- and
+   keep `EXPO_PUBLIC_API_URL` and the API's `STORAGE_PUBLIC_BASE_URL` on
+   `http://127.0.0.1:3000`. Over Wi-Fi, point both at an address the phone can
+   reach, e.g. `http://192.168.1.20:3000`. Photos upload to, and load from,
+   the storage URL directly.
 4. **HTTPS for release.** Debug builds allow `http://`; an Android *release*
    build refuses it (cleartext is enabled only in the debug manifest), and iOS
    allows it only to IP addresses. Store builds need the API on `https://`.
@@ -52,22 +58,38 @@ the work lives behind it.**
 ```
 app/                      ROUTES ONLY — one file per screen
   _layout.tsx             providers + Stack
-  index.tsx               email entry (sign up / sign in)
-  verify.tsx              code entry
-  profile.tsx             name capture fallback
-  account.tsx             signed-in state
+  index.tsx, verify.tsx, profile.tsx, password.tsx     sign in
+  home.tsx                Already parked / Book parking
+  parking.tsx             the stay running now
+  spots/                  results, filters, a spot, its reviews, checkout
+  bookings.tsx            Upcoming / Active / Past
+  booking/[id]/           detail, pay, confirmed, extend, cancel, problem, review
+  host.tsx, host/         dashboard, bookings, earnings, a listing and its
+                          calendar, and host/spot/* -- the listing wizard
+  payouts.tsx             the host's payout account
+  notifications.tsx
+  account.tsx, account/   profile hub: details, vehicles, address, saved,
+                          payment methods, delete account
+  about, terms, privacy, refund, shipping, contact     the public policy pages
 
 src/
   api/
-    client.ts             the only place fetch is called; ApiError, device id
-    <domain>.api.ts       endpoints for one domain (auth.api.ts, health.api.ts)
-    index.ts              barrel: ApiError + authApi, healthApi namespaces
+    client.ts             the only place fetch is called; ApiError
+    <domain>.api.ts       endpoints for one domain (auth, bookings, spots,
+                          payments, host, spotListing, notifications, ...)
+    index.ts              barrel: ApiError + one namespace per domain
   components/
     ui/                   design system — ONE component per file
       index.ts            barrel; screens import from "@/components/ui"
+  features/               blocks worth naming, by area: auth, search,
+                          bookings, payments, reviews, host, legal
   constants/
     enums.ts              mirrors be/src/constants/enums/
-  hooks/                  reusable behaviour (useAsyncAction)
+    wizard.ts             the listing wizard's steps, in order
+  hooks/                  reusable behaviour (useAsyncAction, useSpotDraft,
+                          useScreenInsets, usePushNotifications, ...)
+  lib/                    storage, tokenStore, deviceId, payments (the one
+                          place the app takes money), money, push
   providers/              React context (SessionProvider)
   theme/
     tokens.ts             colors, space, radius, type — the only source
@@ -123,9 +145,14 @@ and call it through `authApi.x()` from the screen. Never call `fetch` directly.
 
 ## Notes
 
-- **The session token is in memory only.** A reload signs you out, which suits
-  a test harness. Persisting it needs `expo-secure-store` on native — a
-  separate decision, not an oversight.
+- **The session survives a reload.** The token is kept through `lib/storage`
+  (`expo-secure-store` on native, `localStorage` on web) and checked against
+  `/auth/me` on restore. While that is in flight `isRestoring` is true, and
+  every protected screen waits for it before deciding the user is signed out.
+- **Paying.** `lib/payments.ts` is the one place the app takes money: UPI is
+  started by the API, which hands back links into UPI apps (or a QR on a
+  desktop browser). Nothing in the app decides a booking is paid; the pay
+  screen reads `CONFIRMED` from the API, which has it from Cashfree.
 - **The dev code box** on the verify screen shows what the API echoes back
   while `EMAIL_PROVIDER=console`. It disappears on its own in production,
   because the API stops sending the field.
@@ -136,8 +163,10 @@ and call it through `authApi.x()` from the screen. Never call `fetch` directly.
   Source and render script notes: `design/splash-philosophy.md`.
 - **`PhoneFrame`** centres the app in a 390×844 shell so the browser looks like
   a phone. Screens render full-bleed inside it and own their own header.
-- **Google sign-in is in the design but not built** — there is no
-  `/auth/google` endpoint yet, and a button that does nothing is worse than no
-  button. Add both together.
-- Designs for these screens live in `design/` at the repo root and are
-  published as a canvas.
+- **Google sign-in** uses `expo-auth-session` and `POST /auth/google`. It
+  needs `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` (and the Android / iOS ids on
+  native); without one the button is hidden in production and shown disabled
+  with a hint in development.
+- Designs for the sign-in screens live in `design/` at the repo root and are
+  published as a canvas. The rest of the app follows the clickable prototype
+  named in `specs/driver-journey_design.md`.

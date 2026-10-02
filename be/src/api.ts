@@ -177,8 +177,7 @@ export function registerApi(app: App): void {
     request(spotRequests.nearby, spotController.nearby)
   );
   // Registered after /spots/nearby so the literal path is not swallowed by
-  // the parameter. A host spot cannot be read through /events/:id -- that one
-  // excludes INDEPENDENT_SPOT on purpose -- so this is its only public read.
+  // the parameter. This is a spot's only read for drivers.
   app.get(
     "/spots/:id",
     driver,

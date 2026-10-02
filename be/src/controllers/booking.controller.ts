@@ -32,7 +32,7 @@ export const bookingController = {
       request.user.userId
     );
 
-    // 200 with null rather than 404: "you have no active pass" is the normal
+    // 200 with null rather than 404: "you aren't parked right now" is the normal
     // state of the home screen, not an error the app should branch on.
     return reply.send({ booking });
   },

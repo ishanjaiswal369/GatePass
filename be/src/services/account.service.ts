@@ -35,8 +35,7 @@ export async function deletionBlockers(userId: string): Promise<string[]> {
   }
 
   if (host) {
-    // Through the spot itself: the old count went through an event's
-    // ParkingCapacity, which a spot booking never has, so it was always zero.
+    // Open bookings on any of this host's spots.
     const hostBookings = await prisma.booking.count({
       where: {
         status: { in: OPEN_BOOKING_STATUSES },
